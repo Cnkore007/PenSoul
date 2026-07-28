@@ -1,0 +1,45 @@
+# Rust 构建产物
+target/
+
+# Node.js
+node_modules/
+
+# Python
+__pycache__/
+*.pyc
+.venv-asr/
+
+# 前端构建产物
+dist/
+
+# Tauri 图标生成缓存
+icons/
+
+# 截图和临时图片
+current-state.png
+screenshot-current.png
+pensoul-project/
+
+# 下载资源（大文件不提交）
+downloads/
+
+# 系统文件
+.DS_Store
+*.swp
+*.swo
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# 环境变量
+.env
+.env.local
+
+# 日志
+*.log
+/tmp/
+
+# 临时文件
+*~
