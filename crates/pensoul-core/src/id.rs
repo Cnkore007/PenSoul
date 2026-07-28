@@ -68,3 +68,52 @@ define_id!(AgentId);
 define_id!(StageName);
 define_id!(PluginId);
 define_id!(ProjectId);
+
+// ===== 审美层 ID =====
+define_id!(AntiAiRuleId);
+
+/// 向后兼容的 ID 反序列化辅助模块。
+///
+/// 接受 JSON 字符串或数字，统一反序列化为对应的 ID 类型。
+/// 用于兼容旧版数据中 chapter_id 以 i64 数字存储的格式。
+pub mod flexible_id {
+    use serde::{Deserialize, Deserializer};
+    use super::ChapterId;
+
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum FlexibleId {
+        Num(i64),
+        Str(String),
+    }
+
+    /// 从字符串或数字反序列化为 `ChapterId`。
+    pub fn deserialize_chapter_id<'de, D>(deserializer: D) -> Result<ChapterId, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let raw = match FlexibleId::deserialize(deserializer)? {
+            FlexibleId::Num(n) => n.to_string(),
+            FlexibleId::Str(s) => s,
+        };
+        Ok(ChapterId(raw))
+    }
+}
+// ===== ChapterId 自定义排序 =====
+// chapter_id 在业务上是数字，但存储为字符串。
+// 默认的字典序会把 "10" 排在 "2" 前面，所以需要数值优先比较。
+impl PartialOrd for ChapterId {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for ChapterId {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        match (self.0.parse::<i64>(), other.0.parse::<i64>()) {
+            (Ok(a), Ok(b)) => a.cmp(&b),
+            // 解析失败时 fallback 到字典序
+            _ => self.0.cmp(&other.0),
+        }
+    }
+}

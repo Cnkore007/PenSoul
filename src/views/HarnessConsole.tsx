@@ -54,70 +54,174 @@ const gateIcons: Record<string, React.ReactNode> = {
 
 // ── Agent 思考模拟脚本 ──
 // 每个阶段的思考步骤序列：think = 思考要点，action = 执行动作，output = 流式输出样本
-const stageScripts: Record<string, Array<{ type: "think" | "action" | "output"; content: string }>> = {
-  outline_generation: [
-    { type: "think", content: "正在读取项目设定和已有章节结构..." },
-    { type: "think", content: "分析故事核心冲突和主线脉络..." },
-    { type: "think", content: "评估各章节之间的起承转合关系..." },
-    { type: "action", content: "生成大纲框架..." },
-    { type: "output", content: "第一卷·江湖再起\n  第一章 暮色剑鸣：开篇以一场雨夜对决引入主角沈舟，埋下师门血案的伏笔。\n  第二章 旧信新痕：沈舟收到一封匿名信，指向十五年前灭门案的真相。\n  第三章 画舫夜谈：关键配角登场，各方势力在秦淮画舫上暗中角力。\n\n第二卷·迷雾渐深\n  第四章 古卷残章：沈舟在一处废墟中发现半部失传的武学秘典。\n  第五章 双面谍影：同伴中出现叛徒，主角陷入信任危机。\n  第六章 深谷围杀：正邪势力在幽深峡谷中展开遭遇战。」" },
-    { type: "think", content: "大纲生成完毕，检查各章节之间的逻辑连贯性..." },
-  ],
-  chapter_writing: [
-    { type: "think", content: "读取大纲中本章节的核心设定和情节目标..." },
-    { type: "think", content: "回顾前文的人物状态和世界观一致性..." },
-    { type: "think", content: "设计本章节的叙事节奏和情感起伏..." },
-    { type: "think", content: "构思开场画面和关键对话..." },
-    { type: "action", content: "撰写章节正文..." },
-    { type: "output", content: "第一章 暮色剑鸣\n\n雨下了整整三日。\n\n沈舟站在听雨楼的檐下，望着青石板上溅起的水花，手中的剑已出鞘三寸又归回原位。对面的黑衣人同样没动，两人隔着七步的距离，像两尊被雨水浸透的石像。\n\n「这场架非打不可？」沈舟终于开口，声音被雨声压得有些模糊。\n\n黑衣人没有答话，只是微微侧身，露出了腰间的令牌——青铜质地，虎纹缠绕，正是十五年前灭门惨案现场遗留的那块。沈舟的瞳孔骤然收缩。\n\n剑光破开雨幕的瞬间，整条街的灯笼同时熄灭了。\n\n这一战持续了不到一盏茶的工夫。当沈舟的剑尖抵住对方咽喉时，黑衣人却笑了：」你果然还是和当年一样，出手留三分情面。」说完便纵身跃入雨中，消失不见。\n\n沈舟收剑回鞘，低头看着剑刃上残留的水珠。那封信还揣在怀中，已被体温捂得温热。信上只有八个字：\n\n「欲知真相，来金陵见。」\n\n没有落款，没有日期，但那笔迹沈舟认得——是师父的。」" },
-    { type: "think", content: "完成初稿后检查文风一致性..." },
-  ],
-  consistency_check: [
-    { type: "think", content: "逐章扫描人物状态和设定的一致性..." },
-    { type: "think", content: "检查时间线是否存在矛盾..." },
-    { type: "think", content: "对比角色性格与对话行为是否匹配..." },
-    { type: "action", content: "生成一致性审查报告..." },
-    { type: "output", content: "一致性检查完成\n\n✓ 时间线自洽：所有章节的时间顺序正确，无前后矛盾。\n✓ 人物状态一致：沈舟的性格发展连贯，从隐忍到坚定的转变合理。\n⚠ 发现 1 处潜在冲突：第三章中提及「秦淮画舫」位于金陵，但第四章的场景设置在洛阳，两地相距约 600 公里，需确认时间跨度是否合理。\n⚠ 建议：第二章黑衣人使用的令牌在第五章未有呼应，如为伏笔请确保后文提及。\n✓ 世界观规则：武功设定、江湖势力分布保持稳定。」" },
-  ],
-  style_review: [
-    { type: "think", content: "提取全文文风特征进行量化分析..." },
-    { type: "think", content: "对比预设风格指纹模板..." },
-    { type: "think", content: "检测 AI 写作痕迹和模式化表达..." },
-    { type: "action", content: "生成文风诊断报告..." },
-    { type: "output", content: "文风分析报告\n\n✎ 平均句长: 18.3 字/句（目标范围 15-22 → ✓）\n✎ 词汇丰富度: 73.2%（目标 >65% → ✓）\n✎ 对话占比: 31.5%（目标 25-40% → ✓）\n✎ 叙事节奏分: 0.72（偏紧凑）\n✎ AI 模式指数: 8.1%（阈值 <20% → ✓ 无明显 AI 痕迹）\n\n风格评价：文白相间，用词考究，符合古风武侠设定。建议在对话中适当增加方言特征词以增强人物辨识度。」" },
-  ],
-  state_injection: [
-    { type: "think", content: "解析本章新增的角色状态变化..." },
-    { type: "think", content: "提取关键剧情节点更新世界观演化记录..." },
-    { type: "think", content: "更新角色关系图谱..." },
-    { type: "action", content: "回灌状态到记忆系统..." },
-    { type: "output", content: "状态回灌完成\n\n✓ 沈舟：心境从【隐忍】→【坚定】，新增关联道具「匿名信」\n✓ 世界观：触发事件「金陵来信」，新增地点「听雨楼」已收录\n✓ 势力关系：揭示第三方势力的存在，标记为【未知·青铜令】\n✓ 未完成线索：黑衣人身份待确认，已加入长期记忆队列" },
-  ],
-  quick_outline: [
-    { type: "think", content: "快速扫描核心设定提取关键要素..." },
-    { type: "think", content: "生成精简大纲框架..." },
-    { type: "output", content: "【快速大纲】\n第一章 开局·风波起（2000字）\n  主角在平凡生活中遭遇变故，被迫踏上征途。\n第二章 探索·遇新知（2500字）\n  进入新环境，结识同伴，发现世界真相的一角。\n第三章 冲突·初交锋（2200字）\n  与反派势力首次正面碰撞，初尝失败。」" },
-  ],
-  batch_write: [
-    { type: "think", content: "准备批量写作环境..." },
-    { type: "think", content: "按大纲顺序连续生成章节..." },
-    { type: "action", content: "批量生成中..." },
-    { type: "output", content: "【批量写作进度】\n\n■ 第一章 完成 (2200字)\n■ 第二章 完成 (2450字)\n□ 第三章 进行中...\n\n当前输出：\n夜幕降临的时候，队伍终于在密林的边缘找到了一处废弃的驿站。篝火升起来，跳动的火光把每个人的影子拉得很长。林远靠在柱子上，手里捏着那张从黑衣人身上搜来的地图，纸页已经被汗水浸得有些模糊。\n\n「我们离那里还有多远？」苏晚的声音从背后传来。\n\n「按照地图上的标记，大概还要走三天。」林远没有回头，目光仍停留在地图上那个用红圈标出的位置——那里标注着一个他从未听过的地名。\n\n「三天...」苏晚在他身边坐下，你觉得那里真的会有答案吗？」\n\n林远沉默了一会儿，最终只是说了句：」总得去看看。」\n\n火堆里传来木柴爆裂的声响，像是替他说出了那些未竟之言。」" },
-    { type: "think", content: "批量写作进度：66%，预计剩余时间 45 秒..." },
-  ],
-  quick_check: [
-    { type: "think", content: "执行快速一致性扫描..." },
-    { type: "output", content: "快速检查通过 ✓\n\n未发现严重的一致性问题。2 处轻微的时间表述差异已标记，可后续手动调整。」" },
-  ],
-};
 
-// 对每个阶段补充默认脚本
-const defaultStageScript: Array<{ type: "think" | "action" | "output"; content: string }> = [
-  { type: "think", content: "正在分析任务目标和上下文..." },
-  { type: "think", content: "评估可用的工具和方法..." },
-  { type: "action", content: "执行阶段任务..." },
-  { type: "output", content: "任务执行完成。输出结果已保存至项目数据。」" },
-];
+// ── 构建项目上下文摘要 ──
+// 从 projectData 中提取设置、大纲、世界观、角色信息，供 Agent 使用
+function buildProjectContext(projectData: ProjectData): string {
+  const parts: string[] = [];
+
+  // 基础设置
+  const s = projectData.settings;
+  parts.push(`【项目设置】
+类型: ${s.genre || '未设定'}
+目标总章数: ${s.targetChapters || '未设定'}
+目标总字数: ${s.targetWords || '未设定'}
+每章目标字数: ${s.chapterTargetWords || '未设定'}
+预计卷数: ${s.targetVolumes || '未设定'}`);
+
+  // 大纲结构
+  if (projectData.volumes.length > 0) {
+    const outlineLines: string[] = [];
+    for (const vol of projectData.volumes) {
+      outlineLines.push(`\n${vol.title || '未命名卷'}:`);
+      for (const ch of vol.chapters) {
+        const status = ch.status === 'Published' ? '✓' : ch.status === 'Draft' ? '○' : '◐';
+        outlineLines.push(`  ${status} 第${ch.chapter_id.split('-').pop()}章 ${ch.title || '未命名'} (${ch.word_count}字)`);
+      }
+    }
+    parts.push(`【大纲结构】${outlineLines.join('\n')}`);
+  } else {
+    parts.push('【大纲结构】暂无章节');
+  }
+
+  // 世界观
+  const w = projectData.world;
+  if (w.locations.length > 0 || w.timeline_events.length > 0 || w.setting_rules.length > 0) {
+    const worldLines: string[] = [];
+    if (w.locations.length > 0) {
+      worldLines.push('地点:');
+      for (const loc of w.locations) {
+        worldLines.push(`  - ${loc.name}: ${loc.description || '暂无描述'}`);
+      }
+    }
+    if (w.timeline_events.length > 0) {
+      worldLines.push('时间线:');
+      for (const evt of w.timeline_events) {
+        worldLines.push(`  - [${evt.story_time}] ${evt.description}`);
+      }
+    }
+    if (w.setting_rules.length > 0) {
+      worldLines.push('设定规则:');
+      for (const rule of w.setting_rules) {
+        worldLines.push(`  - ${rule.title}: ${rule.description}`);
+      }
+    }
+    parts.push(`【世界观】\n${worldLines.join('\n')}`);
+  } else {
+    parts.push('【世界观】暂未设定');
+  }
+
+  // 角色
+  if (projectData.characters.length > 0) {
+    const charLines: string[] = [];
+    for (const c of projectData.characters) {
+      const traits = c.personality_traits.map(([t, v]) => `${t}(${(v * 100).toFixed(0)}%)`).join(', ');
+      charLines.push(`  - ${c.name}: ${traits}${c.current_mood ? ', 当前情绪: ' + c.current_mood : ''}`);
+    }
+    parts.push(`【角色设定】\n${charLines.join('\n')}`);
+  } else {
+    parts.push('【角色设定】暂未设定');
+  }
+
+  // 已有章节摘要（取最近 2 章的内容摘要）
+  const allChapters = projectData.volumes.flatMap(v => v.chapters);
+  if (allChapters.length > 0) {
+    const recent = allChapters.slice(-2);
+    const chapterSummaries = recent.map(ch => {
+      const preview = ch.content ? ch.content.slice(0, 200) + (ch.content.length > 200 ? '...' : '') : '暂无内容';
+      return `  - ${ch.title || '未命名'}: ${preview}`;
+    });
+    parts.push(`【最近章节摘要】\n${chapterSummaries.join('\n')}`);
+  }
+
+  return parts.join('\n\n');
+}
+
+// 根据阶段名和上下文动态生成 Agent 脚本
+function buildStageScript(
+  stageName: string,
+  projectData: ProjectData,
+): Array<{ type: "think" | "action" | "output"; content: string }> {
+  const s = projectData.settings;
+  const totalChapters = projectData.volumes.reduce((sum, v) => sum + v.chapters.length, 0);
+  const totalWords = projectData.volumes.reduce((sum, v) => sum + v.chapters.reduce((s2, c) => s2 + c.word_count, 0), 0);
+  const allChapters = projectData.volumes.flatMap(v => v.chapters);
+  const lastChapter = allChapters.length > 0 ? allChapters[allChapters.length - 1] : null;
+
+  switch (stageName) {
+    case "outline_generation":
+      return [
+        { type: "think", content: `读取项目设定: 类型=${s.genre || '未设定'}, 目标章数=${s.targetChapters || '未设定'}, 目标字数=${s.targetWords || '未设定'}` },
+        { type: "think", content: `当前已有 ${totalChapters} 个章节, 共 ${totalWords} 字` },
+        { type: "think", content: "分析故事核心冲突和主线脉络..." },
+        { type: "action", content: "基于项目设置生成大纲框架..." },
+        { type: "output", content: `根据项目设定（类型: ${s.genre || '未设定'}），建议按以下结构组织大纲：
+
+共规划 ${s.targetVolumes || '待定'} 卷, ${s.targetChapters || '待定'} 章, 总字数目标 ${s.targetWords || '待定'} 字。
+
+（此为框架建议，请在「大纲」中按此结构创建卷和章节。）` },
+        { type: "think", content: "大纲框架已生成" },
+      ];
+    case "chapter_writing":
+      return [
+        { type: "think", content: `读取大纲: 共 ${totalChapters} 章, 已完成 ${totalWords} 字` },
+        { type: "think", content: lastChapter ? `上一章「${lastChapter.title}」结尾: ${lastChapter.content ? lastChapter.content.slice(-100) : '无内容'}...` : "这是第一章" },
+        { type: "think", content: "回顾角色状态和世界观设定..." },
+        { type: "action", content: "撰写章节正文..." },
+        { type: "output", content: lastChapter
+          ? `接续上一章「${lastChapter.title}」的结尾，继续推进剧情。
+
+（请在「写作」视图中查看和编辑完整内容。）`
+          : `开始创作第一章。
+
+（请在「写作」视图中查看和编辑完整内容。）` },
+        { type: "think", content: "章节初稿完成" },
+      ];
+    case "consistency_check":
+      return [
+        { type: "think", content: `扫描 ${totalChapters} 个章节的一致性...` },
+        { type: "think", content: "检查人物状态与世界观规则..." },
+        { type: "action", content: "生成一致性审查报告..." },
+        { type: "output", content: `一致性检查完成
+
+共检查 ${totalChapters} 章, ${projectData.characters.length} 个角色, ${projectData.world.locations.length} 个地点
+
+（详细结果请查看「一致性」视图。）` },
+      ];
+    case "style_review":
+      return [
+        { type: "think", content: `分析 ${totalWords} 字的文风特征...` },
+        { type: "think", content: "检测 AI 写作痕迹和模式化表达..." },
+        { type: "action", content: "生成文风诊断报告..." },
+        { type: "output", content: `文风分析完成
+
+总字数: ${totalWords}, 平均每章: ${totalChapters > 0 ? Math.round(totalWords / totalChapters) : 0} 字
+
+（详细分析请查看「文风」视图。）` },
+      ];
+    case "state_injection":
+      return [
+        { type: "think", content: "解析最新章节的角色状态变化..." },
+        { type: "think", content: "更新世界观演化记录..." },
+        { type: "action", content: "回灌状态到记忆系统..." },
+        { type: "output", content: `状态回灌完成
+
+角色: ${projectData.characters.length} 个
+地点: ${projectData.world.locations.length} 个
+时间线事件: ${projectData.world.timeline_events.length} 个
+设定规则: ${projectData.world.setting_rules.length} 个` },
+      ];
+    default:
+      return [
+        { type: "think", content: `分析任务「${stageName}」的上下文...` },
+        { type: "action", content: "执行阶段任务..." },
+        { type: "output", content: `「${stageName}」阶段完成。
+
+项目概览: ${totalChapters} 章, ${totalWords} 字` },
+      ];
+  }
+}
+
 
 function sleep(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -196,7 +300,7 @@ export function HarnessConsole({ projectData, onNavigate }: HarnessConsoleProps)
 
     setAgentWorking(true);
     const stageName = stage.display_name;
-    const script = stageScripts[stage.name] || defaultStageScript;
+    const script = buildStageScript(stage.name, projectData);
 
     // 添加阶段开始消息
     setMessages(prev => [...prev, {
@@ -495,6 +599,30 @@ export function HarnessConsole({ projectData, onNavigate }: HarnessConsoleProps)
           </div>
         </div>
       </div>
+
+      {/* 项目上下文预览 */}
+      {(() => {
+        const ctx = buildProjectContext(projectData);
+        return (
+          <details style={{ marginTop: "var(--space-md)" }}>
+            <summary style={{
+              cursor: "pointer", fontSize: "var(--text-xs)", color: "var(--color-ink-3)",
+              padding: "6px 0", userSelect: "none",
+            }}>
+              查看 Agent 可读取的项目上下文
+            </summary>
+            <div className="card" style={{
+              padding: "var(--space-md)",
+              fontSize: "var(--text-2xs)", lineHeight: 1.7,
+              color: "var(--color-ink-2)", whiteSpace: "pre-wrap",
+              fontFamily: "var(--font-mono, monospace)",
+              maxHeight: 300, overflowY: "auto",
+            }}>
+              {ctx}
+            </div>
+          </details>
+        );
+      })()}
 
       {/* Agent 对话面板 */}
       <div className="card" style={{ marginTop: "var(--space-md)", padding: 0, overflow: "hidden" }}>

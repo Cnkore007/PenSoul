@@ -34,7 +34,18 @@ export function loadProjectData(projectId: string): ProjectData {
     const raw = localStorage.getItem(KEYS.projectData);
     if (raw) {
       const all: Record<string, ProjectData> = JSON.parse(raw);
-      if (all[projectId]) return all[projectId];
+      if (all[projectId]) {
+        const data = all[projectId];
+        // 兼容旧数据：确保 settings 字段存在
+        data.settings = data.settings || {
+          targetChapters: 0,
+          targetWords: 0,
+          chapterTargetWords: 0,
+          genre: '',
+          targetVolumes: 0,
+        };
+        return data;
+      }
     }
   } catch {}
   // 返回空白项目数据

@@ -1,5 +1,6 @@
 /// 实体状态管理模块
 use std::collections::HashMap;
+use pensoul_core::id::ChapterId;
 
 /// 实体类型
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
@@ -26,7 +27,8 @@ pub struct EntityState {
     /// 实体类型
     pub entity_type: EntityType,
     /// 所属章节 ID
-    pub chapter_id: i64,
+    #[serde(deserialize_with = "pensoul_core::id::flexible_id::deserialize_chapter_id")]
+    pub chapter_id: ChapterId,
     /// 状态数据
     pub state_data: serde_json::Value,
     /// 版本号
@@ -62,11 +64,11 @@ impl EntityStateManager {
     }
 
     /// 获取实体在特定章节的状态
-    pub fn get_state_in_chapter(&self, entity_id: &str, chapter_id: i64) -> Option<&EntityState> {
+    pub fn get_state_in_chapter(&self, entity_id: &str, chapter_id: &ChapterId) -> Option<&EntityState> {
         self.states
             .get(entity_id)?
             .iter()
-            .find(|s| s.chapter_id == chapter_id)
+            .find(|s| s.chapter_id == *chapter_id)
     }
 
     /// 获取所有指定类型的实体 ID
@@ -82,15 +84,15 @@ impl EntityStateManager {
     pub fn get_states_in_chapter_range(
         &self,
         entity_id: &str,
-        start_chapter: i64,
-        end_chapter: i64,
+        start_chapter: &ChapterId,
+        end_chapter: &ChapterId,
     ) -> Vec<&EntityState> {
         self.states
             .get(entity_id)
             .map(|states| {
                 states
                     .iter()
-                    .filter(|s| s.chapter_id >= start_chapter && s.chapter_id <= end_chapter)
+                    .filter(|s| s.chapter_id >= *start_chapter && s.chapter_id <= *end_chapter)
                     .collect()
             })
             .unwrap_or_default()
@@ -116,7 +118,7 @@ mod tests {
         EntityState {
             entity_id: entity_id.to_string(),
             entity_type,
-            chapter_id,
+            chapter_id: ChapterId::new(chapter_id.to_string()),
             state_data: json!({"name": "Test"}),
             version,
         }
@@ -130,7 +132,7 @@ mod tests {
 
         let states = manager.get_state("char_1").unwrap();
         assert_eq!(states.len(), 1);
-        assert_eq!(states[0].chapter_id, 1);
+        assert_eq!(states[0].chapter_id.as_str(), "1");
     }
 
     #[test]
@@ -139,8 +141,8 @@ mod tests {
         manager.register_state(make_state("char_1", EntityType::Character, 1, 1));
         manager.register_state(make_state("char_1", EntityType::Character, 2, 1));
 
-        let state = manager.get_state_in_chapter("char_1", 2).unwrap();
-        assert_eq!(state.chapter_id, 2);
+        let state = manager.get_state_in_chapter("char_1", &ChapterId::new("2")).unwrap();
+        assert_eq!(state.chapter_id.as_str(), "2");
     }
 
     #[test]
@@ -161,9 +163,11 @@ mod tests {
         manager.register_state(make_state("char_1", EntityType::Character, 3, 1));
         manager.register_state(make_state("char_1", EntityType::Character, 5, 1));
 
-        let states = manager.get_states_in_chapter_range("char_1", 2, 4);
+        let start = ChapterId::new("2".to_string());
+        let end = ChapterId::new("4".to_string());
+        let states = manager.get_states_in_chapter_range("char_1", &start, &end);
         assert_eq!(states.len(), 1);
-        assert_eq!(states[0].chapter_id, 3);
+        assert_eq!(states[0].chapter_id.as_str(), "3");
     }
 
     #[test]

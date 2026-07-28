@@ -105,8 +105,6 @@ impl WalEntry {
 /// WAL 管理器，负责条目的写入、刷盘、校验和状态持久化。
 #[derive(Debug, Clone)]
 pub struct WalManager {
-    /// 内存中的 WAL 条目。
-    pub entries: Vec<WalEntry>,
     /// WAL 文件路径。
     wal_path: PathBuf,
     /// 引擎状态快照文件路径。
@@ -126,15 +124,10 @@ impl WalManager {
         let wal_path = harness_dir.join("wal.log");
         let state_path = harness_dir.join("state.json");
 
-        let mut manager = Self {
-            entries: Vec::new(),
+        Self {
             wal_path,
             state_path,
-        };
-
-        // 尝试加载已有 WAL
-        manager.load_entries_into_memory();
-        manager
+        }
     }
 
     /// 写入一条 WAL 条目并刷盘。
@@ -189,9 +182,6 @@ impl WalManager {
         file.flush()
             .map_err(|e| PensoulError::IoError(format!("刷新 WAL 文件失败: {e}")))?;
 
-        // 追加到内存
-        self.entries.push(entry);
-
         Ok(())
     }
 
@@ -245,13 +235,6 @@ impl WalManager {
     }
 
     // ── 内部方法 ────────────────────────────────────────────────────────
-
-    /// 从文件加载条目到内存（启动时调用）。
-    fn load_entries_into_memory(&mut self) {
-        if let Ok(entries) = self.load_entries_from_file() {
-            self.entries = entries;
-        }
-    }
 
     /// 从文件读取 WAL 条目。
     fn load_entries_from_file(&self) -> Result<Vec<WalEntry>> {

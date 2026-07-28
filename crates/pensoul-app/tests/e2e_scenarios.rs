@@ -159,19 +159,19 @@ fn test_chapter_writing_flow() {
     checker.register_state(EntityState {
         entity_id: "char_001".to_string(),
         entity_type: EntityType::Character,
-        chapter_id: 1,
+        chapter_id: ChapterId::new("1"),
         state_data: serde_json::json!({"name": "主角", "location": "村庄"}),
         version: 1,
     });
     checker.register_state(EntityState {
         entity_id: "char_001".to_string(),
         entity_type: EntityType::Character,
-        chapter_id: 2,
+        chapter_id: ChapterId::new("2"),
         state_data: serde_json::json!({"name": "主角", "location": "森林"}),
         version: 2,
     });
 
-    let report = checker.check_incremental(2, EntityType::Character);
+    let report = checker.check_incremental(ChapterId::new("2"), EntityType::Character);
     assert_eq!(report.total_entities_checked, 1);
 
     // 9. 验证流程状态

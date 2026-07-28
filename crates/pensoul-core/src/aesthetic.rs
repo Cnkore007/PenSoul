@@ -1,5 +1,5 @@
 /// Layer 4 审美层类型定义
-use crate::id::SettingId;
+use crate::id::AntiAiRuleId;
 
 /// 审美层
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -44,7 +44,7 @@ pub struct PacingModel {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct AntiAiRule {
     /// 规则 ID
-    pub rule_id: SettingId,
+    pub rule_id: AntiAiRuleId,
     /// 模式
     pub pattern: String,
     /// 处理动作

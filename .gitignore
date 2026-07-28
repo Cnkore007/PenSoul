@@ -46,3 +46,4 @@ downloads/
 
 # Agent 配置（不上传）
 AGENTS.md
+*.bak

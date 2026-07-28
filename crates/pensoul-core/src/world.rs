@@ -1,5 +1,5 @@
 /// Layer 1 世界层类型定义
-use crate::id::{EventId, LocationId, SettingId, WorldId};
+use crate::id::{EventId, LocationId, SettingId, WorldId, ChapterId};
 
 /// 世界层
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -59,7 +59,8 @@ pub struct TimelineEvent {
     /// 故事时间
     pub story_time: String,
     /// 所属章节 ID
-    pub chapter_id: i64,
+    #[serde(deserialize_with = "crate::id::flexible_id::deserialize_chapter_id")]
+    pub chapter_id: ChapterId,
     /// 事件描述
     pub description: String,
     /// 参与者

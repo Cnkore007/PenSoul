@@ -24,6 +24,8 @@ thiserror = "2"
 anyhow = "1"
 uuid = { version = "1", features = ["v4"] }
 chrono = "0.4"
+tauri-plugin-http = "2.5.9"
+reqwest = { version = "0.13.4", features = ["json"] }
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

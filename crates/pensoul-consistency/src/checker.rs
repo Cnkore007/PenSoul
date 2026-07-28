@@ -5,6 +5,17 @@ use crate::entity_state::{EntityType, EntityState, EntityStateManager};
 use crate::report::{ConsistencyReport, ConsistencyViolation};
 use crate::rules::{ConsistencyRule, get_all_rules};
 use crate::scope::{ConsistencyCheckScope, determine_scope};
+use pensoul_core::id::ChapterId;
+
+/// 将 ChapterId 转为 i64，便于做加减运算。非数字 ID 返回 0。
+fn chapter_to_i64(ch: &ChapterId) -> i64 {
+    ch.as_str().parse::<i64>().unwrap_or(0)
+}
+
+/// 将 i64 转回 ChapterId。
+fn i64_to_chapter(n: i64) -> ChapterId {
+    ChapterId::new(n.to_string())
+}
 
 /// 增量一致性检查器
 pub struct IncrementalChecker {
@@ -37,7 +48,7 @@ impl IncrementalChecker {
     }
 
     /// 增量检查特定章节的特定实体类型
-    pub fn check_incremental(&self, chapter_id: i64, entity_type: EntityType) -> ConsistencyReport {
+    pub fn check_incremental(&self, chapter_id: ChapterId, entity_type: EntityType) -> ConsistencyReport {
         let start = Instant::now();
         let mut report = ConsistencyReport::new();
 
@@ -49,7 +60,7 @@ impl IncrementalChecker {
         report.total_entities_checked = entity_ids.len();
 
         for entity_id in &entity_ids {
-            let states = self.get_states_for_scope(entity_id, chapter_id, &scope);
+            let states = self.get_states_for_scope(entity_id, &chapter_id, &scope);
 
             if states.len() < 2 {
                 continue;
@@ -101,7 +112,7 @@ impl IncrementalChecker {
 
                 // 按章节 ID 排序
                 let mut sorted = all_states;
-                sorted.sort_by_key(|s| s.chapter_id);
+                sorted.sort_by_key(|s| s.chapter_id.clone());
 
                 // 根据作用域确定批处理方式
                 let batches: Vec<Vec<crate::entity_state::EntityState>> = match &scope {
@@ -149,23 +160,26 @@ impl IncrementalChecker {
     fn get_states_for_scope(
         &self,
         entity_id: &str,
-        chapter_id: i64,
+        chapter_id: &ChapterId,
         scope: &ConsistencyCheckScope,
     ) -> Vec<crate::entity_state::EntityState> {
         match scope {
             ConsistencyCheckScope::ChapterOnly => {
                 // 仅当前章节及之前的状态
+                let zero = i64_to_chapter(0);
                 self.state_manager
-                    .get_states_in_chapter_range(entity_id, 0, chapter_id)
+                    .get_states_in_chapter_range(entity_id, &zero, chapter_id)
                     .into_iter()
                     .cloned()
                     .collect()
             }
             ConsistencyCheckScope::ChapterPlusNeighbors => {
                 // 当前章节及前后各一章
-                let start = std::cmp::max(0, chapter_id - 1);
+                let num = chapter_to_i64(chapter_id);
+                let start = i64_to_chapter(std::cmp::max(0, num - 1));
+                let end = i64_to_chapter(num + 1);
                 self.state_manager
-                    .get_states_in_chapter_range(entity_id, start, chapter_id + 1)
+                    .get_states_in_chapter_range(entity_id, &start, &end)
                     .into_iter()
                     .cloned()
                     .collect()
@@ -196,7 +210,7 @@ mod tests {
         EntityState {
             entity_id: entity_id.to_string(),
             entity_type,
-            chapter_id,
+            chapter_id: ChapterId::new(chapter_id.to_string()),
             state_data: data,
             version: 1,
         }
@@ -227,7 +241,7 @@ mod tests {
         ));
 
         // 检查第2章
-        let report = checker.check_incremental(2, EntityType::Character);
+        let report = checker.check_incremental(ChapterId::new("2"), EntityType::Character);
 
         assert_eq!(report.total_entities_checked, 1);
         // 位置变化应该产生一个 Info 违反
@@ -311,7 +325,7 @@ mod tests {
         ));
 
         // 检查第2章 - 不应该看到第5章的状态
-        let report = checker.check_incremental(2, EntityType::Character);
+        let report = checker.check_incremental(ChapterId::new("2"), EntityType::Character);
         assert_eq!(report.total_entities_checked, 1);
         // 第5章的状态不在范围内，所以不会有违反
         assert!(report.violations.is_empty());

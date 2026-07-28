@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import type { LlmProvider, LlmModel } from "../types";
 import { loadProviders, saveProviders, loadModels, saveModels, loadApiKeys, saveApiKeys } from "../store";
+import { httpRequest } from "../ipc";
 
 interface ProviderForm {
   provider_id: string;
@@ -112,15 +113,7 @@ export default function LlmSettingsView() {
       const key = apiKeys[providerId];
       if (key) headers["Authorization"] = `Bearer ${key}`;
 
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 10000);
-
-      const resp = await fetch(provider.api_base.replace(/\/+$/, "") + "/models", {
-        method: "GET",
-        headers,
-        signal: controller.signal,
-      });
-      clearTimeout(timeout);
+      const resp = await httpRequest(provider.api_base.replace(/\/+$/, "") + "/models", "GET", headers);
 
       if (resp.ok) {
         setTestingConn(prev => ({ ...prev, [providerId]: 'success' }));
@@ -131,14 +124,16 @@ export default function LlmSettingsView() {
         }), 3000);
       } else {
         setTestingConn(prev => ({ ...prev, [providerId]: 'error' }));
+        flashSave(`连接失败: HTTP ${resp.status} ${resp.statusText} — ${resp.body.slice(0, 120)}`);
         setTimeout(() => setTestingConn(prev => {
           const next = { ...prev };
           delete next[providerId];
           return next;
         }), 3000);
       }
-    } catch {
+    } catch (e: any) {
       setTestingConn(prev => ({ ...prev, [providerId]: 'error' }));
+      flashSave(`连接异常: ${e?.message || '无法到达服务端'}`);
       setTimeout(() => setTestingConn(prev => {
         const next = { ...prev };
         delete next[providerId];
@@ -158,18 +153,10 @@ export default function LlmSettingsView() {
       const key = apiKeys[providerId];
       if (key) headers["Authorization"] = `Bearer ${key}`;
 
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 15000);
-
-      const resp = await fetch(provider.api_base.replace(/\/+$/, "") + "/models", {
-        method: "GET",
-        headers,
-        signal: controller.signal,
-      });
-      clearTimeout(timeout);
+      const resp = await httpRequest(provider.api_base.replace(/\/+$/, "") + "/models", "GET", headers);
 
       if (resp.ok) {
-        const data = await resp.json();
+        const data = JSON.parse(resp.body);
         const remoteModels: LlmModel[] = (data.data || []).map((m: any) => ({
           model_id: m.id || m.model_id || `${providerId}-${Date.now()}`,
           provider_id: providerId,
@@ -184,19 +171,14 @@ export default function LlmSettingsView() {
         }));
 
         if (remoteModels.length > 0) {
-          // 合并：保留已有手动配置，新增不存在的
+          // 替换：移除该供应商的旧模型，添加新获取的模型
           setModels(prev => {
-            const existing = new Set(prev.map(m => m.model_id));
-            const merged = [...prev];
-            for (const rm of remoteModels) {
-              if (!existing.has(rm.model_id)) {
-                merged.push(rm);
-              }
-            }
+            const filtered = prev.filter(m => m.provider_id !== providerId);
+            const merged = [...filtered, ...remoteModels];
             saveModels(merged);
             return merged;
           });
-          flashSave(`从 ${provider.display_name} 获取到 ${remoteModels.length} 个模型`);
+          flashSave(`从 ${provider.display_name} 获取到 ${remoteModels.length} 个模型并已更新列表`);
         } else {
           flashSave("未获取到模型列表");
         }
@@ -257,21 +239,13 @@ export default function LlmSettingsView() {
       if (key) headers["Authorization"] = "Bearer " + key;
 
       const baseUrl = provider.api_base.replace(/\/+$/, "");
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 15000);
 
       const startTime = Date.now();
-      const resp = await fetch(baseUrl + "/chat/completions", {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-          model: model.model_id,
-          messages: [{ role: "user", content: "Hi" }],
-          max_tokens: 5,
-        }),
-        signal: controller.signal,
-      });
-      clearTimeout(timeout);
+      const resp = await httpRequest(baseUrl + "/chat/completions", "POST", headers, JSON.stringify({
+        model: model.model_id,
+        messages: [{ role: "user", content: "Hi" }],
+        max_tokens: 5,
+      }));
       const latency = Date.now() - startTime;
 
       if (resp.ok) {

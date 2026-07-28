@@ -1,5 +1,6 @@
 /// 一致性检查报告模块
 use crate::entity_state::EntityType;
+use pensoul_core::id::ChapterId;
 
 /// 违反严重度
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -32,9 +33,9 @@ pub struct ConsistencyViolation {
     /// 实体类型
     pub entity_type: EntityType,
     /// 章节 A
-    pub chapter_a: i64,
+    pub chapter_a: ChapterId,
     /// 章节 B
-    pub chapter_b: i64,
+    pub chapter_b: ChapterId,
     /// 描述
     pub description: String,
     /// 严重度
@@ -50,8 +51,8 @@ impl ConsistencyViolation {
     pub fn new(
         entity_id: String,
         entity_type: EntityType,
-        chapter_a: i64,
-        chapter_b: i64,
+        chapter_a: ChapterId,
+        chapter_b: ChapterId,
         description: String,
         severity: ViolationSeverity,
         rule_name: String,
@@ -173,8 +174,8 @@ mod tests {
         ConsistencyViolation::new(
             "entity_1".to_string(),
             EntityType::Character,
-            1,
-            2,
+            ChapterId::new("1"),
+            ChapterId::new("2"),
             "Test violation".to_string(),
             severity,
             rule_name.to_string(),

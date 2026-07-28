@@ -127,8 +127,9 @@ impl MemoryPipeline {
     fn extract_summary(&self, chapter_id: i64, text: &str) -> ChapterSummary {
         let title = format!("章节{}", chapter_id);
         let first_line = text.lines().next().unwrap_or("").to_string();
-        let summary = if first_line.len() > 100 {
-            format!("{}...", &first_line[..100])
+        let summary = if first_line.chars().count() > 100 {
+            let truncated: String = first_line.chars().take(100).collect();
+            format!("{truncated}...")
         } else {
             first_line.clone()
         };

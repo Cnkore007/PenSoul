@@ -10,6 +10,7 @@ fn main() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_http::init())
         .manage(state)
         .invoke_handler(tauri::generate_handler![
             pensoul_app::commands::project::create_project,
@@ -34,6 +35,7 @@ fn main() {
             pensoul_app::commands::plugin::register_plugin,
             pensoul_app::commands::plugin::unregister_plugin,
             pensoul_app::commands::inspiration::generate_inspiration,
+            pensoul_app::commands::http::http_request,
         ])
         .run(tauri::generate_context!())
         .expect("启动 Tauri 应用失败");

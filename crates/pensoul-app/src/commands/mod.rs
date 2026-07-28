@@ -7,3 +7,4 @@ pub mod memory;
 pub mod model;
 pub mod plugin;
 pub mod inspiration;
+pub mod http;

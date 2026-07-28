@@ -29,9 +29,11 @@ pub fn generate_inspiration(
     context_type: &str,
     context_data: &str,
 ) -> Vec<InspirationItem> {
-    // 限制 context_data 长度，防止 LLM token 溢出
-    let context_data = if context_data.len() > MAX_CONTEXT_DATA_LEN {
-        &context_data[..MAX_CONTEXT_DATA_LEN]
+    // 限制 context_data 长度，防止 LLM token 溢出（UTF-8 安全）
+    let owned_data;
+    let context_data = if context_data.chars().count() > MAX_CONTEXT_DATA_LEN {
+        owned_data = context_data.chars().take(MAX_CONTEXT_DATA_LEN).collect::<String>();
+        owned_data.as_str()
     } else {
         context_data
     };

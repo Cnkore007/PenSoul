@@ -239,3 +239,14 @@ export async function exportPlugin(pluginId: string): Promise<string | null> {
     return null;
   }
 }
+
+// ── HTTP 代理（绕过 WebView CSP） ──
+
+export async function httpRequest(url: string, method: string, headers?: Record<string, string>, body?: string): Promise<{status: number, statusText: string, body: string, ok: boolean}> {
+  try {
+    return await invoke<{status: number, statusText: string, body: string, ok: boolean}>("http_request", { request: { url, method, headers, body } });
+  } catch (e) {
+    console.error("http_request failed:", e);
+    return { status: 0, statusText: "Error", body: String(e), ok: false };
+  }
+}

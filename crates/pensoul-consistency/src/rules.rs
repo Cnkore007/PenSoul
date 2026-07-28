@@ -1,6 +1,7 @@
 /// 一致性检查规则模块
 use crate::entity_state::{EntityType, EntityState};
 use crate::report::{ConsistencyViolation, ViolationSeverity};
+use pensoul_core::id::ChapterId;
 
 /// 一致性检查规则 trait
 pub trait ConsistencyRule: Send + Sync {
@@ -41,7 +42,7 @@ impl ConsistencyRule for CharacterStateConsistencyRule {
 
         let mut violations = vec![];
         let mut sorted_states = states.to_vec();
-        sorted_states.sort_by_key(|s| s.chapter_id);
+        sorted_states.sort_by_key(|s| s.chapter_id.clone());
 
         for i in 0..sorted_states.len() {
             for j in (i + 1)..sorted_states.len() {
@@ -58,8 +59,8 @@ impl ConsistencyRule for CharacterStateConsistencyRule {
                             ConsistencyViolation::new(
                                 state_a.entity_id.clone(),
                                 EntityType::Character,
-                                state_a.chapter_id,
-                                state_b.chapter_id,
+                                state_a.chapter_id.clone(),
+                                state_b.chapter_id.clone(),
                                 format!("Character name changed from '{}' to '{}'", name_a, name_b),
                                 ViolationSeverity::Warning,
                                 self.name().to_string(),
@@ -86,8 +87,8 @@ impl ConsistencyRule for CharacterStateConsistencyRule {
                                 ConsistencyViolation::new(
                                     state_a.entity_id.clone(),
                                     EntityType::Character,
-                                    state_a.chapter_id,
-                                    state_b.chapter_id,
+                                    state_a.chapter_id.clone(),
+                                    state_b.chapter_id.clone(),
                                     format!("Character location changed from '{}' to '{}' without explanation", loc_a, loc_b),
                                     ViolationSeverity::Info,
                                     self.name().to_string(),
@@ -103,8 +104,8 @@ impl ConsistencyRule for CharacterStateConsistencyRule {
                         ConsistencyViolation::new(
                             state_a.entity_id.clone(),
                             EntityType::Character,
-                            state_a.chapter_id,
-                            state_b.chapter_id,
+                            state_a.chapter_id.clone(),
+                            state_b.chapter_id.clone(),
                             format!("Version gap detected: v{} -> v{}", state_a.version, state_b.version),
                             ViolationSeverity::Info,
                             self.name().to_string(),
@@ -145,7 +146,7 @@ impl ConsistencyRule for SettingConsistencyRule {
 
         let mut violations = vec![];
         let mut sorted_states = states.to_vec();
-        sorted_states.sort_by_key(|s| s.chapter_id);
+        sorted_states.sort_by_key(|s| s.chapter_id.clone());
 
         for i in 0..sorted_states.len() {
             for j in (i + 1)..sorted_states.len() {
@@ -162,8 +163,8 @@ impl ConsistencyRule for SettingConsistencyRule {
                             ConsistencyViolation::new(
                                 state_a.entity_id.clone(),
                                 EntityType::Setting,
-                                state_a.chapter_id,
-                                state_b.chapter_id,
+                                state_a.chapter_id.clone(),
+                                state_b.chapter_id.clone(),
                                 format!("Setting name changed from '{}' to '{}'", name_a, name_b),
                                 ViolationSeverity::Error,
                                 self.name().to_string(),
@@ -182,8 +183,8 @@ impl ConsistencyRule for SettingConsistencyRule {
                             ConsistencyViolation::new(
                                 state_a.entity_id.clone(),
                                 EntityType::Setting,
-                                state_a.chapter_id,
-                                state_b.chapter_id,
+                                state_a.chapter_id.clone(),
+                                state_b.chapter_id.clone(),
                                 "Setting description differs between chapters".to_string(),
                                 ViolationSeverity::Warning,
                                 self.name().to_string(),
@@ -209,8 +210,8 @@ impl ConsistencyRule for SettingConsistencyRule {
                             ConsistencyViolation::new(
                                 state_a.entity_id.clone(),
                                 EntityType::Setting,
-                                state_a.chapter_id,
-                                state_b.chapter_id,
+                                state_a.chapter_id.clone(),
+                                state_b.chapter_id.clone(),
                                 format!("Setting rules missing in later chapter: {:?}", missing_rules),
                                 ViolationSeverity::Error,
                                 self.name().to_string(),
@@ -257,18 +258,21 @@ impl ConsistencyRule for ForeshadowTrackingRule {
                     .state_data
                     .get("expected_resolve_chapter")
                     .and_then(|v| v.as_i64())
-                    && status == "planted" && state.chapter_id > expected_resolve {
+                    && status == "planted"
+                {
+                    let expected_ch = ChapterId::new(expected_resolve.to_string());
+                    if state.chapter_id > expected_ch {
                         violations.push(
                             ConsistencyViolation::new(
                                 state.entity_id.clone(),
                                 EntityType::Foreshadow,
-                                state.chapter_id,
-                                expected_resolve,
+                                state.chapter_id.clone(),
+                                expected_ch.clone(),
                                 format!(
                                     "Foreshadow '{}' is overdue: planted at chapter {}, expected to resolve by chapter {}",
                                     state.state_data.get("name").and_then(|v| v.as_str()).unwrap_or("unknown"),
                                     state.chapter_id,
-                                    expected_resolve
+                                    expected_ch
                                 ),
                                 ViolationSeverity::Warning,
                                 self.name().to_string(),
@@ -276,6 +280,7 @@ impl ConsistencyRule for ForeshadowTrackingRule {
                             .with_suggested_fix("Resolve the foreshadow or update its expected resolve chapter".to_string()),
                         );
                     }
+                }
 
                 // 检查伏笔是否已解决但没有解决章节
                 if status == "resolved"
@@ -284,23 +289,23 @@ impl ConsistencyRule for ForeshadowTrackingRule {
                         .get("actual_resolve_chapter")
                         .and_then(|v| v.as_i64())
                         .is_none()
-                    {
-                        violations.push(
-                            ConsistencyViolation::new(
-                                state.entity_id.clone(),
-                                EntityType::Foreshadow,
-                                state.chapter_id,
-                                state.chapter_id,
-                                format!(
-                                    "Foreshadow '{}' marked as resolved but no resolve chapter recorded",
-                                    state.state_data.get("name").and_then(|v| v.as_str()).unwrap_or("unknown")
-                                ),
-                                ViolationSeverity::Error,
-                                self.name().to_string(),
-                            )
-                            .with_suggested_fix("Record the chapter where the foreshadow was resolved".to_string()),
-                        );
-                    }
+                {
+                    violations.push(
+                        ConsistencyViolation::new(
+                            state.entity_id.clone(),
+                            EntityType::Foreshadow,
+                            state.chapter_id.clone(),
+                            state.chapter_id.clone(),
+                            format!(
+                                "Foreshadow '{}' marked as resolved but no resolve chapter recorded",
+                                state.state_data.get("name").and_then(|v| v.as_str()).unwrap_or("unknown")
+                            ),
+                            ViolationSeverity::Error,
+                            self.name().to_string(),
+                        )
+                        .with_suggested_fix("Record the chapter where the foreshadow was resolved".to_string()),
+                    );
+                }
             }
 
             // 检查相关角色
@@ -310,8 +315,8 @@ impl ConsistencyRule for ForeshadowTrackingRule {
                         ConsistencyViolation::new(
                             state.entity_id.clone(),
                             EntityType::Foreshadow,
-                            state.chapter_id,
-                            state.chapter_id,
+                            state.chapter_id.clone(),
+                            state.chapter_id.clone(),
                             format!(
                                 "Foreshadow '{}' has no related characters",
                                 state.state_data.get("name").and_then(|v| v.as_str()).unwrap_or("unknown")
@@ -354,7 +359,7 @@ impl ConsistencyRule for TimelineConsistencyRule {
 
         let mut violations = vec![];
         let mut sorted_states = states.to_vec();
-        sorted_states.sort_by_key(|s| s.chapter_id);
+        sorted_states.sort_by_key(|s| s.chapter_id.clone());
 
         for i in 0..sorted_states.len() {
             for j in (i + 1)..sorted_states.len() {
@@ -371,8 +376,8 @@ impl ConsistencyRule for TimelineConsistencyRule {
                             ConsistencyViolation::new(
                                 state_a.entity_id.clone(),
                                 EntityType::Timeline,
-                                state_a.chapter_id,
-                                state_b.chapter_id,
+                                state_a.chapter_id.clone(),
+                                state_b.chapter_id.clone(),
                                 format!("Same time marker '{}' in different chapters", time_a),
                                 ViolationSeverity::Warning,
                                 self.name().to_string(),
@@ -382,14 +387,15 @@ impl ConsistencyRule for TimelineConsistencyRule {
                     }
 
                 // 检查时间线因果关系
-                if let Some(cause_chapter) = state_a.state_data.get("caused_by_chapter").and_then(|v| v.as_i64())
-                    && cause_chapter >= state_a.chapter_id {
+                if let Some(cause_chapter) = state_a.state_data.get("caused_by_chapter").and_then(|v| v.as_i64()) {
+                    let cause_ch = ChapterId::new(cause_chapter.to_string());
+                    if cause_ch >= state_a.chapter_id {
                         violations.push(
                             ConsistencyViolation::new(
                                 state_a.entity_id.clone(),
                                 EntityType::Timeline,
-                                state_a.chapter_id,
-                                cause_chapter,
+                                state_a.chapter_id.clone(),
+                                cause_ch,
                                 "Timeline event caused by a future chapter".to_string(),
                                 ViolationSeverity::Error,
                                 self.name().to_string(),
@@ -397,6 +403,7 @@ impl ConsistencyRule for TimelineConsistencyRule {
                             .with_suggested_fix("Events cannot be caused by future chapters".to_string()),
                         );
                     }
+                }
             }
         }
 
@@ -429,7 +436,7 @@ impl ConsistencyRule for EventContinuityRule {
 
         // 收集所有事件
         let mut events: Vec<&EntityState> = states.iter().collect();
-        events.sort_by_key(|s| s.chapter_id);
+        events.sort_by_key(|s| s.chapter_id.clone());
 
         // 检查事件因果关系
         for event in &events {
@@ -453,8 +460,8 @@ impl ConsistencyRule for EventContinuityRule {
                                     ConsistencyViolation::new(
                                         event.entity_id.clone(),
                                         EntityType::Event,
-                                        cause_event.chapter_id,
-                                        event.chapter_id,
+                                        cause_event.chapter_id.clone(),
+                                        event.chapter_id.clone(),
                                         format!(
                                             "Event '{}' caused by future event '{}'",
                                             event.state_data.get("name").and_then(|v| v.as_str()).unwrap_or("unknown"),
@@ -478,8 +485,8 @@ impl ConsistencyRule for EventContinuityRule {
                         ConsistencyViolation::new(
                             event.entity_id.clone(),
                             EntityType::Event,
-                            event.chapter_id,
-                            event.chapter_id,
+                            event.chapter_id.clone(),
+                            event.chapter_id.clone(),
                             format!(
                                 "Event '{}' has no participants",
                                 event.state_data.get("name").and_then(|v| v.as_str()).unwrap_or("unknown")
@@ -515,7 +522,7 @@ mod tests {
         EntityState {
             entity_id: entity_id.to_string(),
             entity_type,
-            chapter_id,
+            chapter_id: ChapterId::new(chapter_id.to_string()),
             state_data: data,
             version: 1,
         }

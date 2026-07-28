@@ -101,7 +101,8 @@ pub struct StateTransition {
     /// 触发事件
     pub trigger: String,
     /// 所属章节 ID
-    pub chapter_id: i64,
+    #[serde(deserialize_with = "crate::id::flexible_id::deserialize_chapter_id")]
+    pub chapter_id: crate::id::ChapterId,
     /// 故事时间
     pub story_time: String,
     /// 因果关系
@@ -138,7 +139,8 @@ pub struct DialogueStyle {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct GrowthPoint {
     /// 所属章节 ID
-    pub chapter_id: i64,
+    #[serde(deserialize_with = "crate::id::flexible_id::deserialize_chapter_id")]
+    pub chapter_id: crate::id::ChapterId,
     /// 成长维度
     pub dimension: String,
     /// 成长值
@@ -197,7 +199,8 @@ pub struct Relationship {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct RelationshipChange {
     /// 所属章节 ID
-    pub chapter_id: i64,
+    #[serde(deserialize_with = "crate::id::flexible_id::deserialize_chapter_id")]
+    pub chapter_id: crate::id::ChapterId,
     /// 旧关系类型
     pub old_type: String,
     /// 新关系类型
