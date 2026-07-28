@@ -1,0 +1,15 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/pensoul-core",
+    "crates/pensoul-harness",
+    "crates/pensoul-cda",
+    "crates/pensoul-memory",
+    "crates/pensoul-agent",
+    "crates/pensoul-concurrency",
+    "crates/pensoul-plugin",
+    "crates/pensoul-consistency",
+    "crates/pensoul-import",
+    "crates/pensoul-llm",
+    "crates/pensoul-app",
+]

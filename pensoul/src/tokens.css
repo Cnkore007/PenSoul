@@ -1,0 +1,136 @@
+/* =========================================
+   PenSoul Design Tokens — "书斋雅韵"
+   Scholar's study, aged paper, ink & cinnabar
+   Refined for literary elegance
+   ========================================= */
+:root {
+  /* ── 宣纸 — Aged Xuan paper, warm and lived-in ── */
+  --color-paper:       oklch(96.8% 0.005 78);
+  --color-paper-warm:  oklch(95% 0.008 74);
+  --color-paper-deep:  oklch(92% 0.012 70);
+  --color-paper-cream: oklch(97.8% 0.006 82);
+
+  /* ── 墨 — Pine-soot ink, rich and deep ── */
+  --color-ink:         oklch(16% 0.010 58);
+  --color-ink-2:       oklch(33% 0.010 62);
+  --color-ink-3:       oklch(52% 0.008 68);
+  --color-ink-faint:   oklch(70% 0.006 72);
+
+  /* ── 线 — Ink-wash rules, soft and organic ── */
+  --color-rule:        oklch(80% 0.010 74);
+  --color-rule-light:  oklch(87% 0.008 76);
+
+  /* ── 朱砂 — Cinnabar, the soul of the palette, used sparingly ── */
+  --color-accent:      oklch(44% 0.140 24);
+  --color-accent-soft: oklch(50% 0.115 24);
+  --color-accent-wash: oklch(94% 0.035 24);
+  --color-accent-text: oklch(98% 0 0);
+
+  /* ── 花青 — Indigo, scholarly and deep ── */
+  --color-indigo:      oklch(34% 0.075 270);
+  --color-indigo-wash: oklch(93% 0.030 270);
+
+  /* ── 赭石 — Ochre, earthy warmth ── */
+  --color-ochre:       oklch(48% 0.115 68);
+  --color-ochre-wash:  oklch(94% 0.040 68);
+
+  /* ── 翡翠 — Jade, living and bright ── */
+  --color-jade:        oklch(44% 0.105 153);
+  --color-jade-wash:   oklch(94% 0.035 153);
+
+  /* ── 焦茶 — Dark surfaces, warm charcoal ── */
+  --color-dark:        oklch(20% 0.012 50);
+  --color-dark-mid:    oklch(28% 0.012 52);
+  --color-dark-text:   oklch(70% 0.010 58);
+  --color-dark-active: oklch(94% 0.015 72);
+
+  /* ── 语义色 ── */
+  --color-success:     oklch(44% 0.095 153);
+  --color-success-wash: oklch(94% 0.035 153);
+  --color-warning:     oklch(53% 0.105 76);
+  --color-warning-wash: oklch(95% 0.040 76);
+  --color-error:       oklch(44% 0.125 22);
+  --color-error-wash:  oklch(94% 0.040 22);
+  --color-focus:       oklch(44% 0.140 24);
+
+  /* ── 表面层次 — Surface hierarchy for depth ── */
+  --surface-raised:    oklch(98% 0.004 80 / 0.85);
+  --surface-overlay:   oklch(99% 0.002 82 / 0.95);
+  --surface-sunken:    oklch(94% 0.008 74);
+  --surface-tooltip:   oklch(22% 0.014 50);
+
+  /* ── 字体 ── */
+  --font-brush:  "LXGW WenKai", "STKaiti", "KaiTi", serif;
+  --font-serif:  "Noto Serif SC", "Source Han Serif SC", "STSong", "Songti SC", "Georgia", serif;
+  --font-ui:     "LXGW WenKai", "Noto Serif SC", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono:   "JetBrains Mono", "Fira Code", "SF Mono", "Menlo", monospace;
+
+  /* ── 字号 ── */
+  --text-2xs:   0.625rem;
+  --text-xs:    0.6875rem;
+  --text-sm:    0.8125rem;
+  --text-md:    0.9375rem;
+  --text-body:  1rem;
+  --text-lg:    1.125rem;
+  --text-xl:    1.375rem;
+  --text-2xl:   1.75rem;
+  --text-3xl:   2.25rem;
+  --text-hero:  3rem;
+
+  /* ── 间距 ── */
+  --space-3xs: 0.125rem;
+  --space-2xs: 0.25rem;
+  --space-xs:  0.5rem;
+  --space-sm:  0.75rem;
+  --space-md:  1rem;
+  --space-lg:  1.5rem;
+  --space-xl:  2rem;
+  --space-2xl: 3rem;
+  --space-3xl: 4rem;
+  --space-4xl: 6rem;
+
+  /* ── 圆角 (restrained, never aggressively rounded) ── */
+  --radius-xs:  2px;
+  --radius-sm:  4px;
+  --radius-md:  6px;
+  --radius-lg:  10px;
+
+  /* ── 阴影 (layered, ink-wash quality) ── */
+  --shadow-subtle: 0 1px 2px oklch(20% 0.010 55 / 3%);
+  --shadow-sm:     0 2px 6px oklch(20% 0.010 55 / 5%);
+  --shadow-md:     0 4px 16px oklch(20% 0.010 55 / 7%);
+  --shadow-lg:     0 8px 32px oklch(20% 0.010 55 / 10%);
+  --shadow-xl:     0 12px 48px oklch(20% 0.010 55 / 14%);
+  --shadow-inner:  inset 0 1px 3px oklch(20% 0.010 55 / 3%);
+
+  /* ── 动效 ── */
+  --ease-out:    cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.45, 0, 0.55, 1);
+  --ease-spring: cubic-bezier(0.34, 1.46, 0.64, 1);
+  --dur-fast:    150ms;
+  --dur-short:   250ms;
+  --dur-md:      350ms;
+  --dur-slow:    600ms;
+
+  /* ── 布局 ── */
+  --sidebar-width: 224px;
+  --sidebar-collapsed: 64px;
+  --header-height: 56px;
+  --statusbar-height: 28px;
+  --content-max-width: 960px;
+
+  /* ── 装饰纹理 ── */
+  --texture-paper: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.55' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.020'/%3E%3C/svg%3E");
+  --texture-bamboo: repeating-linear-gradient(
+    0deg,
+    transparent 0px,
+    transparent 2px,
+    oklch(100% 0 0 / 1.0%) 2px,
+    oklch(100% 0 0 / 1.0%) 3px
+  );
+  --texture-ink-wash: radial-gradient(
+    ellipse at 30% 20%,
+    oklch(18% 0.010 58 / 2.5%) 0%,
+    transparent 65%
+  );
+}

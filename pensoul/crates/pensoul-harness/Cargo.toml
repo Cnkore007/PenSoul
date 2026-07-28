@@ -1,0 +1,17 @@
+[package]
+name = "pensoul-harness"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+pensoul-core = { path = "../pensoul-core" }
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+blake3 = "1"
+
+[dev-dependencies]
+tempfile = "3"

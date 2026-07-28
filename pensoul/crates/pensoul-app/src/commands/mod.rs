@@ -1,0 +1,9 @@
+/// IPC 命令模块
+pub mod project;
+pub mod chapter;
+pub mod harness;
+pub mod cda;
+pub mod memory;
+pub mod model;
+pub mod plugin;
+pub mod inspiration;

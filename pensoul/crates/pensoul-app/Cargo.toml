@@ -1,0 +1,32 @@
+[package]
+name = "pensoul-app"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+pensoul-core = { path = "../pensoul-core" }
+pensoul-harness = { path = "../pensoul-harness" }
+pensoul-cda = { path = "../pensoul-cda" }
+pensoul-memory = { path = "../pensoul-memory" }
+pensoul-agent = { path = "../pensoul-agent" }
+pensoul-concurrency = { path = "../pensoul-concurrency" }
+pensoul-plugin = { path = "../pensoul-plugin" }
+pensoul-consistency = { path = "../pensoul-consistency" }
+pensoul-import = { path = "../pensoul-import" }
+pensoul-llm = { path = "../pensoul-llm" }
+tauri = { version = "2", features = [] }
+tauri-plugin-shell = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+parking_lot = "0.12"
+tokio = { version = "1", features = ["full"] }
+thiserror = "2"
+anyhow = "1"
+uuid = { version = "1", features = ["v4"] }
+chrono = "0.4"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dev-dependencies]
+tempfile = "3"
