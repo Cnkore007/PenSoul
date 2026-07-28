@@ -43,3 +43,6 @@ downloads/
 
 # 临时文件
 *~
+
+# Agent 配置（不上传）
+AGENTS.md
