@@ -8,6 +8,7 @@ interface StatusBarProps {
 
 const viewLabels: Record<ViewType, string> = {
   dashboard: "项目概览",
+  concept: "灵魂萌芽",
   writing: "笔耕",
   outline: "经纬",
   character: "人物",
@@ -19,6 +20,7 @@ const viewLabels: Record<ViewType, string> = {
   "llm-settings": "模型设置",
   plugins: "造化工坊",
   workflow: "工作流",
+  experts: "专家库",
 };
 
 export function StatusBar({ currentView, wordCount, connected }: StatusBarProps) {

@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use crate::edge::ImpactEdge;
 use crate::node::ImpactNode;
 use crate::propagation::bfs_find_affected;
-use crate::stats::{compute_stats, Stats};
+use crate::stats::{Stats, compute_stats};
 
 /// 受影响项——传播算法的输出
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -60,18 +60,12 @@ impl ImpactGraph {
         &mut self,
         edge: ImpactEdge,
     ) -> std::result::Result<(), pensoul_core::PensoulError> {
-        let from_idx = self
-            .index_map
-            .get(&edge.from_id)
-            .ok_or_else(|| {
-                pensoul_core::PensoulError::Internal(format!("源节点不存在: {}", edge.from_id))
-            })?;
-        let to_idx = self
-            .index_map
-            .get(&edge.to_id)
-            .ok_or_else(|| {
-                pensoul_core::PensoulError::Internal(format!("目标节点不存在: {}", edge.to_id))
-            })?;
+        let from_idx = self.index_map.get(&edge.from_id).ok_or_else(|| {
+            pensoul_core::PensoulError::Internal(format!("源节点不存在: {}", edge.from_id))
+        })?;
+        let to_idx = self.index_map.get(&edge.to_id).ok_or_else(|| {
+            pensoul_core::PensoulError::Internal(format!("目标节点不存在: {}", edge.to_id))
+        })?;
 
         self.graph.add_edge(*from_idx, *to_idx, edge);
         Ok(())
@@ -87,7 +81,13 @@ impl ImpactGraph {
         max_depth: u32,
     ) -> Vec<AffectedItem> {
         let (reverse_edges, node_map) = self.build_adjacency();
-        bfs_find_affected(&reverse_edges, &node_map, source_chapter, changed_entity_ids, max_depth)
+        bfs_find_affected(
+            &reverse_edges,
+            &node_map,
+            source_chapter,
+            changed_entity_ids,
+            max_depth,
+        )
     }
 
     /// 计算图统计信息
@@ -153,10 +153,11 @@ impl ImpactGraph {
             let to_id = self.graph[to_idx].id.clone();
 
             // 反向：B 的反向列表里包含 A
-            reverse_edges
-                .entry(to_id)
-                .or_default()
-                .push((from_id, edge_data.relation.clone(), edge_data.weight));
+            reverse_edges.entry(to_id).or_default().push((
+                from_id,
+                edge_data.relation.clone(),
+                edge_data.weight,
+            ));
         }
 
         (reverse_edges, node_map)
@@ -173,7 +174,7 @@ impl Default for ImpactGraph {
 mod tests {
     use super::*;
     use crate::edge::EdgeRelation;
-    use crate::node::{NodeType, ImpactSeverity};
+    use crate::node::{ImpactSeverity, NodeType};
 
     fn make_node(id: &str, chapter: u32) -> ImpactNode {
         ImpactNode::new(id, NodeType::Entity, chapter, format!("hash_{id}"))
@@ -217,7 +218,9 @@ mod tests {
         // If e2 changes, then e1 (which references e2) is affected.
         graph.add_node(make_node("e1", 1));
         graph.add_node(make_node("e2", 2));
-        graph.add_edge(ImpactEdge::new("e1", "e2", EdgeRelation::References, 1.0)).unwrap();
+        graph
+            .add_edge(ImpactEdge::new("e1", "e2", EdgeRelation::References, 1.0))
+            .unwrap();
 
         // e2 changes in chapter 2
         let affected = graph.find_affected(2, &["e2".into()], 5);
@@ -235,9 +238,15 @@ mod tests {
         graph.add_node(make_node("e2", 2));
         graph.add_node(make_node("e3", 3));
         graph.add_node(make_node("e4", 4));
-        graph.add_edge(ImpactEdge::new("e1", "e2", EdgeRelation::References, 1.0)).unwrap();
-        graph.add_edge(ImpactEdge::new("e2", "e3", EdgeRelation::References, 1.0)).unwrap();
-        graph.add_edge(ImpactEdge::new("e3", "e4", EdgeRelation::References, 1.0)).unwrap();
+        graph
+            .add_edge(ImpactEdge::new("e1", "e2", EdgeRelation::References, 1.0))
+            .unwrap();
+        graph
+            .add_edge(ImpactEdge::new("e2", "e3", EdgeRelation::References, 1.0))
+            .unwrap();
+        graph
+            .add_edge(ImpactEdge::new("e3", "e4", EdgeRelation::References, 1.0))
+            .unwrap();
 
         let affected = graph.find_affected(4, &["e4".into()], 5);
         let ids: Vec<&str> = affected.iter().map(|a| a.node_id.as_str()).collect();
@@ -253,9 +262,15 @@ mod tests {
         graph.add_node(make_node("e2", 2));
         graph.add_node(make_node("e3", 3));
         graph.add_node(make_node("e4", 4));
-        graph.add_edge(ImpactEdge::new("e1", "e2", EdgeRelation::References, 1.0)).unwrap();
-        graph.add_edge(ImpactEdge::new("e2", "e3", EdgeRelation::References, 1.0)).unwrap();
-        graph.add_edge(ImpactEdge::new("e3", "e4", EdgeRelation::References, 1.0)).unwrap();
+        graph
+            .add_edge(ImpactEdge::new("e1", "e2", EdgeRelation::References, 1.0))
+            .unwrap();
+        graph
+            .add_edge(ImpactEdge::new("e2", "e3", EdgeRelation::References, 1.0))
+            .unwrap();
+        graph
+            .add_edge(ImpactEdge::new("e3", "e4", EdgeRelation::References, 1.0))
+            .unwrap();
 
         // e4 changes, max_depth=1: only e3 (depth=1) should be found
         let affected = graph.find_affected(4, &["e4".into()], 1);
@@ -310,7 +325,9 @@ mod tests {
         let mut graph = ImpactGraph::new();
         graph.add_node(make_node("e1", 1));
         graph.add_node(make_node("e2", 2));
-        graph.add_edge(ImpactEdge::new("e1", "e2", EdgeRelation::Causes, 0.8)).unwrap();
+        graph
+            .add_edge(ImpactEdge::new("e1", "e2", EdgeRelation::Causes, 0.8))
+            .unwrap();
 
         let affected = graph.find_affected(2, &["e2".into()], 5);
         for item in &affected {
@@ -323,7 +340,9 @@ mod tests {
         let mut graph = ImpactGraph::new();
         graph.add_node(ImpactNode::new("e1", NodeType::Entity, 1, "h1"));
         graph.add_node(ImpactNode::new("e2", NodeType::Event, 2, "h2"));
-        graph.add_edge(ImpactEdge::new("e1", "e2", EdgeRelation::References, 1.0)).unwrap();
+        graph
+            .add_edge(ImpactEdge::new("e1", "e2", EdgeRelation::References, 1.0))
+            .unwrap();
 
         let stats = graph.stats();
         assert_eq!(stats.total_nodes, 2);

@@ -40,9 +40,11 @@ impl CrashRecovery {
         Self::replay_entries(engine, &entries)?;
 
         // 写入恢复完成标记
-        engine
-            .wal
-            .write_mut(WalAction::EngineInit, None, Some("crash recovery completed"))?;
+        engine.wal.write_mut(
+            WalAction::EngineInit,
+            None,
+            Some("crash recovery completed"),
+        )?;
 
         Ok(true)
     }
@@ -53,10 +55,7 @@ impl CrashRecovery {
             match entry.action {
                 WalAction::EngineInit => {
                     // 引擎初始化事件，记录日志即可
-                    tracing::info!(
-                        "WAL 重放: EngineInit at {}",
-                        entry.timestamp
-                    );
+                    tracing::info!("WAL 重放: EngineInit at {}", entry.timestamp);
                 }
 
                 WalAction::MemoInject => {
@@ -67,34 +66,31 @@ impl CrashRecovery {
                             && let (Some(key), Some(value)) = (
                                 json.get("key").and_then(|v| v.as_str()),
                                 json.get("value").and_then(|v| v.as_str()),
-                            ) {
-                                engine.memo.inject(key, value);
-                                tracing::info!(
-                                    "WAL 重放: MemoInject key={key}"
-                                );
-                            }
+                            )
+                        {
+                            engine.memo.inject(key, value);
+                            tracing::info!("WAL 重放: MemoInject key={key}");
+                        }
                     }
                 }
 
                 WalAction::StageStart => {
                     // 标记阶段为运行中
                     if let Some(ref stage_name) = entry.stage
-                        && let Some(inst) = engine.stages_status.get_mut(stage_name) {
-                            inst.mark_running();
-                            tracing::info!(
-                                "WAL 重放: StageStart stage={stage_name}"
-                            );
-                        }
+                        && let Some(inst) = engine.stages_status.get_mut(stage_name)
+                    {
+                        inst.mark_running();
+                        tracing::info!("WAL 重放: StageStart stage={stage_name}");
+                    }
                 }
 
                 WalAction::StageComplete => {
                     if let Some(ref stage_name) = entry.stage
-                        && let Some(inst) = engine.stages_status.get_mut(stage_name) {
-                            inst.mark_completed();
-                            tracing::info!(
-                                "WAL 重放: StageComplete stage={stage_name}"
-                            );
-                        }
+                        && let Some(inst) = engine.stages_status.get_mut(stage_name)
+                    {
+                        inst.mark_completed();
+                        tracing::info!("WAL 重放: StageComplete stage={stage_name}");
+                    }
                 }
 
                 WalAction::GatePass => {
@@ -139,10 +135,7 @@ impl CrashRecovery {
                 }
 
                 WalAction::StateSync => {
-                    tracing::info!(
-                        "WAL 重放: StateSync at {}",
-                        entry.timestamp
-                    );
+                    tracing::info!("WAL 重放: StateSync at {}", entry.timestamp);
                 }
             }
         }

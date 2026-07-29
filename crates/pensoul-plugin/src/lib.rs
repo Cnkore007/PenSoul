@@ -23,6 +23,7 @@ mod tests {
             name: "测试插件".into(),
             version: "1.0.0".into(),
             description: "一个测试插件".into(),
+            enabled: true,
             stages: vec![
                 PluginStage {
                     name: "stage-a".into(),
@@ -76,19 +77,20 @@ mod tests {
     fn test_reject_invalid_plugin_with_multiple_errors() {
         let mut registry = PluginRegistry::new();
         let config = PluginConfig {
-            plugin_id: String::new(),       // 空 → 错误 1
-            name: String::new(),            // 空 → 错误 2
-            version: String::new(),         // 空 → 错误 3
+            plugin_id: String::new(), // 空 → 错误 1
+            name: String::new(),      // 空 → 错误 2
+            version: String::new(),   // 空 → 错误 3
             description: String::new(),
+            enabled: true,
             stages: vec![PluginStage {
-                name: String::new(),        // 空 → 错误 4
+                name: String::new(), // 空 → 错误 4
                 tool: String::new(),
-                gate: "invalid_gate".into(), // 无效 → 错误 5
+                gate: "invalid_gate".into(),     // 无效 → 错误 5
                 runner: "invalid_runner".into(), // 无效 → 错误 6
                 prompt_template: String::new(),
                 allowed_tools: vec![],
-                timeout_seconds: -1,        // 负数 → 错误 7
-                max_retries: -1,            // 负数 → 错误 8
+                timeout_seconds: -1, // 负数 → 错误 7
+                max_retries: -1,     // 负数 → 错误 8
             }],
             metadata: serde_json::json!({}),
         };
@@ -118,6 +120,7 @@ mod tests {
             name: "重复阶段测试".into(),
             version: "1.0.0".into(),
             description: String::new(),
+            enabled: true,
             stages: vec![
                 PluginStage {
                     name: "my-stage".into(),
@@ -168,6 +171,7 @@ mod tests {
             name: "白名单测试".into(),
             version: "1.0.0".into(),
             description: String::new(),
+            enabled: true,
             stages: vec![PluginStage {
                 name: "bad-stage".into(),
                 tool: "llm".into(),

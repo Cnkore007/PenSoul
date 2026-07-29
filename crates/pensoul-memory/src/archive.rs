@@ -118,8 +118,14 @@ mod tests {
     #[test]
     fn test_archive_budget_limit() {
         let mut archive = ArchiveMemory::new();
-        archive.archive(1, make_summary(1, "长标题测试", "一段很长的摘要内容用于测试预算限制"));
-        archive.archive(2, make_summary(2, "另一个长标题", "另一段很长的摘要内容用于测试预算限制"));
+        archive.archive(
+            1,
+            make_summary(1, "长标题测试", "一段很长的摘要内容用于测试预算限制"),
+        );
+        archive.archive(
+            2,
+            make_summary(2, "另一个长标题", "另一段很长的摘要内容用于测试预算限制"),
+        );
 
         let result = archive.retrieve("", 5);
         // budget 很小，可能只返回 0 或 1 条

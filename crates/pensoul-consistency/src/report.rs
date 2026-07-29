@@ -57,10 +57,7 @@ impl ConsistencyViolation {
         severity: ViolationSeverity,
         rule_name: String,
     ) -> Self {
-        let violation_id = format!(
-            "{}_{}_{}_{}",
-            entity_id, chapter_a, chapter_b, rule_name
-        );
+        let violation_id = format!("{}_{}_{}_{}", entity_id, chapter_a, chapter_b, rule_name);
         Self {
             violation_id,
             entity_id,
@@ -107,7 +104,10 @@ impl ConsistencyReport {
     }
 
     /// 获取指定严重度的违反列表
-    pub fn get_violations_by_severity(&self, severity: &ViolationSeverity) -> Vec<&ConsistencyViolation> {
+    pub fn get_violations_by_severity(
+        &self,
+        severity: &ViolationSeverity,
+    ) -> Vec<&ConsistencyViolation> {
         self.violations
             .iter()
             .filter(|v| v.severity == *severity)
@@ -116,17 +116,26 @@ impl ConsistencyReport {
 
     /// 获取错误数量
     pub fn error_count(&self) -> usize {
-        self.violations.iter().filter(|v| v.severity == ViolationSeverity::Error).count()
+        self.violations
+            .iter()
+            .filter(|v| v.severity == ViolationSeverity::Error)
+            .count()
     }
 
     /// 获取警告数量
     pub fn warning_count(&self) -> usize {
-        self.violations.iter().filter(|v| v.severity == ViolationSeverity::Warning).count()
+        self.violations
+            .iter()
+            .filter(|v| v.severity == ViolationSeverity::Warning)
+            .count()
     }
 
     /// 获取信息数量
     pub fn info_count(&self) -> usize {
-        self.violations.iter().filter(|v| v.severity == ViolationSeverity::Info).count()
+        self.violations
+            .iter()
+            .filter(|v| v.severity == ViolationSeverity::Info)
+            .count()
     }
 
     /// 是否有错误

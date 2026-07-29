@@ -173,11 +173,10 @@ impl HarnessEngine {
 
         inst.mark_running();
 
-        if let Err(e) = self.wal.write_mut(
-            WalAction::StageStart,
-            Some(current.as_str()),
-            None,
-        ) {
+        if let Err(e) = self
+            .wal
+            .write_mut(WalAction::StageStart, Some(current.as_str()), None)
+        {
             eprintln!("[警告] WAL 写入失败: {e}");
         }
 
@@ -211,11 +210,10 @@ impl HarnessEngine {
         }
 
         // 写入 StageComplete WAL
-        if let Err(e) = self.wal.write_mut(
-            WalAction::StageComplete,
-            Some(current.as_str()),
-            None,
-        ) {
+        if let Err(e) = self
+            .wal
+            .write_mut(WalAction::StageComplete, Some(current.as_str()), None)
+        {
             eprintln!("[警告] WAL 写入失败: {e}");
         }
 
@@ -244,11 +242,10 @@ impl HarnessEngine {
                 self.advance_to_stage(&next_name)?;
             } else {
                 // 流程结束
-                if let Err(e) = self.wal.write_mut(
-                    WalAction::HarnessComplete,
-                    None,
-                    Some("所有阶段完成"),
-                ) {
+                if let Err(e) =
+                    self.wal
+                        .write_mut(WalAction::HarnessComplete, None, Some("所有阶段完成"))
+                {
                     eprintln!("[警告] WAL 写入失败: {e}");
                 }
             }
@@ -271,13 +268,12 @@ impl HarnessEngine {
                 let on_fail = on_fail.clone();
 
                 // 检查最大重试次数
-                let (max_retries, attempt) = if let Some(inst) =
-                    self.stages_status.get(current.as_str())
-                {
-                    (stage.max_retries, inst.attempt)
-                } else {
-                    (0, 1)
-                };
+                let (max_retries, attempt) =
+                    if let Some(inst) = self.stages_status.get(current.as_str()) {
+                        (stage.max_retries, inst.attempt)
+                    } else {
+                        (0, 1)
+                    };
 
                 if attempt <= max_retries {
                     // 可重试：回到失败阶段并递增尝试次数
@@ -298,10 +294,7 @@ impl HarnessEngine {
             } else {
                 // 无回退目标，标记失败
                 if let Some(inst) = self.stages_status.get_mut(current.as_str()) {
-                    inst.mark_failed(format!(
-                        "门控未通过且无回退目标: {}",
-                        gate_result.reason
-                    ));
+                    inst.mark_failed(format!("门控未通过且无回退目标: {}", gate_result.reason));
                 }
             }
         }
@@ -315,11 +308,10 @@ impl HarnessEngine {
             return Err(PensoulError::StageNotFound(target.to_string()));
         }
 
-        if let Err(e) = self.wal.write_mut(
-            WalAction::Advance,
-            Some(target.as_str()),
-            None,
-        ) {
+        if let Err(e) = self
+            .wal
+            .write_mut(WalAction::Advance, Some(target.as_str()), None)
+        {
             eprintln!("[警告] WAL 写入失败: {e}");
         }
 
@@ -448,10 +440,7 @@ mod tests {
         engine.register_stage(writing_stage());
 
         engine.set_start_stage(StageName::new("writing")).unwrap();
-        assert_eq!(
-            engine.current_stage().map(|n| n.as_str()),
-            Some("writing")
-        );
+        assert_eq!(engine.current_stage().map(|n| n.as_str()), Some("writing"));
     }
 
     #[test]
@@ -487,10 +476,7 @@ mod tests {
         engine.complete_stage(result).unwrap();
 
         // Auto gate 应该直接推进到 review
-        assert_eq!(
-            engine.current_stage().map(|n| n.as_str()),
-            Some("review")
-        );
+        assert_eq!(engine.current_stage().map(|n| n.as_str()), Some("review"));
     }
 
     #[test]
@@ -506,10 +492,7 @@ mod tests {
         let result = serde_json::json!({"consistency_score": 85});
         engine.complete_stage(result).unwrap();
 
-        assert_eq!(
-            engine.current_stage().map(|n| n.as_str()),
-            Some("polish")
-        );
+        assert_eq!(engine.current_stage().map(|n| n.as_str()), Some("polish"));
     }
 
     #[test]
@@ -525,10 +508,7 @@ mod tests {
         engine.complete_stage(result).unwrap();
 
         // 条件不满足，应退回到 writing
-        assert_eq!(
-            engine.current_stage().map(|n| n.as_str()),
-            Some("writing")
-        );
+        assert_eq!(engine.current_stage().map(|n| n.as_str()), Some("writing"));
     }
 
     #[test]

@@ -25,6 +25,12 @@ pub struct NovelOntology {
     pub chapters: Vec<Chapter>,
     /// 卷列表
     pub volumes: Vec<Volume>,
+    /// 创作设定
+    pub settings: crate::settings::ProjectSettings,
+    /// 核心概念 / 高概念种子
+    pub core_concept: crate::concept::CoreConcept,
+    /// 萌芽数据
+    pub sprout: crate::sprout::SproutData,
 }
 
 impl NovelOntology {
@@ -76,14 +82,15 @@ impl NovelOntology {
             },
             chapters: Vec::new(),
             volumes: Vec::new(),
+            settings: crate::settings::ProjectSettings::new(),
+            core_concept: crate::concept::CoreConcept::new(),
+            sprout: crate::sprout::SproutData::new(),
         }
     }
 
     /// 根据 ID 获取章节
     pub fn get_chapter(&self, chapter_id: &ChapterId) -> Option<&Chapter> {
-        self.chapters
-            .iter()
-            .find(|ch| ch.chapter_id == *chapter_id)
+        self.chapters.iter().find(|ch| ch.chapter_id == *chapter_id)
     }
 
     /// 根据 ID 获取角色
@@ -99,7 +106,9 @@ impl NovelOntology {
         self.narrative
             .foreshadows
             .iter()
-            .filter(|f| f.status == ForeshadowStatus::Planted || f.status == ForeshadowStatus::Progressing)
+            .filter(|f| {
+                f.status == ForeshadowStatus::Planted || f.status == ForeshadowStatus::Progressing
+            })
             .collect()
     }
 }

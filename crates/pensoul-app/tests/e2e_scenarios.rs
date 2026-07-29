@@ -9,7 +9,7 @@ use pensoul_cda::edge::{EdgeRelation, ImpactEdge};
 use pensoul_cda::graph::ImpactGraph;
 use pensoul_cda::node::{ImpactNode, NodeType};
 use pensoul_consistency::checker::IncrementalChecker;
-use pensoul_consistency::entity_state::{EntityType, EntityState};
+use pensoul_consistency::entity_state::{EntityState, EntityType};
 use pensoul_core::chapter::{Chapter, ChapterStatus};
 use pensoul_core::id::{ChapterId, ProjectId, StageName, VolumeId};
 use pensoul_core::ontology::NovelOntology;
@@ -18,9 +18,7 @@ use pensoul_harness::stage::{GateType, RunnerType, Stage};
 use pensoul_memory::cold::ColdMemory;
 use pensoul_memory::hot::HotMemory;
 use pensoul_memory::narrative::NarrativeMemory;
-use pensoul_memory::packet::{
-    ChapterSummary, NarrativeCategory, NarrativeDetail,
-};
+use pensoul_memory::packet::{ChapterSummary, NarrativeCategory, NarrativeDetail};
 use pensoul_memory::warm::WarmMemory;
 use std::collections::HashMap;
 
@@ -290,44 +288,29 @@ fn test_change_propagation() {
     let affected_ids: Vec<&str> = affected.iter().map(|a| a.node_id.as_str()).collect();
 
     // ch3 直接依赖 ch2
-    assert!(
-        affected_ids.contains(&"ch3_foreshadow"),
-        "ch3 应该受影响"
-    );
+    assert!(affected_ids.contains(&"ch3_foreshadow"), "ch3 应该受影响");
     // ch4 引用 ch3，应该被传播影响
     assert!(
         affected_ids.contains(&"ch4_foreshadow_ref"),
         "ch4 应该受影响"
     );
     // ch5 依赖 ch3 和 ch4，应该被传播影响
-    assert!(
-        affected_ids.contains(&"ch5_ending"),
-        "ch5 应该受影响"
-    );
+    assert!(affected_ids.contains(&"ch5_ending"), "ch5 应该受影响");
 
     // 5. 验证影响结果的严重程度
     for item in &affected {
         match item.node_id.as_str() {
             "ch3_foreshadow" => {
                 // 深度1，章节距离1 (|2-3|=1 <= 2)，应该是 Direct
-                assert_eq!(
-                    item.severity,
-                    pensoul_cda::node::ImpactSeverity::Direct
-                );
+                assert_eq!(item.severity, pensoul_cda::node::ImpactSeverity::Direct);
             }
             "ch4_foreshadow_ref" => {
                 // 深度2，章节距离2 (|2-4|=2 <= 2)，应该是 Direct
-                assert_eq!(
-                    item.severity,
-                    pensoul_cda::node::ImpactSeverity::Direct
-                );
+                assert_eq!(item.severity, pensoul_cda::node::ImpactSeverity::Direct);
             }
             "ch5_ending" => {
                 // 深度2，章节距离3 (|2-5|=3 > 2)，应该是 Indirect
-                assert_eq!(
-                    item.severity,
-                    pensoul_cda::node::ImpactSeverity::Indirect
-                );
+                assert_eq!(item.severity, pensoul_cda::node::ImpactSeverity::Indirect);
             }
             _ => {}
         }
@@ -405,10 +388,7 @@ fn test_crash_recovery() {
 
     // 7. 验证恢复后可以继续执行
     let state_after = engine2.build_state();
-    assert_eq!(
-        state_after.current_stage.as_deref(),
-        Some("chapter_write")
-    );
+    assert_eq!(state_after.current_stage.as_deref(), Some("chapter_write"));
     assert!(state_after.stages_status.contains_key("chapter_write"));
 }
 
@@ -423,23 +403,26 @@ fn test_memory_injection() {
     let mut narrative = NarrativeMemory::new();
 
     // 2. 向热记忆添加章节
-    hot.insert(1, "第一章：故事开始。主角在村庄中醒来，发现自己失去了记忆。".to_string());
-    hot.insert(2, "第二章：探索森林。主角在森林中遇到一只神秘的白狼。".to_string());
-    hot.insert(3, "第三章：白狼的指引。白狼带领主角来到一座古老的神庙。".to_string());
+    hot.insert(
+        1,
+        "第一章：故事开始。主角在村庄中醒来，发现自己失去了记忆。".to_string(),
+    );
+    hot.insert(
+        2,
+        "第二章：探索森林。主角在森林中遇到一只神秘的白狼。".to_string(),
+    );
+    hot.insert(
+        3,
+        "第三章：白狼的指引。白狼带领主角来到一座古老的神庙。".to_string(),
+    );
 
     // 3. 向温记忆添加章节摘要
     warm.insert_chapter(
         1,
         make_chapter_summary(1, "开端", "主角失去记忆，在村庄中醒来"),
     );
-    warm.insert_chapter(
-        2,
-        make_chapter_summary(2, "探索", "主角探索森林，遇到白狼"),
-    );
-    warm.insert_chapter(
-        3,
-        make_chapter_summary(3, "指引", "白狼带领主角来到神庙"),
-    );
+    warm.insert_chapter(2, make_chapter_summary(2, "探索", "主角探索森林，遇到白狼"));
+    warm.insert_chapter(3, make_chapter_summary(3, "指引", "白狼带领主角来到神庙"));
 
     // 设置伏笔和角色状态
     warm.set_foreshadows(vec![
@@ -450,14 +433,8 @@ fn test_memory_injection() {
     warm.set_character_states("主角：失忆状态，信任白狼；白狼：神秘，引导者".to_string());
 
     // 4. 向冷记忆添加较早的章节
-    cold.insert_chapter(
-        -2,
-        make_chapter_summary(-2, "序章", "世界观介绍，古代传说"),
-    );
-    cold.insert_chapter(
-        -1,
-        make_chapter_summary(-1, "前传", "主角的过去"),
-    );
+    cold.insert_chapter(-2, make_chapter_summary(-2, "序章", "世界观介绍，古代传说"));
+    cold.insert_chapter(-1, make_chapter_summary(-1, "前传", "主角的过去"));
 
     // 5. 向叙事记忆添加细节
     narrative.add_detail(NarrativeDetail {
@@ -547,7 +524,9 @@ fn test_memory_injection() {
     );
     assert_eq!(warm_data.active_foreshadows.len(), 3);
     assert!(
-        warm_data.active_foreshadows.contains(&"白狼的真实身份".to_string()),
+        warm_data
+            .active_foreshadows
+            .contains(&"白狼的真实身份".to_string()),
         "应包含伏笔"
     );
     assert!(warm_data.character_states.is_some());
@@ -566,9 +545,7 @@ fn test_memory_injection() {
     // 10. 验证叙事记忆包含高重要性细节
     assert!(!narrative_data.is_empty(), "叙事记忆不应为空");
     assert!(
-        narrative_data
-            .iter()
-            .any(|d| d.detail_id == "detail_002"),
+        narrative_data.iter().any(|d| d.detail_id == "detail_002"),
         "应包含高重要性细节"
     );
 
@@ -588,10 +565,7 @@ fn test_memory_injection() {
     };
 
     // 12. 验证记忆包包含正确的记忆上下文
-    assert!(
-        !packet.hot.is_empty(),
-        "记忆包热记忆不应为空"
-    );
+    assert!(!packet.hot.is_empty(), "记忆包热记忆不应为空");
     assert!(
         !packet.warm.volume_summary.is_empty(),
         "记忆包温记忆摘要不应为空"
@@ -600,10 +574,7 @@ fn test_memory_injection() {
         !packet.warm.active_foreshadows.is_empty(),
         "记忆包温记忆伏笔不应为空"
     );
-    assert!(
-        !packet.narrative.is_empty(),
-        "记忆包叙事记忆不应为空"
-    );
+    assert!(!packet.narrative.is_empty(), "记忆包叙事记忆不应为空");
 
     // 验证完整上下文可用于 LLM prompt
     let prompt_context = format!(
@@ -628,10 +599,7 @@ fn test_memory_injection() {
         prompt_context.contains("白狼的真实身份"),
         "prompt 应包含伏笔"
     );
-    assert!(
-        prompt_context.contains("序章"),
-        "prompt 应包含冷记忆内容"
-    );
+    assert!(prompt_context.contains("序章"), "prompt 应包含冷记忆内容");
     assert!(
         prompt_context.contains("白狼脖子上挂着一枚古老的吊坠"),
         "prompt 应包含叙事细节"

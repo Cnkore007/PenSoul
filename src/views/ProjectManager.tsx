@@ -1,7 +1,7 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Trash2, Edit3, BookOpen, Calendar, FileText, Sparkles } from "lucide-react";
 import type { ProjectMeta } from "../types";
-import { loadProjects, saveProjects, deleteProjectData } from "../store";
+import * as ipc from "../ipc";
 
 interface ProjectManagerProps {
   onSelectProject: (project: ProjectMeta) => void;
@@ -9,49 +9,74 @@ interface ProjectManagerProps {
   onDeleteProject?: (projectId: string) => void;
 }
 
-export function ProjectManager({ onSelectProject, onDeleteProject }: ProjectManagerProps) {
+export function ProjectManager({ onSelectProject, currentProjectId: _currentProjectId, onDeleteProject }: ProjectManagerProps) {
   const [projects, setProjects] = useState<ProjectMeta[]>([]);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editingProject, setEditingProject] = useState<ProjectMeta | null>(null);
   const [newTitle, setNewTitle] = useState("");
   const [newDescription, setNewDescription] = useState("");
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => { setProjects(loadProjects()); }, []);
+  const refreshProjects = useCallback(async () => {
+    try {
+      const list = await ipc.listProjects();
+      setProjects(list as ProjectMeta[]);
+    } catch (e) {
+      console.error("加载项目列表失败:", e);
+      setError("加载项目列表失败");
+    }
+  }, []);
 
-  function persist(updated: ProjectMeta[]) {
-    setProjects(updated);
-    saveProjects(updated);
-  }
+  useEffect(() => { refreshProjects(); }, [refreshProjects]);
 
-  function handleCreate() {
+  async function handleCreate() {
     if (!newTitle.trim()) return;
-    const p: ProjectMeta = {
-      project_id: `proj-${Date.now()}`,
-      title: newTitle.trim(),
-      description: newDescription.trim(),
-      created_at: new Date().toISOString().split("T")[0],
-      updated_at: new Date().toISOString().split("T")[0],
-      total_chapters: 0,
-      total_words: 0,
-    };
-    persist([p, ...projects]);
-    handleCancel();
+    try {
+      setLoading(true);
+      setError(null);
+      await ipc.createProject(newTitle.trim());
+      await refreshProjects();
+      handleCancel();
+    } catch (e) {
+      console.error("创建项目失败:", e);
+      setError("创建项目失败");
+    } finally {
+      setLoading(false);
+    }
   }
 
-  function handleEdit() {
+  async function handleEdit() {
     if (!editingProject || !newTitle.trim()) return;
-    persist(projects.map(p => p.project_id === editingProject.project_id
-      ? { ...p, title: newTitle.trim(), description: newDescription.trim(), updated_at: new Date().toISOString().split("T")[0] }
-      : p));
-    handleCancel();
+    try {
+      setLoading(true);
+      setError(null);
+      await ipc.updateProject(editingProject.project_id, newTitle.trim(), newDescription.trim());
+      await refreshProjects();
+      handleCancel();
+    } catch (e) {
+      console.error("编辑项目失败:", e);
+      setError("编辑项目失败");
+    } finally {
+      setLoading(false);
+    }
   }
 
-  function handleDelete(id: string) {
-    persist(projects.filter(p => p.project_id !== id));
-    deleteProjectData(id);
-    setConfirmDelete(null);
-    onDeleteProject?.(id);
+  async function handleDelete(id: string) {
+    try {
+      setLoading(true);
+      setError(null);
+      await ipc.deleteProject(id);
+      await refreshProjects();
+      setConfirmDelete(null);
+      onDeleteProject?.(id);
+    } catch (e) {
+      console.error("删除项目失败:", e);
+      setError("删除项目失败");
+    } finally {
+      setLoading(false);
+    }
   }
 
   function handleCancel() {
@@ -73,12 +98,18 @@ export function ProjectManager({ onSelectProject, onDeleteProject }: ProjectMana
             <p className="pm-hero-subtitle">笔墨落处，便是江湖</p>
           </div>
         </div>
-        <button className="pm-create-btn" onClick={() => setShowCreateModal(true)}>
+        <button className="pm-create-btn" onClick={() => setShowCreateModal(true)} disabled={loading}>
           <Sparkles size={18} /><span>新建作品</span>
         </button>
       </div>
 
-      {projects.length === 0 ? (
+      {error && (
+        <div style={{ padding: "8px 16px", margin: "0 16px", background: "#fef2f2", color: "#991b1b", borderRadius: 6, fontSize: "var(--text-sm)" }}>
+          {error}
+        </div>
+      )}
+
+      {projects.length === 0 && !loading ? (
         <div className="pm-empty">
           <div className="pm-empty-icon">卷</div>
           <div className="pm-empty-title">尚无作品</div>
@@ -135,8 +166,8 @@ export function ProjectManager({ onSelectProject, onDeleteProject }: ProjectMana
             </div>
             <div className="pm-modal-footer">
               <button className="pm-btn pm-btn-cancel" onClick={handleCancel}>取消</button>
-              <button className="pm-btn pm-btn-primary" onClick={editingProject ? handleEdit : handleCreate} disabled={!newTitle.trim()}>
-                {editingProject ? "保存" : "创建"}
+              <button className="pm-btn pm-btn-primary" onClick={editingProject ? handleEdit : handleCreate} disabled={!newTitle.trim() || loading}>
+                {loading ? "处理中..." : (editingProject ? "保存" : "创建")}
               </button>
             </div>
           </div>

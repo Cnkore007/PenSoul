@@ -33,7 +33,9 @@ pub enum PensoulError {
     PluginValidationFailed { errors: Vec<String> },
 
     /// 一致性违反
-    #[error("一致性违反: {entity_id} 在第 {chapter_a} 章和第 {chapter_b} 章之间不一致: {description}")]
+    #[error(
+        "一致性违反: {entity_id} 在第 {chapter_a} 章和第 {chapter_b} 章之间不一致: {description}"
+    )]
     ConsistencyViolation {
         entity_id: String,
         chapter_a: i64,

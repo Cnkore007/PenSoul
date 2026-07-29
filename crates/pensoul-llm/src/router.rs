@@ -57,7 +57,7 @@ impl ModelRouter {
         if let Some(preferred_ids) = self.task_preferences.get(&task_type) {
             for model_id in preferred_ids {
                 attempt_chain.push(model_id.clone());
-                
+
                 if let Some(model) = self.models.get(model_id) {
                     // 检查模型是否可用
                     if !model.is_available {
@@ -213,6 +213,16 @@ impl ModelRouter {
                 .collect()
         } else {
             self.models.values().collect()
+        }
+    }
+
+    /// 从所有任务偏好列表中移除指定模型
+    pub fn remove_from_all_preferences(&mut self, model_id: &str) {
+        let task_types: Vec<TaskType> = self.task_preferences.keys().cloned().collect();
+        for task_type in task_types {
+            if let Some(preferred) = self.task_preferences.get_mut(&task_type) {
+                preferred.retain(|id| id != model_id);
+            }
         }
     }
 

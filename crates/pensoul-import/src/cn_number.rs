@@ -9,17 +9,17 @@ pub fn parse_cn_number(s: &str) -> Option<u64> {
     if s.is_empty() {
         return None;
     }
-    
+
     // 先尝试解析阿拉伯数字
     if let Ok(num) = s.parse::<u64>() {
         return Some(num);
     }
-    
+
     // 解析中文数字
     let mut result = 0u64;
     let mut current = 0u64;
     let mut has_unit = false;
-    
+
     for ch in s.chars() {
         match ch {
             '零' => {
@@ -64,10 +64,10 @@ pub fn parse_cn_number(s: &str) -> Option<u64> {
             _ => return None, // 非法字符
         }
     }
-    
+
     // 加上最后的余数
     result += current;
-    
+
     if result == 0 && s.contains('零') {
         Some(0)
     } else if result == 0 {
@@ -84,24 +84,26 @@ pub fn extract_chapter_number(title: &str) -> Option<u64> {
     let arabic_regex = Regex::new(r"(\d+)").ok()?;
     if let Some(caps) = arabic_regex.captures(title)
         && let Some(num_str) = caps.get(1)
-            && let Ok(num) = num_str.as_str().parse::<u64>() {
-                return Some(num);
-            }
-    
+        && let Ok(num) = num_str.as_str().parse::<u64>()
+    {
+        return Some(num);
+    }
+
     // 尝试中文数字匹配
     let cn_regex = Regex::new(r"([零一二三四五六七八九十百千万]+)").ok()?;
     if let Some(caps) = cn_regex.captures(title)
-        && let Some(cn_str) = caps.get(1) {
-            return parse_cn_number(cn_str.as_str());
-        }
-    
+        && let Some(cn_str) = caps.get(1)
+    {
+        return parse_cn_number(cn_str.as_str());
+    }
+
     None
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_parse_cn_number_basic() {
         assert_eq!(parse_cn_number("零"), Some(0));
@@ -116,7 +118,7 @@ mod tests {
         assert_eq!(parse_cn_number("九"), Some(9));
         assert_eq!(parse_cn_number("十"), Some(10));
     }
-    
+
     #[test]
     fn test_parse_cn_number_compound() {
         assert_eq!(parse_cn_number("十一"), Some(11));
@@ -128,14 +130,14 @@ mod tests {
         assert_eq!(parse_cn_number("一千"), Some(1000));
         assert_eq!(parse_cn_number("一万"), Some(10000));
     }
-    
+
     #[test]
     fn test_parse_cn_number_with_zero() {
         assert_eq!(parse_cn_number("一百零一"), Some(101));
         assert_eq!(parse_cn_number("一千零一"), Some(1001));
         assert_eq!(parse_cn_number("一万零一"), Some(10001));
     }
-    
+
     #[test]
     fn test_parse_cn_number_arabic() {
         assert_eq!(parse_cn_number("0"), Some(0));
@@ -143,14 +145,14 @@ mod tests {
         assert_eq!(parse_cn_number("23"), Some(23));
         assert_eq!(parse_cn_number("123"), Some(123));
     }
-    
+
     #[test]
     fn test_parse_cn_number_invalid() {
         assert_eq!(parse_cn_number(""), None);
         assert_eq!(parse_cn_number("abc"), None);
         assert_eq!(parse_cn_number("一二abc"), None);
     }
-    
+
     #[test]
     fn test_extract_chapter_number_arabic() {
         assert_eq!(extract_chapter_number("第1章"), Some(1));
@@ -158,7 +160,7 @@ mod tests {
         assert_eq!(extract_chapter_number("Chapter 5"), Some(5));
         assert_eq!(extract_chapter_number("1. 标题"), Some(1));
     }
-    
+
     #[test]
     fn test_extract_chapter_number_cn() {
         assert_eq!(extract_chapter_number("第一章"), Some(1));
@@ -166,14 +168,14 @@ mod tests {
         assert_eq!(extract_chapter_number("第二十三章"), Some(23));
         assert_eq!(extract_chapter_number("第一百章"), Some(100));
     }
-    
+
     #[test]
     fn test_extract_chapter_number_mixed() {
         assert_eq!(extract_chapter_number("第1章 标题"), Some(1));
         assert_eq!(extract_chapter_number("【第10章】"), Some(10));
         assert_eq!(extract_chapter_number("[第一章]"), Some(1));
     }
-    
+
     #[test]
     fn test_extract_chapter_number_none() {
         assert_eq!(extract_chapter_number("没有数字的标题"), None);

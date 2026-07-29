@@ -1,5 +1,5 @@
 /// Layer 1 世界层类型定义
-use crate::id::{EventId, LocationId, SettingId, WorldId, ChapterId};
+use crate::id::{ChapterId, EventId, LocationId, SettingId, WorldId};
 
 /// 世界层
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

@@ -1,18 +1,18 @@
+pub mod agents;
+pub mod channel;
 /// PenSoul 智能体通信系统
 ///
 /// 实现双通道通信协议（signal/report）、6 个预置 Agent 定义、通道路由器。
 /// 信号通道仅引擎可见（结构化 JSON），报告通道仅用户可见（自然语言）。
 pub mod message;
-pub mod channel;
-pub mod router;
-pub mod agents;
 pub mod protocol;
+pub mod router;
 
-pub use message::{AgentMessage, ChannelType, MessageMetadata, SeverityLevels, SignalPayload};
-pub use channel::DualChannel;
-pub use router::ChannelRouter;
 pub use agents::{AgentDefinition, AgentType};
+pub use channel::DualChannel;
+pub use message::{AgentMessage, ChannelType, MessageMetadata, SeverityLevels, SignalPayload};
 pub use protocol::{agent_message_schema, validate_message};
+pub use router::ChannelRouter;
 
 #[cfg(test)]
 mod tests {
@@ -202,7 +202,10 @@ mod tests {
             assert!(!agent.agent_id.as_str().is_empty(), "agent_id 不能为空");
             assert!(!agent.display_name.is_empty(), "display_name 不能为空");
             assert!(!agent.description.is_empty(), "description 不能为空");
-            assert!(!agent.model_preference.is_empty(), "model_preference 不能为空");
+            assert!(
+                !agent.model_preference.is_empty(),
+                "model_preference 不能为空"
+            );
             assert!(!agent.tools_allowed.is_empty(), "tools_allowed 不能为空");
             assert!(!agent.signal_fields.is_empty(), "signal_fields 不能为空");
             assert!(!agent.system_prompt.is_empty(), "system_prompt 不能为空");
@@ -279,11 +282,8 @@ mod tests {
         *signal_received.lock().unwrap() = false;
 
         // 发送报告消息 — 只有报告处理器应该收到
-        let report_msg = AgentMessage::report(
-            AgentId::new("analyzer"),
-            AgentId::new("ui"),
-            "报告".into(),
-        );
+        let report_msg =
+            AgentMessage::report(AgentId::new("analyzer"), AgentId::new("ui"), "报告".into());
         router.send(report_msg).unwrap();
 
         assert!(*report_received.lock().unwrap());

@@ -1,7 +1,7 @@
 /// 增量一致性检查器模块
 use std::time::Instant;
 
-use crate::entity_state::{EntityType, EntityState, EntityStateManager};
+use crate::entity_state::{EntityState, EntityStateManager, EntityType};
 use crate::report::{ConsistencyReport, ConsistencyViolation};
 use crate::rules::{ConsistencyRule, get_all_rules};
 use crate::scope::{ConsistencyCheckScope, determine_scope};
@@ -48,7 +48,11 @@ impl IncrementalChecker {
     }
 
     /// 增量检查特定章节的特定实体类型
-    pub fn check_incremental(&self, chapter_id: ChapterId, entity_type: EntityType) -> ConsistencyReport {
+    pub fn check_incremental(
+        &self,
+        chapter_id: ChapterId,
+        entity_type: EntityType,
+    ) -> ConsistencyReport {
         let start = Instant::now();
         let mut report = ConsistencyReport::new();
 
@@ -105,7 +109,11 @@ impl IncrementalChecker {
             let scope = determine_scope(entity_type);
 
             for entity_id in &entity_ids {
-                let all_states = self.state_manager.get_state(entity_id).cloned().unwrap_or_default();
+                let all_states = self
+                    .state_manager
+                    .get_state(entity_id)
+                    .cloned()
+                    .unwrap_or_default();
                 if all_states.len() < 2 {
                     continue;
                 }
@@ -206,7 +214,12 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    fn make_state(entity_id: &str, entity_type: EntityType, chapter_id: i64, data: serde_json::Value) -> EntityState {
+    fn make_state(
+        entity_id: &str,
+        entity_type: EntityType,
+        chapter_id: i64,
+        data: serde_json::Value,
+    ) -> EntityState {
         EntityState {
             entity_id: entity_id.to_string(),
             entity_type,
@@ -245,7 +258,12 @@ mod tests {
 
         assert_eq!(report.total_entities_checked, 1);
         // 位置变化应该产生一个 Info 违反
-        assert!(report.violations.iter().any(|v| v.severity == crate::report::ViolationSeverity::Info));
+        assert!(
+            report
+                .violations
+                .iter()
+                .any(|v| v.severity == crate::report::ViolationSeverity::Info)
+        );
     }
 
     #[test]
@@ -335,9 +353,8 @@ mod tests {
     fn test_with_custom_rules() {
         use crate::rules::CharacterStateConsistencyRule;
 
-        let rules: Vec<Box<dyn ConsistencyRule>> = vec![
-            Box::new(CharacterStateConsistencyRule::new()),
-        ];
+        let rules: Vec<Box<dyn ConsistencyRule>> =
+            vec![Box::new(CharacterStateConsistencyRule::new())];
 
         let checker = IncrementalChecker::with_rules(rules);
         assert!(checker.rules.len() == 1);

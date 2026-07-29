@@ -1,8 +1,8 @@
 /// 灵感生成 IPC 命令
 use crate::state::AppState;
-use pensoul_llm::{InspirationItem, generate_inspiration as gen_inspiration};
-use pensoul_llm::provider::OpenAiProvider;
 use pensoul_llm::TaskType;
+use pensoul_llm::provider::OpenAiProvider;
+use pensoul_llm::{InspirationItem, generate_inspiration as gen_inspiration};
 
 /// 生成灵感建议
 ///
@@ -46,7 +46,9 @@ pub async fn generate_inspiration(
     });
 
     let result = gen_inspiration(
-        provider.as_ref().map(|p| p as &dyn pensoul_llm::LlmProvider),
+        provider
+            .as_ref()
+            .map(|p| p as &dyn pensoul_llm::LlmProvider),
         model.as_ref(),
         &context_type,
         &context_data,

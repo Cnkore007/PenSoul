@@ -30,31 +30,49 @@ mod tests {
 
     #[test]
     fn test_character_scope() {
-        assert_eq!(determine_scope(&EntityType::Character), ConsistencyCheckScope::ChapterOnly);
+        assert_eq!(
+            determine_scope(&EntityType::Character),
+            ConsistencyCheckScope::ChapterOnly
+        );
     }
 
     #[test]
     fn test_setting_scope() {
-        assert_eq!(determine_scope(&EntityType::Setting), ConsistencyCheckScope::FullBook);
+        assert_eq!(
+            determine_scope(&EntityType::Setting),
+            ConsistencyCheckScope::FullBook
+        );
     }
 
     #[test]
     fn test_timeline_scope() {
-        assert_eq!(determine_scope(&EntityType::Timeline), ConsistencyCheckScope::ChapterPlusNeighbors);
+        assert_eq!(
+            determine_scope(&EntityType::Timeline),
+            ConsistencyCheckScope::ChapterPlusNeighbors
+        );
     }
 
     #[test]
     fn test_foreshadow_scope() {
-        assert_eq!(determine_scope(&EntityType::Foreshadow), ConsistencyCheckScope::ChapterPlusNeighbors);
+        assert_eq!(
+            determine_scope(&EntityType::Foreshadow),
+            ConsistencyCheckScope::ChapterPlusNeighbors
+        );
     }
 
     #[test]
     fn test_event_scope() {
-        assert_eq!(determine_scope(&EntityType::Event), ConsistencyCheckScope::ChapterOnly);
+        assert_eq!(
+            determine_scope(&EntityType::Event),
+            ConsistencyCheckScope::ChapterOnly
+        );
     }
 
     #[test]
     fn test_plot_scope() {
-        assert_eq!(determine_scope(&EntityType::Plot), ConsistencyCheckScope::ChapterOnly);
+        assert_eq!(
+            determine_scope(&EntityType::Plot),
+            ConsistencyCheckScope::ChapterOnly
+        );
     }
 }

@@ -90,12 +90,8 @@ impl WalEntry {
 
     /// 验证本条目的校验和是否正确。
     pub fn verify_checksum(&self) -> bool {
-        let expected = Self::compute_checksum_static(
-            self.timestamp,
-            &self.action,
-            &self.stage,
-            &self.data,
-        );
+        let expected =
+            Self::compute_checksum_static(self.timestamp, &self.action, &self.stage, &self.data);
         self.checksum == expected
     }
 }
@@ -249,8 +245,8 @@ impl WalManager {
         let mut entries = Vec::new();
 
         for line_result in reader.lines() {
-            let line = line_result
-                .map_err(|e| PensoulError::IoError(format!("读取 WAL 行失败: {e}")))?;
+            let line =
+                line_result.map_err(|e| PensoulError::IoError(format!("读取 WAL 行失败: {e}")))?;
             let line = line.trim().to_string();
             if line.is_empty() {
                 continue;

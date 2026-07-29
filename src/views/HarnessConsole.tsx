@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { Play, CheckCircle, AlertCircle, ArrowRight, Settings, Clock, Zap, RotateCcw, Loader2, Workflow, Brain, MessageSquare } from "lucide-react";
 import type { ProjectData, PluginConfig, ViewType } from "../types";
 import { builtinWorkflows } from "./WorkflowView";
+import { executeHarnessStep } from "../ipc";
 
 interface HarnessConsoleProps {
   projectData: ProjectData;
@@ -51,9 +52,6 @@ const gateIcons: Record<string, React.ReactNode> = {
   manual: <AlertCircle size={13} />,
   conditional: <Clock size={13} />,
 };
-
-// ── Agent 思考模拟脚本 ──
-// 每个阶段的思考步骤序列：think = 思考要点，action = 执行动作，output = 流式输出样本
 
 // ── 构建项目上下文摘要 ──
 // 从 projectData 中提取设置、大纲、世界观、角色信息，供 Agent 使用
@@ -137,106 +135,10 @@ function buildProjectContext(projectData: ProjectData): string {
   return parts.join('\n\n');
 }
 
-// 根据阶段名和上下文动态生成 Agent 脚本
-function buildStageScript(
-  stageName: string,
-  projectData: ProjectData,
-): Array<{ type: "think" | "action" | "output"; content: string }> {
-  const s = projectData.settings;
-  const totalChapters = projectData.volumes.reduce((sum, v) => sum + v.chapters.length, 0);
-  const totalWords = projectData.volumes.reduce((sum, v) => sum + v.chapters.reduce((s2, c) => s2 + c.word_count, 0), 0);
-  const allChapters = projectData.volumes.flatMap(v => v.chapters);
-  const lastChapter = allChapters.length > 0 ? allChapters[allChapters.length - 1] : null;
-
-  switch (stageName) {
-    case "outline_generation":
-      return [
-        { type: "think", content: `读取项目设定: 类型=${s.genre || '未设定'}, 目标章数=${s.targetChapters || '未设定'}, 目标字数=${s.targetWords || '未设定'}` },
-        { type: "think", content: `当前已有 ${totalChapters} 个章节, 共 ${totalWords} 字` },
-        { type: "think", content: "分析故事核心冲突和主线脉络..." },
-        { type: "action", content: "基于项目设置生成大纲框架..." },
-        { type: "output", content: `根据项目设定（类型: ${s.genre || '未设定'}），建议按以下结构组织大纲：
-
-共规划 ${s.targetVolumes || '待定'} 卷, ${s.targetChapters || '待定'} 章, 总字数目标 ${s.targetWords || '待定'} 字。
-
-（此为框架建议，请在「大纲」中按此结构创建卷和章节。）` },
-        { type: "think", content: "大纲框架已生成" },
-      ];
-    case "chapter_writing":
-      return [
-        { type: "think", content: `读取大纲: 共 ${totalChapters} 章, 已完成 ${totalWords} 字` },
-        { type: "think", content: lastChapter ? `上一章「${lastChapter.title}」结尾: ${lastChapter.content ? lastChapter.content.slice(-100) : '无内容'}...` : "这是第一章" },
-        { type: "think", content: "回顾角色状态和世界观设定..." },
-        { type: "action", content: "撰写章节正文..." },
-        { type: "output", content: lastChapter
-          ? `接续上一章「${lastChapter.title}」的结尾，继续推进剧情。
-
-（请在「写作」视图中查看和编辑完整内容。）`
-          : `开始创作第一章。
-
-（请在「写作」视图中查看和编辑完整内容。）` },
-        { type: "think", content: "章节初稿完成" },
-      ];
-    case "consistency_check":
-      return [
-        { type: "think", content: `扫描 ${totalChapters} 个章节的一致性...` },
-        { type: "think", content: "检查人物状态与世界观规则..." },
-        { type: "action", content: "生成一致性审查报告..." },
-        { type: "output", content: `一致性检查完成
-
-共检查 ${totalChapters} 章, ${projectData.characters.length} 个角色, ${projectData.world.locations.length} 个地点
-
-（详细结果请查看「一致性」视图。）` },
-      ];
-    case "style_review":
-      return [
-        { type: "think", content: `分析 ${totalWords} 字的文风特征...` },
-        { type: "think", content: "检测 AI 写作痕迹和模式化表达..." },
-        { type: "action", content: "生成文风诊断报告..." },
-        { type: "output", content: `文风分析完成
-
-总字数: ${totalWords}, 平均每章: ${totalChapters > 0 ? Math.round(totalWords / totalChapters) : 0} 字
-
-（详细分析请查看「文风」视图。）` },
-      ];
-    case "state_injection":
-      return [
-        { type: "think", content: "解析最新章节的角色状态变化..." },
-        { type: "think", content: "更新世界观演化记录..." },
-        { type: "action", content: "回灌状态到记忆系统..." },
-        { type: "output", content: `状态回灌完成
-
-角色: ${projectData.characters.length} 个
-地点: ${projectData.world.locations.length} 个
-时间线事件: ${projectData.world.timeline_events.length} 个
-设定规则: ${projectData.world.setting_rules.length} 个` },
-      ];
-    default:
-      return [
-        { type: "think", content: `分析任务「${stageName}」的上下文...` },
-        { type: "action", content: "执行阶段任务..." },
-        { type: "output", content: `「${stageName}」阶段完成。
-
-项目概览: ${totalChapters} 章, ${totalWords} 字` },
-      ];
-  }
-}
-
-
 function sleep(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-// 逐字流式输出
-async function* streamText(text: string, chunkSize = 1, interval = 30) {
-  let pos = 0;
-  while (pos < text.length) {
-    const end = Math.min(pos + chunkSize, text.length);
-    yield text.slice(pos, end);
-    pos = end;
-    await sleep(interval);
-  }
-}
 
 export function HarnessConsole({ projectData, onNavigate }: HarnessConsoleProps) {
   const workflowId = projectData.workflow_id;
@@ -246,8 +148,6 @@ export function HarnessConsole({ projectData, onNavigate }: HarnessConsoleProps)
   const [advancing, setAdvancing] = useState(false);
   const [agentWorking, setAgentWorking] = useState(false);
   const [messages, setMessages] = useState<AgentMessage[]>([]);
-  const [streamingContent, setStreamingContent] = useState("");
-  const [isStreaming, setIsStreaming] = useState(false);
   const [confirmManual, setConfirmManual] = useState<number | null>(null);
   const [autoAdvance, setAutoAdvance] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -255,7 +155,7 @@ export function HarnessConsole({ projectData, onNavigate }: HarnessConsoleProps)
   // 自动滚动到底部
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, streamingContent]);
+  }, [messages]);
 
   // 初始化进度
   useEffect(() => {
@@ -293,14 +193,13 @@ export function HarnessConsole({ projectData, onNavigate }: HarnessConsoleProps)
   const currentStage = stageList[currentStageIndex];
   const allCompleted = progress && stageList.length > 0 && stageList.every(s => progress.stages[s.name]?.status === "completed");
 
-  // 执行一个阶段的流式对话
+  // 执行一个阶段（真实 LLM 调用）
   const executeStageStreaming = useCallback(async (stageIdx: number) => {
     const stage = stageList[stageIdx];
     if (!stage) return;
 
     setAgentWorking(true);
     const stageName = stage.display_name;
-    const script = buildStageScript(stage.name, projectData);
 
     // 添加阶段开始消息
     setMessages(prev => [...prev, {
@@ -310,53 +209,42 @@ export function HarnessConsole({ projectData, onNavigate }: HarnessConsoleProps)
       stageName,
     }]);
 
-    let msgId = 0;
+    // 构建项目上下文
+    const context = buildProjectContext(projectData);
 
-    for (const step of script) {
-      if (step.type === "think" || step.type === "action") {
-        // 等待一段时间模拟思考
-        await sleep(400 + Math.random() * 600);
-        msgId++;
-        setMessages(prev => [...prev, {
-          id: `msg-${stageIdx}-${msgId}`,
-          type: step.type,
-          content: step.content,
-          stageName,
-        }]);
-      } else if (step.type === "output") {
-        // 等待准备输出
-        await sleep(300);
-        const outputId = `out-${stageIdx}-${msgId++}`;
+    try {
+      // 调用后端真实 LLM
+      const result = await executeHarnessStep(
+        stage.name,
+        context,
+        stage.prompt_template || `请执行「${stageName}」阶段的任务。`,
+      );
 
-        // 先添加空消息占位，然后用流式填充
-        setMessages(prev => [...prev, {
-          id: outputId,
-          type: "output",
-          content: "",
-          stageName,
-          streaming: true,
-        }]);
-        setIsStreaming(true);
+      // 显示思考过程
+      setMessages(prev => [...prev, {
+        id: `msg-${stageIdx}-think`,
+        type: "think",
+        content: result.thinking,
+        stageName,
+      }]);
 
-        // 逐字流式输出
-        let accumulated = "";
-        for await (const chunk of streamText(step.content, 1, 25)) {
-          accumulated += chunk;
-          setStreamingContent(accumulated);
-        }
-
-        // 流式完成，更新为最终内容
-        setMessages(prev => prev.map(m =>
-          m.id === outputId ? { ...m, content: accumulated, streaming: false } : m
-        ));
-        setStreamingContent("");
-        setIsStreaming(false);
-        await sleep(200);
-      }
+      // 显示输出
+      setMessages(prev => [...prev, {
+        id: `msg-${stageIdx}-output`,
+        type: "output",
+        content: result.output,
+        stageName,
+      }]);
+    } catch (e: any) {
+      setMessages(prev => [...prev, {
+        id: `msg-${stageIdx}-error`,
+        type: "error",
+        content: `执行失败: ${e?.message || String(e)}`,
+        stageName,
+      }]);
     }
 
     // 阶段完成
-    msgId++;
     setMessages(prev => [...prev, {
       id: `msg-${stageIdx}-done`,
       type: "complete",
@@ -389,7 +277,7 @@ export function HarnessConsole({ projectData, onNavigate }: HarnessConsoleProps)
 
     setProgress(updated);
     saveProgress(projectData.project_id, updated);
-  }, [stageList, progress, projectData.project_id]);
+  }, [stageList, progress, projectData]);
 
   // 推进至下一阶段
   const handleAdvance = useCallback(async () => {
@@ -473,9 +361,8 @@ export function HarnessConsole({ projectData, onNavigate }: HarnessConsoleProps)
       setMessages([{
         id: "reset",
         type: "think",
-        content: "进度已重置，可以重新开始。」",
+        content: "进度已重置，可以重新开始。",
       }]);
-      setStreamingContent("");
     }
   }, [workflow, projectData.project_id]);
 
@@ -703,12 +590,7 @@ export function HarnessConsole({ projectData, onNavigate }: HarnessConsoleProps)
                     whiteSpace: "pre-wrap",
                     fontFamily: "var(--font-mono, monospace)",
                   }}>
-                    {msg.streaming && msg.id.endsWith(String(messages.length - 1))
-                      ? streamingContent || ""
-                      : msg.content}
-                    {msg.streaming && (
-                      <span style={{ display: "inline-block", width: 6, height: 14, background: "var(--color-accent)", marginLeft: 2, animation: "blink 0.6s step-end infinite", verticalAlign: "text-bottom" }} />
-                    )}
+                    {msg.content}
                   </div>
                 ) : msg.type === "think" ? (
                   <div style={{
@@ -745,26 +627,6 @@ export function HarnessConsole({ projectData, onNavigate }: HarnessConsoleProps)
               </div>
             </div>
           ))}
-
-          {/* 流式输出占位 */}
-          {isStreaming && (
-            <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
-              <div style={{
-                flexShrink: 0, width: 22, height: 22, borderRadius: "50%",
-                display: "flex", alignItems: "center", justifyContent: "center",
-                fontSize: 11, background: "var(--color-paper-warm)", color: "var(--color-ink-3)", marginTop: 1,
-              }}>文</div>
-              <div style={{
-                fontSize: "var(--text-xs)", lineHeight: 1.7, color: "var(--color-ink)",
-                background: "var(--color-paper)", borderRadius: "var(--radius-sm)",
-                padding: "10px 14px", border: "1px solid var(--color-rule-light)",
-                whiteSpace: "pre-wrap", fontFamily: "var(--font-mono, monospace)", flex: 1,
-              }}>
-                {streamingContent}
-                <span style={{ display: "inline-block", width: 6, height: 14, background: "var(--color-accent)", marginLeft: 2, animation: "blink 0.6s step-end infinite", verticalAlign: "text-bottom" }} />
-              </div>
-            </div>
-          )}
 
           <div ref={messagesEndRef} />
         </div>

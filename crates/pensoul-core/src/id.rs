@@ -77,8 +77,8 @@ define_id!(AntiAiRuleId);
 /// 接受 JSON 字符串或数字，统一反序列化为对应的 ID 类型。
 /// 用于兼容旧版数据中 chapter_id 以 i64 数字存储的格式。
 pub mod flexible_id {
-    use serde::{Deserialize, Deserializer};
     use super::ChapterId;
+    use serde::{Deserialize, Deserializer};
 
     #[derive(Deserialize)]
     #[serde(untagged)]

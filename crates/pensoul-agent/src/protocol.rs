@@ -210,7 +210,13 @@ mod tests {
         assert_eq!(msg.channel, deserialized.channel);
         assert_eq!(msg.from_agent, deserialized.from_agent);
         assert_eq!(msg.to_agent, deserialized.to_agent);
-        assert_eq!(msg.signal.as_ref().unwrap().pass, deserialized.signal.as_ref().unwrap().pass);
-        assert_eq!(msg.signal.as_ref().unwrap().score, deserialized.signal.as_ref().unwrap().score);
+        assert_eq!(
+            msg.signal.as_ref().unwrap().pass,
+            deserialized.signal.as_ref().unwrap().pass
+        );
+        assert_eq!(
+            msg.signal.as_ref().unwrap().score,
+            deserialized.signal.as_ref().unwrap().score
+        );
     }
 }

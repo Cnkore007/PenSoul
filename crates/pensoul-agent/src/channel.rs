@@ -31,14 +31,16 @@ impl SignalChannel {
     where
         F: Fn(&AgentMessage) -> Result<()> + Send + Sync + 'static,
     {
-        self.handlers.insert(agent_id.to_string(), Box::new(handler));
+        self.handlers
+            .insert(agent_id.to_string(), Box::new(handler));
     }
 
     /// 分发信号消息
     pub fn dispatch(&self, msg: &AgentMessage) -> Result<()> {
-        let handler = self.handlers.get(msg.to_agent.as_str()).ok_or_else(|| {
-            PensoulError::Internal(format!("信号处理器未注册: {}", msg.to_agent))
-        })?;
+        let handler = self
+            .handlers
+            .get(msg.to_agent.as_str())
+            .ok_or_else(|| PensoulError::Internal(format!("信号处理器未注册: {}", msg.to_agent)))?;
         handler(msg)
     }
 
@@ -71,14 +73,16 @@ impl ReportChannel {
     where
         F: Fn(&AgentMessage) -> Result<()> + Send + Sync + 'static,
     {
-        self.handlers.insert(agent_id.to_string(), Box::new(handler));
+        self.handlers
+            .insert(agent_id.to_string(), Box::new(handler));
     }
 
     /// 分发报告消息
     pub fn dispatch(&self, msg: &AgentMessage) -> Result<()> {
-        let handler = self.handlers.get(msg.to_agent.as_str()).ok_or_else(|| {
-            PensoulError::Internal(format!("报告处理器未注册: {}", msg.to_agent))
-        })?;
+        let handler = self
+            .handlers
+            .get(msg.to_agent.as_str())
+            .ok_or_else(|| PensoulError::Internal(format!("报告处理器未注册: {}", msg.to_agent)))?;
         handler(msg)
     }
 

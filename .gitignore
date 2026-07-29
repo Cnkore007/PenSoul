@@ -1,6 +1,9 @@
 # Rust 构建产物
 target/
 
+# 开发数据目录
+data/
+
 # Node.js
 node_modules/
 
@@ -47,3 +50,6 @@ downloads/
 # Agent 配置（不上传）
 AGENTS.md
 *.bak
+
+# 运行时配置目录（含 API 密钥）
+_config/

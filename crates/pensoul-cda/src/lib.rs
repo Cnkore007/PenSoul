@@ -13,4 +13,4 @@ pub use edge::{EdgeRelation, ImpactEdge};
 pub use graph::{AffectedItem, ImpactGraph};
 pub use node::{ImpactNode, ImpactSeverity, NodeType};
 pub use propagation::bfs_find_affected;
-pub use stats::{compute_stats, Stats};
+pub use stats::{Stats, compute_stats};

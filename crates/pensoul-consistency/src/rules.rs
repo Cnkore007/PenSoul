@@ -1,5 +1,5 @@
 /// 一致性检查规则模块
-use crate::entity_state::{EntityType, EntityState};
+use crate::entity_state::{EntityState, EntityType};
 use crate::report::{ConsistencyViolation, ViolationSeverity};
 use pensoul_core::id::ChapterId;
 
@@ -53,37 +53,37 @@ impl ConsistencyRule for CharacterStateConsistencyRule {
                 if let (Some(name_a), Some(name_b)) = (
                     state_a.state_data.get("name").and_then(|v| v.as_str()),
                     state_b.state_data.get("name").and_then(|v| v.as_str()),
-                )
-                    && name_a != name_b {
-                        violations.push(
-                            ConsistencyViolation::new(
-                                state_a.entity_id.clone(),
-                                EntityType::Character,
-                                state_a.chapter_id.clone(),
-                                state_b.chapter_id.clone(),
-                                format!("Character name changed from '{}' to '{}'", name_a, name_b),
-                                ViolationSeverity::Warning,
-                                self.name().to_string(),
-                            )
-                            .with_suggested_fix("Verify if the name change is intentional".to_string()),
-                        );
-                    }
+                ) && name_a != name_b
+                {
+                    violations.push(
+                        ConsistencyViolation::new(
+                            state_a.entity_id.clone(),
+                            EntityType::Character,
+                            state_a.chapter_id.clone(),
+                            state_b.chapter_id.clone(),
+                            format!("Character name changed from '{}' to '{}'", name_a, name_b),
+                            ViolationSeverity::Warning,
+                            self.name().to_string(),
+                        )
+                        .with_suggested_fix("Verify if the name change is intentional".to_string()),
+                    );
+                }
 
                 // 比较 location 字段
                 if let (Some(loc_a), Some(loc_b)) = (
                     state_a.state_data.get("location").and_then(|v| v.as_str()),
                     state_b.state_data.get("location").and_then(|v| v.as_str()),
-                )
-                    && loc_a != loc_b {
-                        // 检查是否有合理的空间转换
-                        let has_valid_transition = state_b
-                            .state_data
-                            .get("transition_reason")
-                            .and_then(|v| v.as_str())
-                            .is_some();
+                ) && loc_a != loc_b
+                {
+                    // 检查是否有合理的空间转换
+                    let has_valid_transition = state_b
+                        .state_data
+                        .get("transition_reason")
+                        .and_then(|v| v.as_str())
+                        .is_some();
 
-                        if !has_valid_transition {
-                            violations.push(
+                    if !has_valid_transition {
+                        violations.push(
                                 ConsistencyViolation::new(
                                     state_a.entity_id.clone(),
                                     EntityType::Character,
@@ -95,22 +95,23 @@ impl ConsistencyRule for CharacterStateConsistencyRule {
                                 )
                                 .with_suggested_fix("Add a transition explanation for the location change".to_string()),
                             );
-                        }
                     }
+                }
 
                 // 比较状态版本连续性
                 if state_b.version - state_a.version > 1 {
-                    violations.push(
-                        ConsistencyViolation::new(
-                            state_a.entity_id.clone(),
-                            EntityType::Character,
-                            state_a.chapter_id.clone(),
-                            state_b.chapter_id.clone(),
-                            format!("Version gap detected: v{} -> v{}", state_a.version, state_b.version),
-                            ViolationSeverity::Info,
-                            self.name().to_string(),
+                    violations.push(ConsistencyViolation::new(
+                        state_a.entity_id.clone(),
+                        EntityType::Character,
+                        state_a.chapter_id.clone(),
+                        state_b.chapter_id.clone(),
+                        format!(
+                            "Version gap detected: v{} -> v{}",
+                            state_a.version, state_b.version
                         ),
-                    );
+                        ViolationSeverity::Info,
+                        self.name().to_string(),
+                    ));
                 }
             }
         }
@@ -157,41 +158,51 @@ impl ConsistencyRule for SettingConsistencyRule {
                 if let (Some(name_a), Some(name_b)) = (
                     state_a.state_data.get("name").and_then(|v| v.as_str()),
                     state_b.state_data.get("name").and_then(|v| v.as_str()),
-                )
-                    && name_a != name_b {
-                        violations.push(
-                            ConsistencyViolation::new(
-                                state_a.entity_id.clone(),
-                                EntityType::Setting,
-                                state_a.chapter_id.clone(),
-                                state_b.chapter_id.clone(),
-                                format!("Setting name changed from '{}' to '{}'", name_a, name_b),
-                                ViolationSeverity::Error,
-                                self.name().to_string(),
-                            )
-                            .with_suggested_fix("Setting names should be consistent throughout the book".to_string()),
-                        );
-                    }
+                ) && name_a != name_b
+                {
+                    violations.push(
+                        ConsistencyViolation::new(
+                            state_a.entity_id.clone(),
+                            EntityType::Setting,
+                            state_a.chapter_id.clone(),
+                            state_b.chapter_id.clone(),
+                            format!("Setting name changed from '{}' to '{}'", name_a, name_b),
+                            ViolationSeverity::Error,
+                            self.name().to_string(),
+                        )
+                        .with_suggested_fix(
+                            "Setting names should be consistent throughout the book".to_string(),
+                        ),
+                    );
+                }
 
                 // 比较描述
                 if let (Some(desc_a), Some(desc_b)) = (
-                    state_a.state_data.get("description").and_then(|v| v.as_str()),
-                    state_b.state_data.get("description").and_then(|v| v.as_str()),
-                )
-                    && desc_a != desc_b {
-                        violations.push(
-                            ConsistencyViolation::new(
-                                state_a.entity_id.clone(),
-                                EntityType::Setting,
-                                state_a.chapter_id.clone(),
-                                state_b.chapter_id.clone(),
-                                "Setting description differs between chapters".to_string(),
-                                ViolationSeverity::Warning,
-                                self.name().to_string(),
-                            )
-                            .with_suggested_fix("Ensure setting descriptions are consistent".to_string()),
-                        );
-                    }
+                    state_a
+                        .state_data
+                        .get("description")
+                        .and_then(|v| v.as_str()),
+                    state_b
+                        .state_data
+                        .get("description")
+                        .and_then(|v| v.as_str()),
+                ) && desc_a != desc_b
+                {
+                    violations.push(
+                        ConsistencyViolation::new(
+                            state_a.entity_id.clone(),
+                            EntityType::Setting,
+                            state_a.chapter_id.clone(),
+                            state_b.chapter_id.clone(),
+                            "Setting description differs between chapters".to_string(),
+                            ViolationSeverity::Warning,
+                            self.name().to_string(),
+                        )
+                        .with_suggested_fix(
+                            "Ensure setting descriptions are consistent".to_string(),
+                        ),
+                    );
+                }
 
                 // 检查规则约束
                 if let (Some(rules_a), Some(rules_b)) = (
@@ -201,9 +212,10 @@ impl ConsistencyRule for SettingConsistencyRule {
                     let mut missing_rules = vec![];
                     for rule in rules_a {
                         if !rules_b.contains(rule)
-                            && let Some(rule_name) = rule.as_str() {
-                                missing_rules.push(rule_name.to_string());
-                            }
+                            && let Some(rule_name) = rule.as_str()
+                        {
+                            missing_rules.push(rule_name.to_string());
+                        }
                     }
                     if !missing_rules.is_empty() {
                         violations.push(
@@ -212,11 +224,16 @@ impl ConsistencyRule for SettingConsistencyRule {
                                 EntityType::Setting,
                                 state_a.chapter_id.clone(),
                                 state_b.chapter_id.clone(),
-                                format!("Setting rules missing in later chapter: {:?}", missing_rules),
+                                format!(
+                                    "Setting rules missing in later chapter: {:?}",
+                                    missing_rules
+                                ),
                                 ViolationSeverity::Error,
                                 self.name().to_string(),
                             )
-                            .with_suggested_fix("Ensure all setting rules are applied consistently".to_string()),
+                            .with_suggested_fix(
+                                "Ensure all setting rules are applied consistently".to_string(),
+                            ),
                         );
                     }
                 }
@@ -309,23 +326,29 @@ impl ConsistencyRule for ForeshadowTrackingRule {
             }
 
             // 检查相关角色
-            if let Some(characters) = state.state_data.get("related_characters").and_then(|v| v.as_array())
-                && characters.is_empty() {
-                    violations.push(
-                        ConsistencyViolation::new(
-                            state.entity_id.clone(),
-                            EntityType::Foreshadow,
-                            state.chapter_id.clone(),
-                            state.chapter_id.clone(),
-                            format!(
-                                "Foreshadow '{}' has no related characters",
-                                state.state_data.get("name").and_then(|v| v.as_str()).unwrap_or("unknown")
-                            ),
-                            ViolationSeverity::Info,
-                            self.name().to_string(),
-                        ),
-                    );
-                }
+            if let Some(characters) = state
+                .state_data
+                .get("related_characters")
+                .and_then(|v| v.as_array())
+                && characters.is_empty()
+            {
+                violations.push(ConsistencyViolation::new(
+                    state.entity_id.clone(),
+                    EntityType::Foreshadow,
+                    state.chapter_id.clone(),
+                    state.chapter_id.clone(),
+                    format!(
+                        "Foreshadow '{}' has no related characters",
+                        state
+                            .state_data
+                            .get("name")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("unknown")
+                    ),
+                    ViolationSeverity::Info,
+                    self.name().to_string(),
+                ));
+            }
         }
 
         violations
@@ -368,26 +391,37 @@ impl ConsistencyRule for TimelineConsistencyRule {
 
                 // 比较时间标记
                 if let (Some(time_a), Some(time_b)) = (
-                    state_a.state_data.get("time_marker").and_then(|v| v.as_str()),
-                    state_b.state_data.get("time_marker").and_then(|v| v.as_str()),
-                )
-                    && time_a == time_b && state_a.chapter_id != state_b.chapter_id {
-                        violations.push(
-                            ConsistencyViolation::new(
-                                state_a.entity_id.clone(),
-                                EntityType::Timeline,
-                                state_a.chapter_id.clone(),
-                                state_b.chapter_id.clone(),
-                                format!("Same time marker '{}' in different chapters", time_a),
-                                ViolationSeverity::Warning,
-                                self.name().to_string(),
-                            )
-                            .with_suggested_fix("Ensure time progresses between chapters".to_string()),
-                        );
-                    }
+                    state_a
+                        .state_data
+                        .get("time_marker")
+                        .and_then(|v| v.as_str()),
+                    state_b
+                        .state_data
+                        .get("time_marker")
+                        .and_then(|v| v.as_str()),
+                ) && time_a == time_b
+                    && state_a.chapter_id != state_b.chapter_id
+                {
+                    violations.push(
+                        ConsistencyViolation::new(
+                            state_a.entity_id.clone(),
+                            EntityType::Timeline,
+                            state_a.chapter_id.clone(),
+                            state_b.chapter_id.clone(),
+                            format!("Same time marker '{}' in different chapters", time_a),
+                            ViolationSeverity::Warning,
+                            self.name().to_string(),
+                        )
+                        .with_suggested_fix("Ensure time progresses between chapters".to_string()),
+                    );
+                }
 
                 // 检查时间线因果关系
-                if let Some(cause_chapter) = state_a.state_data.get("caused_by_chapter").and_then(|v| v.as_i64()) {
+                if let Some(cause_chapter) = state_a
+                    .state_data
+                    .get("caused_by_chapter")
+                    .and_then(|v| v.as_i64())
+                {
                     let cause_ch = ChapterId::new(cause_chapter.to_string());
                     if cause_ch >= state_a.chapter_id {
                         violations.push(
@@ -400,7 +434,9 @@ impl ConsistencyRule for TimelineConsistencyRule {
                                 ViolationSeverity::Error,
                                 self.name().to_string(),
                             )
-                            .with_suggested_fix("Events cannot be caused by future chapters".to_string()),
+                            .with_suggested_fix(
+                                "Events cannot be caused by future chapters".to_string(),
+                            ),
                         );
                     }
                 }
@@ -464,13 +500,19 @@ impl ConsistencyRule for EventContinuityRule {
                                         event.chapter_id.clone(),
                                         format!(
                                             "Event '{}' caused by future event '{}'",
-                                            event.state_data.get("name").and_then(|v| v.as_str()).unwrap_or("unknown"),
+                                            event
+                                                .state_data
+                                                .get("name")
+                                                .and_then(|v| v.as_str())
+                                                .unwrap_or("unknown"),
                                             cause_id
                                         ),
                                         ViolationSeverity::Error,
                                         self.name().to_string(),
                                     )
-                                    .with_suggested_fix("Events must be caused by earlier events".to_string()),
+                                    .with_suggested_fix(
+                                        "Events must be caused by earlier events".to_string(),
+                                    ),
                                 );
                             }
                         }
@@ -479,23 +521,29 @@ impl ConsistencyRule for EventContinuityRule {
             }
 
             // 检查参与者
-            if let Some(participants) = event.state_data.get("participants").and_then(|v| v.as_array())
-                && participants.is_empty() {
-                    violations.push(
-                        ConsistencyViolation::new(
-                            event.entity_id.clone(),
-                            EntityType::Event,
-                            event.chapter_id.clone(),
-                            event.chapter_id.clone(),
-                            format!(
-                                "Event '{}' has no participants",
-                                event.state_data.get("name").and_then(|v| v.as_str()).unwrap_or("unknown")
-                            ),
-                            ViolationSeverity::Warning,
-                            self.name().to_string(),
-                        ),
-                    );
-                }
+            if let Some(participants) = event
+                .state_data
+                .get("participants")
+                .and_then(|v| v.as_array())
+                && participants.is_empty()
+            {
+                violations.push(ConsistencyViolation::new(
+                    event.entity_id.clone(),
+                    EntityType::Event,
+                    event.chapter_id.clone(),
+                    event.chapter_id.clone(),
+                    format!(
+                        "Event '{}' has no participants",
+                        event
+                            .state_data
+                            .get("name")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("unknown")
+                    ),
+                    ViolationSeverity::Warning,
+                    self.name().to_string(),
+                ));
+            }
         }
 
         violations
@@ -518,7 +566,12 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    fn make_state(entity_id: &str, entity_type: EntityType, chapter_id: i64, data: serde_json::Value) -> EntityState {
+    fn make_state(
+        entity_id: &str,
+        entity_type: EntityType,
+        chapter_id: i64,
+        data: serde_json::Value,
+    ) -> EntityState {
         EntityState {
             entity_id: entity_id.to_string(),
             entity_type,
@@ -552,8 +605,18 @@ mod tests {
         assert!(rule.applies_to(&EntityType::Setting));
 
         let states = vec![
-            make_state("world_1", EntityType::Setting, 1, json!({"name": "Middle Earth", "description": "A fantasy world"})),
-            make_state("world_1", EntityType::Setting, 2, json!({"name": "Middle Earth", "description": "A magical world"})),
+            make_state(
+                "world_1",
+                EntityType::Setting,
+                1,
+                json!({"name": "Middle Earth", "description": "A fantasy world"}),
+            ),
+            make_state(
+                "world_1",
+                EntityType::Setting,
+                2,
+                json!({"name": "Middle Earth", "description": "A magical world"}),
+            ),
         ];
 
         let violations = rule.check(&states);
@@ -568,16 +631,26 @@ mod tests {
         assert!(rule.applies_to(&EntityType::Foreshadow));
 
         let states = vec![
-            make_state("fs_1", EntityType::Foreshadow, 1, json!({
-                "name": "The Prophecy",
-                "status": "planted",
-                "expected_resolve_chapter": 5
-            })),
-            make_state("fs_1", EntityType::Foreshadow, 10, json!({
-                "name": "The Prophecy",
-                "status": "planted",
-                "expected_resolve_chapter": 5
-            })),
+            make_state(
+                "fs_1",
+                EntityType::Foreshadow,
+                1,
+                json!({
+                    "name": "The Prophecy",
+                    "status": "planted",
+                    "expected_resolve_chapter": 5
+                }),
+            ),
+            make_state(
+                "fs_1",
+                EntityType::Foreshadow,
+                10,
+                json!({
+                    "name": "The Prophecy",
+                    "status": "planted",
+                    "expected_resolve_chapter": 5
+                }),
+            ),
         ];
 
         let violations = rule.check(&states);
@@ -592,8 +665,18 @@ mod tests {
         assert!(rule.applies_to(&EntityType::Timeline));
 
         let states = vec![
-            make_state("tl_1", EntityType::Timeline, 1, json!({"time_marker": "Dawn"})),
-            make_state("tl_1", EntityType::Timeline, 2, json!({"time_marker": "Dawn"})),
+            make_state(
+                "tl_1",
+                EntityType::Timeline,
+                1,
+                json!({"time_marker": "Dawn"}),
+            ),
+            make_state(
+                "tl_1",
+                EntityType::Timeline,
+                2,
+                json!({"time_marker": "Dawn"}),
+            ),
         ];
 
         let violations = rule.check(&states);
@@ -608,15 +691,25 @@ mod tests {
         assert!(rule.applies_to(&EntityType::Event));
 
         let states = vec![
-            make_state("evt_1", EntityType::Event, 10, json!({
-                "event_id": "evt_1",
-                "name": "Effect",
-                "caused_by": ["evt_2"]
-            })),
-            make_state("evt_2", EntityType::Event, 5, json!({
-                "event_id": "evt_2",
-                "name": "Cause"
-            })),
+            make_state(
+                "evt_1",
+                EntityType::Event,
+                10,
+                json!({
+                    "event_id": "evt_1",
+                    "name": "Effect",
+                    "caused_by": ["evt_2"]
+                }),
+            ),
+            make_state(
+                "evt_2",
+                EntityType::Event,
+                5,
+                json!({
+                    "event_id": "evt_2",
+                    "name": "Cause"
+                }),
+            ),
         ];
 
         let violations = rule.check(&states);
@@ -629,15 +722,25 @@ mod tests {
         let rule = EventContinuityRule::new();
 
         let states = vec![
-            make_state("evt_1", EntityType::Event, 5, json!({
-                "event_id": "evt_1",
-                "name": "Effect",
-                "caused_by": ["evt_2"]
-            })),
-            make_state("evt_2", EntityType::Event, 10, json!({
-                "event_id": "evt_2",
-                "name": "Future Cause"
-            })),
+            make_state(
+                "evt_1",
+                EntityType::Event,
+                5,
+                json!({
+                    "event_id": "evt_1",
+                    "name": "Effect",
+                    "caused_by": ["evt_2"]
+                }),
+            ),
+            make_state(
+                "evt_2",
+                EntityType::Event,
+                10,
+                json!({
+                    "event_id": "evt_2",
+                    "name": "Future Cause"
+                }),
+            ),
         ];
 
         let violations = rule.check(&states);

@@ -53,10 +53,17 @@ pub struct PluginConfig {
     /// 描述
     #[serde(default)]
     pub description: String,
+    /// 是否启用
+    #[serde(default = "default_true")]
+    pub enabled: bool,
     /// 插件阶段列表
     #[serde(default)]
     pub stages: Vec<PluginStage>,
     /// 扩展元数据
     #[serde(default)]
     pub metadata: Value,
+}
+
+fn default_true() -> bool {
+    true
 }

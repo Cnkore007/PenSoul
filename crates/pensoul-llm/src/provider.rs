@@ -79,9 +79,7 @@ impl LlmProvider for OpenAiProvider {
 
         let json: serde_json::Value = resp
             .json()
-            .map_err(|e| {
-                pensoul_core::PensoulError::Internal(format!("解析 API 响应失败: {e}"))
-            })?;
+            .map_err(|e| pensoul_core::PensoulError::Internal(format!("解析 API 响应失败: {e}")))?;
 
         let text = json["choices"][0]["message"]["content"]
             .as_str()

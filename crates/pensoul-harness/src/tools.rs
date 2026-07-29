@@ -46,9 +46,7 @@ impl ToolWhitelist {
         }
 
         // 优先级 2：允许列表为空表示不限制，否则必须在白名单中
-        if !stage.tools_allowed.is_empty()
-            && !stage.tools_allowed.iter().any(|t| t == tool_name)
-        {
+        if !stage.tools_allowed.is_empty() && !stage.tools_allowed.iter().any(|t| t == tool_name) {
             let _ = wal.write(
                 WalAction::ToolBlocked,
                 Some(current_stage),
@@ -94,7 +92,9 @@ mod tests {
             tools_denied: vec![],
             ..Stage::default()
         };
-        assert!(ToolWhitelist::check_access(&stage, "any_tool", &wal, "writing"));
+        assert!(ToolWhitelist::check_access(
+            &stage, "any_tool", &wal, "writing"
+        ));
     }
 
     #[test]

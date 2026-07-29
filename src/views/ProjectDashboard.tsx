@@ -1,12 +1,11 @@
 import {
   ListTree, PenLine, Users, Globe, Workflow,
   ShieldCheck, Palette, Calendar,
-  Sparkles, Play, Check, Settings, Edit3,
-  ChevronRight,
+  Sparkles, Play, Check, Settings,
+  ChevronRight, Lightbulb,
 } from "lucide-react";
 import type { ProjectData, ProjectMeta, ViewType } from "../types";
 
-// 工作流模板元数据（与 WorkflowView 保持一致）
 const workflowMeta: Record<string, { name: string; stageCount: number }> = {
   "standard-novel": { name: "标准小说工作流", stageCount: 5 },
   "quick-novel": { name: "快速创作工作流", stageCount: 3 },
@@ -19,30 +18,24 @@ interface ProjectDashboardProps {
   persistProjectData?: (updater: (prev: ProjectData) => ProjectData) => void;
 }
 
-export function ProjectDashboard({ project, projectData, onNavigate, persistProjectData }: ProjectDashboardProps) {
-  // 统计
-  const totalChapters = projectData.volumes.reduce((s, v) => s + v.chapters.length, 0);
-  const totalWords = projectData.volumes.reduce(
+export function ProjectDashboard({ project, projectData, onNavigate }: ProjectDashboardProps) {
+  const totalChapters = projectData.volumes?.reduce((s, v) => s + v.chapters.length, 0) ?? 0;
+  const totalWords = projectData.volumes?.reduce(
     (s, v) => s + v.chapters.reduce((s2, c) => s2 + c.word_count, 0), 0
-  );
-  const totalVolumes = projectData.volumes.length;
-  const totalCharacters = projectData.characters.length;
-  const totalLocations = projectData.world.locations.length;
+  ) ?? 0;
+  const totalVolumes = projectData.volumes?.length ?? 0;
+  const totalCharacters = projectData.characters?.length ?? 0;
+  const totalLocations = projectData.world?.locations?.length ?? 0;
 
-  // 各状态章节数
-  const polishedCount = projectData.volumes.reduce(
+  const polishedCount = projectData.volumes?.reduce(
     (s, v) => s + v.chapters.filter(c => c.status === "Polished" || c.status === "Published").length, 0
-  );
+  ) ?? 0;
 
-  // 工作流状态
   const workflowId = projectData.workflow_id;
   const wfMeta = workflowId ? workflowMeta[workflowId] : null;
-
-  // 新手引导步骤状态
   const hasOutline = totalChapters > 0;
   const hasWorkflow = !!workflowId;
 
-  // 模块快捷入口
   const modules: Array<{
     id: ViewType;
     label: string;
@@ -51,6 +44,29 @@ export function ProjectDashboard({ project, projectData, onNavigate, persistProj
     color: string;
     count?: string;
   }> = [
+    {
+      id: "concept",
+      label: "灵魂萌芽",
+      sublabel: "想法描述 / 创作设定 / 多维度讨论",
+      icon: <Lightbulb size={20} />,
+      color: "var(--color-accent)",
+    },
+    {
+      id: "world",
+      label: "世界观",
+      sublabel: "地点 · 时间线 · 设定规则",
+      icon: <Globe size={20} />,
+      color: "var(--color-jade)",
+      count: `${totalLocations} 处设定`,
+    },
+    {
+      id: "character",
+      label: "人物志",
+      sublabel: "角色创建 / 性格 / 关系",
+      icon: <Users size={20} />,
+      color: "var(--color-indigo)",
+      count: `${totalCharacters} 位角色`,
+    },
     {
       id: "outline",
       label: "大纲",
@@ -66,22 +82,6 @@ export function ProjectDashboard({ project, projectData, onNavigate, persistProj
       icon: <PenLine size={20} />,
       color: "var(--color-accent)",
       count: `${totalWords.toLocaleString()} 字`,
-    },
-    {
-      id: "character",
-      label: "人物志",
-      sublabel: "角色创建 / 性格 / 关系",
-      icon: <Users size={20} />,
-      color: "var(--color-indigo)",
-      count: `${totalCharacters} 位角色`,
-    },
-    {
-      id: "world",
-      label: "世界观",
-      sublabel: "地点 · 时间线 · 设定规则",
-      icon: <Globe size={20} />,
-      color: "var(--color-jade)",
-      count: `${totalLocations} 处设定`,
     },
     {
       id: "workflow",
@@ -149,7 +149,7 @@ export function ProjectDashboard({ project, projectData, onNavigate, persistProj
             width: 6, height: 6, borderRadius: "50%",
             background: "var(--color-accent)", display: "inline-block",
           }} />
-          <span>创作编辑：大纲（卷章结构）· 笔耕（正文）· 人物志（角色）· 世界观（设定）</span>
+          <span>创作阶段：灵魂萌芽（种子）→ 世界观 + 人物志（铺开）→ 大纲·笔耕（骨架）</span>
         </div>
         <div style={{
           display: "flex", alignItems: "center", gap: 4,
@@ -189,158 +189,6 @@ export function ProjectDashboard({ project, projectData, onNavigate, persistProj
         <div className="pd-stat">
           <div className="pd-stat-value">{polishedCount}/{totalChapters}</div>
           <div className="pd-stat-label">已润色</div>
-        </div>
-      </div>
-
-      {/* 创作规划 */}
-      <div className="pd-section" style={{ marginBottom: "var(--space-lg)" }}>
-        <div className="pd-section-header">
-          <h2>创作规划</h2>
-          <span className="pd-section-sub">设定创作目标，追踪进展</span>
-        </div>
-        <div style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))",
-          gap: "var(--space-sm)",
-        }}>
-          {[
-            { label: "目标总章数", key: "targetChapters", value: projectData.settings.targetChapters, current: totalChapters, unit: "章" },
-            { label: "目标总字数", key: "targetWords", value: projectData.settings.targetWords, current: totalWords, unit: "字" },
-            { label: "每章目标字数", key: "chapterTargetWords", value: projectData.settings.chapterTargetWords, current: totalChapters > 0 ? Math.round(totalWords / totalChapters) : 0, unit: "字/章" },
-            { label: "预计卷数", key: "targetVolumes", value: projectData.settings.targetVolumes, current: totalVolumes, unit: "卷" },
-          ].map(item => {
-            const pct = item.value > 0 ? Math.min(100, Math.round((item.current / item.value) * 100)) : 0;
-            return (
-              <div key={item.key} style={{
-                background: "var(--color-bg-soft)",
-                borderRadius: "var(--radius-md)",
-                padding: "var(--space-sm) var(--space-md)",
-              }}>
-                <div style={{
-                  fontSize: "var(--text-xs)",
-                  color: "var(--color-ink-3)",
-                  marginBottom: 4,
-                }}>
-                  {item.label}
-                </div>
-                <div style={{
-                  display: "flex",
-                  alignItems: "baseline",
-                  gap: 6,
-                  marginBottom: 6,
-                }}>
-                  <span style={{
-                    fontSize: "var(--text-lg)",
-                    fontWeight: 600,
-                    color: "var(--color-ink)",
-                  }}>
-                    {item.current.toLocaleString()}
-                  </span>
-                  {item.value > 0 && (
-                    <>
-                      <span style={{ fontSize: "var(--text-xs)", color: "var(--color-ink-faint)" }}>
-                        / {item.value.toLocaleString()} {item.unit}
-                      </span>
-                      <span style={{
-                        fontSize: "var(--text-xs)",
-                        fontWeight: 500,
-                        color: pct >= 100 ? "var(--color-jade)" : "var(--color-ochre)",
-                        marginLeft: "auto",
-                      }}>
-                        {pct}%
-                      </span>
-                    </>
-                  )}
-                  {item.value === 0 && (
-                    <span style={{ fontSize: "var(--text-xs)", color: "var(--color-ink-faint)" }}>
-                      未设定
-                    </span>
-                  )}
-                </div>
-                {item.value > 0 && (
-                  <div style={{
-                    width: "100%",
-                    height: 4,
-                    background: "var(--color-border)",
-                    borderRadius: 2,
-                    overflow: "hidden",
-                  }}>
-                    <div style={{
-                      width: `${pct}%`,
-                      height: "100%",
-                      background: pct >= 100 ? "var(--color-jade)" : "var(--color-accent)",
-                      borderRadius: 2,
-                      transition: "width 0.3s",
-                    }} />
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-        {/* 规划设置 — 直接展示编辑区域 */}
-        <div style={{
-          marginTop: "var(--space-sm)",
-          padding: "var(--space-sm) var(--space-md)",
-          background: "var(--color-bg-soft)",
-          borderRadius: "var(--radius-md)",
-          border: "1px solid var(--color-border)",
-        }}>
-          <div style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 6,
-            marginBottom: "var(--space-sm)",
-          }}>
-            <Edit3 size={14} style={{ color: "var(--color-ink-3)" }} />
-            <span style={{
-              fontSize: "var(--text-xs)",
-              fontWeight: 600,
-              color: "var(--color-ink-2)",
-              letterSpacing: "0.5px",
-            }}>
-              创作规划目标
-            </span>
-            <span style={{
-              fontSize: "var(--text-2xs)",
-              color: "var(--color-ink-faint)",
-              marginLeft: 8,
-            }}>
-              设定后可追踪完成进度
-            </span>
-          </div>
-          <div style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))",
-            gap: "var(--space-sm)",
-          }}>
-            {([
-              ["targetChapters", "目标总章数", "0"],
-              ["targetWords", "目标总字数", "0"],
-              ["chapterTargetWords", "每章目标字数", "0"],
-              ["targetVolumes", "预计卷数", "0"],
-              ["genre", "故事类型", "例：玄幻、言情、科幻"],
-            ] as const).map(([key, label, placeholder]) => (
-              <div key={key} style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                <label style={{ fontSize: "var(--text-2xs)", color: "var(--color-ink-3)" }}>{label}</label>
-                <input
-                  className="pm-input"
-                  style={{ marginBottom: 0, fontSize: "var(--text-xs)", padding: "4px 8px" }}
-                  type={key === "genre" ? "text" : "number"}
-                  min={key === "genre" ? undefined : "0"}
-                  placeholder={placeholder}
-                  value={(projectData.settings as any)[key] ?? ""}
-                  onChange={(e) => {
-                    const val = key === "genre" ? e.target.value : (parseInt(e.target.value) || 0);
-                    persistProjectData?.(prev => ({
-                      ...prev,
-                      settings: { ...prev.settings, [key]: val },
-                    }));
-                  }}
-                />
-              </div>
-            ))}
-          </div>
         </div>
       </div>
 
@@ -396,26 +244,43 @@ export function ProjectDashboard({ project, projectData, onNavigate, persistProj
         </div>
       )}
 
-      {/* 新手引导 — 未配置工作流时 */}
+      {/* 新手引导 */}
       {!wfMeta && (
         <div className="pd-onboard">
           <div className="pd-onboard-icon"><Sparkles size={24} /></div>
           <div className="pd-onboard-content">
-            <h3>创作之旅 · 三步启程</h3>
-            <p>建议按以下顺序完成初始设置：</p>
+            <h3>创作之旅 · 三阶段启程</h3>
+            <p>建议按以下三阶段推进：</p>
             <div className="pd-steps">
               <div className="pd-step">
-                <span className="pd-step-num" style={{ background: hasOutline ? "var(--color-jade)" : "var(--color-accent)" }}>
-                  {hasOutline ? <Check size={12} /> : "1"}
+                <span className="pd-step-num" style={{ background: "var(--color-accent)" }}>1</span>
+                <span>灵魂萌芽 — 描述想法 + 设定目标 + 多维度讨论</span>
+                <button
+                  className="pd-onboard-btn"
+                  style={{ padding: "2px 12px", fontSize: "var(--text-xs)", marginLeft: "auto" }}
+                  onClick={() => onNavigate("concept")}
+                >
+                  <Lightbulb size={12} /> 去萌芽
+                </button>
+              </div>
+              <div className="pd-step">
+                <span className="pd-step-num" style={{ background: hasOutline ? "var(--color-jade)" : "var(--color-indigo)" }}>
+                  {hasOutline ? <Check size={12} /> : "2"}
                 </span>
                 <span style={{ color: hasOutline ? "var(--color-jade)" : undefined }}>
-                  创建卷和章节
+                  世界观 + 人物 — 同步铺开设定
                 </span>
-                {hasOutline && (
-                  <span style={{ fontSize: "var(--text-xs)", color: "var(--color-ink-3)" }}>
-                    ({totalChapters} 章)
-                  </span>
-                )}
+                <span style={{ fontSize: "var(--text-xs)", color: "var(--color-ink-3)", marginLeft: "auto" }}>
+                  {totalCharacters} 角色 · {totalLocations} 处设定
+                </span>
+              </div>
+              <div className="pd-step">
+                <span className="pd-step-num" style={{ background: hasWorkflow ? "var(--color-jade)" : undefined }}>
+                  {hasWorkflow ? <Check size={12} /> : "3"}
+                </span>
+                <span style={{ color: hasWorkflow ? "var(--color-jade)" : undefined }}>
+                  骨架大纲 — 拉故事结构，确定起承转合
+                </span>
                 {!hasOutline && (
                   <button
                     className="pd-onboard-btn"
@@ -425,56 +290,20 @@ export function ProjectDashboard({ project, projectData, onNavigate, persistProj
                     <ListTree size={12} /> 去创建
                   </button>
                 )}
-              </div>
-              <div className="pd-step">
-                <span className="pd-step-num" style={{ background: hasWorkflow ? "var(--color-jade)" : undefined }}>
-                  {hasWorkflow ? <Check size={12} /> : "2"}
-                </span>
-                <span style={{ color: hasWorkflow ? "var(--color-jade)" : undefined }}>
-                  配置工作流模板
-                </span>
-                {hasWorkflow && (
-                  <span style={{ fontSize: "var(--text-xs)", color: "var(--color-ink-3)" }}>
-                    (已配置)
-                  </span>
-                )}
-                {!hasWorkflow && (
-                  <button
-                    className="pd-onboard-btn"
-                    style={{ padding: "2px 12px", fontSize: "var(--text-xs)", marginLeft: "auto" }}
-                    onClick={() => onNavigate("workflow")}
-                  >
-                    <Settings size={12} /> 去配置
-                  </button>
-                )}
-              </div>
-              <div className="pd-step">
-                <span className="pd-step-num">3</span>
-                <span>启动 Agent 自动写作</span>
-                {hasWorkflow && (
-                  <button
-                    className="pd-onboard-btn"
-                    style={{ padding: "2px 12px", fontSize: "var(--text-xs)", marginLeft: "auto" }}
-                    onClick={() => onNavigate("harness")}
-                  >
-                    <Play size={12} /> 去启动
-                  </button>
-                )}
-                {!hasWorkflow && !hasOutline && (
+                {hasOutline && (
                   <span style={{ fontSize: "var(--text-xs)", color: "var(--color-ink-3)", marginLeft: "auto" }}>
-                    先完成前两步
+                    {totalChapters} 章
                   </span>
                 )}
               </div>
             </div>
 
-            {/* 快速入口 */}
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               <button
                 className="pd-onboard-btn"
-                onClick={() => onNavigate(hasOutline ? "workflow" : "outline")}
+                onClick={() => onNavigate(hasOutline ? "workflow" : "concept")}
               >
-                {hasOutline ? <><Settings size={15} /> 配置工作流</> : <><ListTree size={15} /> 从大纲开始</>}
+                {hasOutline ? <><Settings size={15} /> 配置工作流</> : <><Lightbulb size={15} /> 从灵感开始</>}
               </button>
               {hasOutline && (
                 <>

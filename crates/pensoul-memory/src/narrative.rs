@@ -1,4 +1,4 @@
-use crate::packet::{estimate_tokens, NarrativeDetail};
+use crate::packet::{NarrativeDetail, estimate_tokens};
 
 /// 叙事记忆 — 重要性排序的叙事细节
 pub struct NarrativeMemory {
@@ -21,11 +21,8 @@ impl NarrativeMemory {
     ///
     /// 受 budget (token 数) 控制
     pub fn retrieve(&self, _current_chapter: i64, budget: usize) -> Vec<NarrativeDetail> {
-        let mut candidates: Vec<&NarrativeDetail> = self
-            .details
-            .iter()
-            .filter(|d| d.importance > 0.5)
-            .collect();
+        let mut candidates: Vec<&NarrativeDetail> =
+            self.details.iter().filter(|d| d.importance > 0.5).collect();
 
         // 按重要性降序
         candidates.sort_by(|a, b| {
@@ -97,8 +94,16 @@ mod tests {
     fn test_narrative_budget_limit() {
         let mut mem = NarrativeMemory::new();
         mem.add_detail(make_detail("d1", 0.9, "一段很长的叙事内容用于测试预算限制"));
-        mem.add_detail(make_detail("d2", 0.8, "另一段很长的叙事内容用于测试预算限制"));
-        mem.add_detail(make_detail("d3", 0.7, "第三段很长的叙事内容用于测试预算限制"));
+        mem.add_detail(make_detail(
+            "d2",
+            0.8,
+            "另一段很长的叙事内容用于测试预算限制",
+        ));
+        mem.add_detail(make_detail(
+            "d3",
+            0.7,
+            "第三段很长的叙事内容用于测试预算限制",
+        ));
 
         let result = mem.retrieve(1, 5);
         // budget 很小，可能只返回 0 或 1 条

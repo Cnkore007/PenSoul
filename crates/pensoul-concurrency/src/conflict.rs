@@ -10,10 +10,7 @@ pub struct ConflictResolver;
 
 impl ConflictResolver {
     /// Two operations conflict if they target the same chapter.
-    pub fn detect_conflict(
-        op_a_chapter: &str,
-        op_b_chapter: &str,
-    ) -> bool {
+    pub fn detect_conflict(op_a_chapter: &str, op_b_chapter: &str) -> bool {
         op_a_chapter == op_b_chapter
     }
 

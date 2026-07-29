@@ -80,10 +80,7 @@ impl ConcurrencyController {
 
     pub fn get_version(&self, chapter_id: &str) -> i32 {
         let versions = self.versions.lock().unwrap();
-        versions
-            .get(chapter_id)
-            .map(|v| v.version)
-            .unwrap_or(-1)
+        versions.get(chapter_id).map(|v| v.version).unwrap_or(-1)
     }
 
     pub fn submit_operation(&self, mut op: Operation) -> Operation {

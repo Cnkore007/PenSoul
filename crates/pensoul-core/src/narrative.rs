@@ -1,5 +1,5 @@
 /// Layer 3 叙事层类型定义
-use crate::id::{CharacterId, ChapterId, EventId, ForeshadowId};
+use crate::id::{ChapterId, CharacterId, EventId, ForeshadowId};
 
 /// 叙事层
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

@@ -88,12 +88,21 @@ export function InspirationPanel({ contextType, contextData, externalExpanded, o
   const [selectedModelId, setSelectedModelId] = useState<string>("");
   const generatedRef = useRef(false);
 
+  const [providers, setProviders] = useState<any[]>([]);
+  const [allModels, setAllModels] = useState<any[]>([]);
+  const [apiKeys, setApiKeys] = useState<Record<string, string>>({});
+
   const expanded = externalExpanded !== undefined ? externalExpanded : internalExpanded;
 
-  // 从 localStorage 加载可用模型
-  const providers = loadProviders();
-  const allModels = loadModels();
-  const apiKeys = loadApiKeys();
+  // 异步加载可用模型、供应商和 API Key
+  useEffect(() => {
+    Promise.all([loadProviders(), loadModels(), loadApiKeys()]).then(([p, m, k]) => {
+      setProviders(p);
+      setAllModels(m);
+      setApiKeys(k);
+    }).catch(() => {});
+  }, []);
+
   const availableModels = allModels.filter(m => m.is_available && m.api_key_configured);
 
   // 初始化选中的模型

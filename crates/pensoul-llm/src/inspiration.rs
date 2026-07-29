@@ -32,7 +32,10 @@ pub fn generate_inspiration(
     // 限制 context_data 长度，防止 LLM token 溢出（UTF-8 安全）
     let owned_data;
     let context_data = if context_data.chars().count() > MAX_CONTEXT_DATA_LEN {
-        owned_data = context_data.chars().take(MAX_CONTEXT_DATA_LEN).collect::<String>();
+        owned_data = context_data
+            .chars()
+            .take(MAX_CONTEXT_DATA_LEN)
+            .collect::<String>();
         owned_data.as_str()
     } else {
         context_data

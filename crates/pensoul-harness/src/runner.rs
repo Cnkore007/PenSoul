@@ -114,10 +114,7 @@ mod tests {
         );
 
         assert!(matrix.is_ready(&stage_name));
-        assert_eq!(
-            matrix.runner_type(&stage_name),
-            Some(&RunnerType::Local)
-        );
+        assert_eq!(matrix.runner_type(&stage_name), Some(&RunnerType::Local));
     }
 
     #[test]

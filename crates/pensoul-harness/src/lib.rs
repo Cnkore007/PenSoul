@@ -1,3 +1,8 @@
+pub mod engine;
+pub mod gate;
+pub mod memo;
+pub mod recovery;
+pub mod runner;
 /// PenSoul Harness — 确定性流程引擎。
 ///
 /// 引擎管流程，模型管创作。AI 无权跳步，一切由引擎驱动。
@@ -16,18 +21,13 @@
 /// | `HarnessEngine` | 引擎核心，驱动整个创作流程 |
 /// | `CrashRecovery` | 基于 WAL 的崩溃恢复 |
 pub mod stage;
-pub mod gate;
 pub mod tools;
 pub mod wal;
-pub mod memo;
-pub mod engine;
-pub mod runner;
-pub mod recovery;
 
 // ── 重导出公有类型 ────────────────────────────────────────────────────────
 
 // stage.rs
-pub use stage::{GateType, RunnerType, StageStatus, Stage, StageInstance, GateResult};
+pub use stage::{GateResult, GateType, RunnerType, Stage, StageInstance, StageStatus};
 
 // gate.rs
 pub use gate::GateEvaluator;

@@ -47,9 +47,10 @@ pub async fn http_request(request: HttpRequest) -> Result<HttpResponse, String> 
 
     // 添加请求体，若无 Content-Type 则默认 JSON
     if let Some(body) = &request.body {
-        let has_ct = request.headers.as_ref().is_some_and(|h| {
-            h.keys().any(|k| k.eq_ignore_ascii_case("content-type"))
-        });
+        let has_ct = request
+            .headers
+            .as_ref()
+            .is_some_and(|h| h.keys().any(|k| k.eq_ignore_ascii_case("content-type")));
         if !has_ct {
             req_builder = req_builder.header("content-type", "application/json");
         }

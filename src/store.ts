@@ -1,79 +1,292 @@
-// localStorage 持久化层 — 项目级数据隔离
-import type { ProjectMeta, ProjectData, LlmProvider, LlmModel, PluginConfig } from "./types";
-
-const KEYS = {
-  projects: "pensoul_projects",
-  apiKeys: "pensoul_api_keys",
-  models: "pensoul_models",
-  providers: "pensoul_providers",
-  projectData: "pensoul_project_data", // Record<projectId, ProjectData>
-  plugins: "pensoul_plugins",
-} as const;
+// IPC 持久化层 — 通过 Tauri IPC 与后端通信
+import type { ProjectMeta, ProjectData, LlmProvider, LlmModel, PluginConfig, Expert } from "./types";
+import * as ipc from "./ipc";
 
 // ── Projects ──
 
-const defaultProjects: ProjectMeta[] = [];
-
-export function loadProjects(): ProjectMeta[] {
+export async function loadProjects(): Promise<ProjectMeta[]> {
   try {
-    const raw = localStorage.getItem(KEYS.projects);
-    if (raw) return JSON.parse(raw);
-  } catch {}
-  saveProjects(defaultProjects);
-  return defaultProjects;
+    const list = await ipc.listProjects();
+    return list as ProjectMeta[];
+  } catch (e) {
+    console.error("加载项目列表失败:", e);
+    return [];
+  }
 }
 
-export function saveProjects(projects: ProjectMeta[]) {
-  localStorage.setItem(KEYS.projects, JSON.stringify(projects));
+export async function saveProjects(_projects: ProjectMeta[]): Promise<void> {
+  // 项目列表现在由后端管理，此函数保留用于兼容性
+  // 实际的项目增删改通过 ipc.createProject / updateProject / deleteProject
+}
+
+// ── snake_case ↔ camelCase 转换 ──
+
+// 后端 ProjectSettings (snake_case) → 前端 (camelCase)
+function transformSettings(raw: any) {
+  if (!raw) return { targetChapters: 0, targetWords: 0, chapterTargetWords: 0, genre: '', targetVolumes: 0 };
+  return {
+    targetChapters: raw.target_chapters ?? raw.targetChapters ?? 0,
+    targetWords: raw.target_words ?? raw.targetWords ?? 0,
+    chapterTargetWords: raw.chapter_target_words ?? raw.chapterTargetWords ?? 0,
+    genre: raw.genre ?? '',
+    targetVolumes: raw.target_volumes ?? raw.targetVolumes ?? 0,
+  };
+}
+
+// 前端 (camelCase) → 后端 ProjectSettings (snake_case)
+function toBackendSettings(s: any) {
+  return {
+    target_chapters: s.targetChapters ?? 0,
+    target_words: s.targetWords ?? 0,
+    chapter_target_words: s.chapterTargetWords ?? 0,
+    target_volumes: s.targetVolumes ?? 0,
+    genre: s.genre ?? '',
+  };
+}
+
+// 后端 CoreConcept (snake_case) → 前端 (camelCase)
+function transformConcept(raw: any) {
+  if (!raw) return { highConcept: '', premise: '', protagonistHint: '', tone: '', centralConflict: '', inspiration: '' };
+  return {
+    highConcept: raw.high_concept ?? raw.highConcept ?? '',
+    premise: raw.premise ?? '',
+    protagonistHint: raw.protagonist_hint ?? raw.protagonistHint ?? '',
+    tone: raw.tone ?? '',
+    centralConflict: raw.central_conflict ?? raw.centralConflict ?? '',
+    inspiration: raw.inspiration ?? '',
+  };
+}
+
+// 前端 (camelCase) → 后端 CoreConcept (snake_case)
+function toBackendConcept(c: any) {
+  return {
+    high_concept: c.highConcept ?? '',
+    premise: c.premise ?? '',
+    protagonist_hint: c.protagonistHint ?? '',
+    tone: c.tone ?? '',
+    central_conflict: c.centralConflict ?? '',
+    inspiration: c.inspiration ?? '',
+  };
+}
+
+// 后端 SproutData (snake_case) → 前端 (camelCase)
+function transformSprout(raw: any) {
+  if (!raw) return { ideaDescription: '', agents: [] };
+  return {
+    ideaDescription: raw.idea_description ?? raw.ideaDescription ?? '',
+    agents: (raw.agents ?? []).map((a: any) => ({
+      id: a.id ?? '',
+      name: a.name ?? '',
+      model: a.model ?? '',
+      prompt: a.prompt ?? '',
+      perspective: a.perspective ?? '',
+      enabled: a.enabled ?? true,
+    })),
+  };
+}
+
+// 前端 (camelCase) → 后端 SproutData (snake_case)
+function toBackendSprout(s: any) {
+  return {
+    idea_description: s.ideaDescription ?? '',
+    agents: (s.agents ?? []).map((a: any) => ({
+      id: a.id ?? '',
+      name: a.name ?? '',
+      model: a.model ?? '',
+      prompt: a.prompt ?? '',
+      perspective: a.perspective ?? '',
+      enabled: a.enabled ?? true,
+    })),
+  };
+}
+
+// 后端 CharacterLayer → 前端 CharacterData[]
+// 后端返回 { characters: [...], relationships: [...] }，前端期望扁平的 CharacterData[]
+function transformCharacters(raw: any) {
+  if (!raw) return [];
+  // 后端返回的可能已经是 CharacterLayer 结构
+  const chars = raw.characters ?? raw;
+  if (!Array.isArray(chars)) return [];
+  const layerRelationships = raw.relationships ?? [];
+  return chars.map((ch: any) => {
+    // core_personality.traits → personality_traits
+    const traits = ch.core_personality?.traits ?? ch.personality_traits ?? [];
+    // current_mood 可能是 Emotion 对象或字符串
+    let mood: string | undefined;
+    if (typeof ch.current_mood === 'string') {
+      mood = ch.current_mood || undefined;
+    } else if (ch.current_mood && typeof ch.current_mood === 'object') {
+      mood = ch.current_mood.primary || undefined;
+    }
+    return {
+      id: String(ch.id ?? ''),
+      name: ch.name ?? '',
+      personality_traits: Array.isArray(traits) ? traits : [],
+      current_mood: mood,
+      relationships: ch.relationships ?? layerRelationships,
+    };
+  });
+}
+
+// 前端 CharacterData[] → 后端 CharacterLayer
+function toBackendCharacters(chars: any[]) {
+  return {
+    characters: (chars ?? []).map((ch: any) => ({
+      id: ch.id ?? '',
+      name: ch.name ?? '',
+      core_personality: { traits: ch.personality_traits ?? [] },
+      current_mood: { primary: ch.current_mood ?? '', intensity: 0.5, secondary: '' },
+      current_location: '',
+      current_knowledge: { facts: [] },
+      state_history: [],
+      transition_rules: [],
+      dialogue_style: { patterns: [], vocabulary_level: 'normal', sentence_length_avg: 15.0, catchphrases: [] },
+      growth_curve: [],
+      knowledge_base: { known_facts: [], knowledge_sources: [], decay_model: { half_life_chapters: 10, min_reliability: 0.1 } },
+    })),
+    relationships: (chars ?? []).flatMap((ch: any) => ch.relationships ?? []),
+  };
 }
 
 // ── Per-Project Data ──
 
-export function loadProjectData(projectId: string): ProjectData {
-  try {
-    const raw = localStorage.getItem(KEYS.projectData);
-    if (raw) {
-      const all: Record<string, ProjectData> = JSON.parse(raw);
-      if (all[projectId]) {
-        const data = all[projectId];
-        // 兼容旧数据：确保 settings 字段存在
-        data.settings = data.settings || {
-          targetChapters: 0,
-          targetWords: 0,
-          chapterTargetWords: 0,
-          genre: '',
-          targetVolumes: 0,
-        };
-        return data;
-      }
-    }
-  } catch {}
-  // 返回空白项目数据
+// 将后端 WorldLayer 结构转换为前端 WorldData 格式
+function transformWorldData(raw: any): { locations: any[]; timeline_events: any[]; setting_rules: any[] } {
+  if (!raw) {
+    return { locations: [], timeline_events: [], setting_rules: [] };
+  }
   return {
-    project_id: projectId,
-    volumes: [],
-    characters: [],
-    world: { locations: [], timeline_events: [], setting_rules: [] },
-    workflow_id: null,
-    style: null,
-    settings: {
-      targetChapters: 0,
-      targetWords: 0,
-      chapterTargetWords: 0,
-      genre: '',
-      targetVolumes: 0,
-    },
+    locations: raw.spatial_model?.locations ?? raw.locations ?? [],
+    timeline_events: raw.timeline?.events ?? raw.timeline_events ?? [],
+    setting_rules: raw.setting_rules ?? [],
   };
 }
 
-export function saveProjectData(data: ProjectData) {
-  let all: Record<string, ProjectData> = {};
+// 将前端 WorldData 格式转换为后端 WorldLayer 结构
+function toBackendWorld(world: any): any {
+  return {
+    world_id: "default",
+    name: "default",
+    spatial_model: {
+      locations: world.locations ?? [],
+      hierarchy: [],
+    },
+    timeline: {
+      events: world.timeline_events ?? [],
+    },
+    setting_rules: world.setting_rules ?? [],
+    glossary: [],
+    item_graph: [],
+  };
+}
+
+export async function loadProjectData(projectId: string): Promise<ProjectData> {
   try {
-    const raw = localStorage.getItem(KEYS.projectData);
-    if (raw) all = JSON.parse(raw);
-  } catch {}
-  all[data.project_id] = data;
-  localStorage.setItem(KEYS.projectData, JSON.stringify(all));
+    // 先确保项目已打开
+    await ipc.openProject(projectId);
+
+    const [chapters, characters, world, settings, concept, sprout] = await Promise.all([
+      ipc.listChapters(),
+      ipc.getCharacters(),
+      ipc.getWorld(),
+      ipc.loadSettings(),
+      ipc.loadConcept(),
+      ipc.loadSprout(),
+    ]);
+
+    // 将 chapters 组织成 volumes 结构
+    const volumeMap = new Map<string, { title: string; chapters: any[] }>();
+    for (const ch of chapters) {
+      const volId = ch.volume_id || "_default";
+      if (!volumeMap.has(volId)) {
+        volumeMap.set(volId, { title: volId === "_default" ? "默认卷" : volId, chapters: [] });
+      }
+      volumeMap.get(volId)!.chapters.push(ch);
+    }
+
+    const volumes = Array.from(volumeMap.entries()).map(([volId, vol]) => ({
+      volume_id: volId,
+      title: vol.title,
+      chapter_count: vol.chapters.length,
+      expanded: true,
+      chapters: vol.chapters.map((ch: any) => ({
+        chapter_id: ch.chapter_id,
+        volume_id: ch.volume_id || volId,
+        title: ch.title,
+        content: ch.content || "",
+        word_count: ch.word_count || 0,
+        version: ch.version || 1,
+        status: ch.status || "Draft",
+      })),
+    }));
+
+    return {
+      project_id: projectId,
+      volumes,
+      characters: transformCharacters(characters),
+      world: transformWorldData(world),
+      workflow_id: null,
+      style: null,
+      concept: transformConcept(concept),
+      sprout: transformSprout(sprout),
+      settings: transformSettings(settings),
+    };
+  } catch (e) {
+    console.error("加载项目数据失败:", e);
+    return {
+      project_id: projectId,
+      volumes: [],
+      characters: [],
+      world: { locations: [], timeline_events: [], setting_rules: [] },
+      workflow_id: null,
+      style: null,
+      concept: {
+        highConcept: '',
+        premise: '',
+        protagonistHint: '',
+        tone: '',
+        centralConflict: '',
+        inspiration: '',
+      },
+      sprout: {
+        ideaDescription: '',
+        agents: [],
+      },
+      settings: {
+        targetChapters: 0,
+        targetWords: 0,
+        chapterTargetWords: 0,
+        genre: '',
+        targetVolumes: 0,
+      },
+    };
+  }
+}
+
+export async function saveProjectData(data: ProjectData): Promise<void> {
+  try {
+    // 保存各部分数据到后端（先转换为后端 snake_case 格式）
+    await Promise.all([
+      ipc.saveCharacters(toBackendCharacters(data.characters)),
+      ipc.saveWorld(toBackendWorld(data.world)),
+      ipc.saveSettings(toBackendSettings(data.settings)),
+      ipc.saveConcept(toBackendConcept(data.concept)),
+      ipc.saveSprout(toBackendSprout(data.sprout)),
+    ]);
+
+    // 保存每个有变更的章节
+    for (const vol of data.volumes) {
+      for (const ch of vol.chapters) {
+        if (ch.content !== undefined) {
+          await ipc.saveChapter(ch.chapter_id, ch.content, ch.version - 1);
+        }
+      }
+    }
+
+    await ipc.saveProject();
+  } catch (e) {
+    console.error("保存项目数据失败:", e);
+  }
 }
 
 // ── LLM Providers ──
@@ -86,17 +299,17 @@ const defaultProviders: LlmProvider[] = [
   { provider_id: "local", name: "local", display_name: "本地模型 (Ollama)", api_base: "http://localhost:11434/v1", requires_api_key: false },
 ];
 
-export function loadProviders(): LlmProvider[] {
+export async function loadProviders(): Promise<LlmProvider[]> {
   try {
-    const raw = localStorage.getItem(KEYS.providers);
-    if (raw) return JSON.parse(raw);
-  } catch {}
-  saveProviders(defaultProviders);
-  return defaultProviders;
+    const list = await ipc.listProviders();
+    return list as LlmProvider[];
+  } catch {
+    return defaultProviders;
+  }
 }
 
-export function saveProviders(providers: LlmProvider[]) {
-  localStorage.setItem(KEYS.providers, JSON.stringify(providers));
+export async function saveProviders(providers: LlmProvider[]): Promise<void> {
+  await ipc.saveProviders(providers);
 }
 
 // ── LLM Models ──
@@ -108,59 +321,62 @@ const defaultModels: LlmModel[] = [
   { model_id: "qwen-2.5-72b", provider_id: "local", display_name: "Qwen 2.5 72B (本地)", max_tokens: 32000, supports_tools: false, cost_per_1k_tokens: 0, avg_quality_score: 0.80, avg_latency_ms: 3000, is_available: false, api_key_configured: false },
 ];
 
-export function loadModels(): LlmModel[] {
+export async function loadModels(): Promise<LlmModel[]> {
   try {
-    const raw = localStorage.getItem(KEYS.models);
-    if (raw) return JSON.parse(raw);
-  } catch {}
-  saveModels(defaultModels);
-  return defaultModels;
+    const list = await ipc.listModels();
+    return list as LlmModel[];
+  } catch {
+    return defaultModels;
+  }
 }
 
-export function saveModels(models: LlmModel[]) {
-  localStorage.setItem(KEYS.models, JSON.stringify(models));
+export async function saveModels(models: LlmModel[]): Promise<void> {
+  await ipc.saveModels(models);
 }
 
 // ── API Keys ──
-// 安全提示：API Key 存储在 WebView localStorage 中，仅供前端直接调用 LLM API 使用。
-// 密钥不会被发送到 PenSoul 后端，也不会在 Tauri IPC 日志中序列化。
-// 如需更高的安全性，建议使用后端代理模式或操作系统密钥链。
 
-export function loadApiKeys(): Record<string, string> {
-  try {
-    const raw = localStorage.getItem(KEYS.apiKeys);
-    if (raw) return JSON.parse(raw);
-  } catch {}
+export async function loadApiKeys(): Promise<Record<string, string>> {
+  // API keys 由后端安全存储，前端不直接访问
   return {};
 }
 
-export function saveApiKeys(keys: Record<string, string>) {
-  localStorage.setItem(KEYS.apiKeys, JSON.stringify(keys));
+export async function saveApiKeys(_keys: Record<string, string>): Promise<void> {
+  // 通过 ipc.saveApiKey 逐个保存
 }
 
 // ── Plugins ──
 
-export function loadPlugins(): PluginConfig[] {
+export async function loadPlugins(): Promise<PluginConfig[]> {
   try {
-    const raw = localStorage.getItem(KEYS.plugins);
-    if (raw) return JSON.parse(raw);
-  } catch {}
-  return [];
+    const list = await ipc.listPlugins();
+    return list as PluginConfig[];
+  } catch {
+    return [];
+  }
 }
 
-export function savePlugins(plugins: PluginConfig[]) {
-  localStorage.setItem(KEYS.plugins, JSON.stringify(plugins));
+export async function savePlugins(_plugins: PluginConfig[]): Promise<void> {
+  // 插件管理通过 ipc.installPlugin / removePlugin / togglePlugin
+}
+
+// ── Experts ──
+
+export async function loadExperts(): Promise<Expert[]> {
+  try {
+    const list = await ipc.loadExperts();
+    return list as Expert[];
+  } catch {
+    return [];
+  }
+}
+
+export async function saveExperts(experts: Expert[]): Promise<void> {
+  await ipc.saveExperts(experts);
 }
 
 // ── Delete Project Data ──
 
-export function deleteProjectData(projectId: string) {
-  try {
-    const raw = localStorage.getItem(KEYS.projectData);
-    if (raw) {
-      const all: Record<string, ProjectData> = JSON.parse(raw);
-      delete all[projectId];
-      localStorage.setItem(KEYS.projectData, JSON.stringify(all));
-    }
-  } catch {}
+export async function deleteProjectData(projectId: string): Promise<void> {
+  await ipc.deleteProject(projectId);
 }

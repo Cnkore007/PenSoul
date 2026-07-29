@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import {
   PenLine, ListTree, Users, Globe, ShieldCheck, Palette, LayoutDashboard,
   FolderOpen, Settings, Puzzle, Workflow, Play,
-  ChevronsLeft, ChevronsRight, ArrowLeft,
+  ChevronsLeft, ChevronsRight, ArrowLeft, Lightbulb,
 } from "lucide-react";
 import type { ViewType, ProjectMeta } from "../types";
 
@@ -18,17 +18,24 @@ const globalNav = [
   { id: "projects" as ViewType, label: "作品库", icon: <FolderOpen size={18} />, group: "works" as const },
   { id: "llm-settings" as ViewType, label: "模型设置", icon: <Settings size={18} />, group: "system" as const },
   { id: "plugins" as ViewType, label: "工作流库", icon: <Puzzle size={18} />, group: "system" as const },
+  { id: "experts" as ViewType, label: "专家库", icon: <Lightbulb size={18} />, group: "system" as const },
 ];
 
-// 项目空间导航
+// 项目空间导航 — 按创作阶段排序
 const projectNav = [
   { id: "dashboard" as ViewType, label: "概览", icon: <LayoutDashboard size={18} />, group: "项目" as const },
+  // 阶段一：核心概念（种子）
+  { id: "concept" as ViewType, label: "灵魂萌芽", icon: <Lightbulb size={18} />, group: "创作" as const },
+  // 阶段二：世界观 + 人物同步铺开
+  { id: "world" as ViewType, label: "世界观", icon: <Globe size={18} />, group: "创作" as const },
+  { id: "character" as ViewType, label: "人物志", icon: <Users size={18} />, group: "创作" as const },
+  // 阶段三：骨架大纲 + 正文
   { id: "outline" as ViewType, label: "大纲", icon: <ListTree size={18} />, group: "创作" as const },
   { id: "writing" as ViewType, label: "笔耕", icon: <PenLine size={18} />, group: "创作" as const },
-  { id: "character" as ViewType, label: "人物志", icon: <Users size={18} />, group: "创作" as const },
-  { id: "world" as ViewType, label: "世界观", icon: <Globe size={18} />, group: "创作" as const },
+  // 自动化引擎
   { id: "workflow" as ViewType, label: "工作流", icon: <Workflow size={18} />, group: "引擎" as const },
   { id: "harness" as ViewType, label: "造化工坊", icon: <Play size={18} />, group: "引擎" as const },
+  // 辅助工具
   { id: "consistency" as ViewType, label: "审校", icon: <ShieldCheck size={18} />, group: "工具" as const },
   { id: "style" as ViewType, label: "墨韵", icon: <Palette size={18} />, group: "工具" as const },
 ];
@@ -44,7 +51,7 @@ const groupLabels: Record<string, string> = {
 
 // 各分组对应的操作提示
 const groupHints: Record<string, string> = {
-  "创作": "大纲·笔耕·人物·世界观",
+  "创作": "概念→世界→人物→大纲→笔耕",
   "引擎": "工作流 + Agent 自动化",
   "工具": "审校·墨韵",
 };

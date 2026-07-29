@@ -7,8 +7,8 @@ use crate::cold::ColdMemory;
 use crate::hot::HotMemory;
 use crate::narrative::NarrativeMemory;
 use crate::packet::{
-    estimate_tokens, BudgetRatio, ChapterSummary, EditingMode, MemoryPacket, NarrativeCategory,
-    NarrativeDetail,
+    BudgetRatio, ChapterSummary, EditingMode, MemoryPacket, NarrativeCategory, NarrativeDetail,
+    estimate_tokens,
 };
 use crate::warm::WarmMemory;
 
@@ -101,12 +101,16 @@ impl MemoryPipeline {
         remaining = remaining.saturating_sub(warm_tokens);
 
         let cold_budget = (self.total_budget as f32 * ratio.cold) as usize;
-        let cold = self.cold.retrieve(current_chapter, cold_budget.min(remaining));
+        let cold = self
+            .cold
+            .retrieve(current_chapter, cold_budget.min(remaining));
         let cold_tokens = estimate_tokens_batch(&cold);
         remaining = remaining.saturating_sub(cold_tokens);
 
         let narrative_budget = (self.total_budget as f32 * ratio.narrative) as usize;
-        let narrative = self.narrative.retrieve(current_chapter, narrative_budget.min(remaining));
+        let narrative = self
+            .narrative
+            .retrieve(current_chapter, narrative_budget.min(remaining));
         let narrative_tokens: usize = narrative.iter().map(|d| estimate_tokens(&d.content)).sum();
 
         let total_tokens = hot_tokens + warm_tokens + cold_tokens + narrative_tokens;
@@ -162,7 +166,9 @@ impl MemoryPipeline {
                     let start_idx = chars.len().saturating_sub(4);
                     let name: String = chars[start_idx..].iter().collect();
                     let trimmed = name.trim();
-                    if !trimmed.is_empty() && trimmed.chars().all(|c| c.is_alphanumeric() || c == '_') {
+                    if !trimmed.is_empty()
+                        && trimmed.chars().all(|c| c.is_alphanumeric() || c == '_')
+                    {
                         states
                             .entry(trimmed.to_string())
                             .or_insert_with(|| "在第0章出现".to_string());
@@ -192,11 +198,7 @@ impl MemoryPipeline {
     }
 
     /// 第 4 步：提取叙事细节（原型用简单分类）
-    fn extract_narrative_details(
-        &self,
-        chapter_id: i64,
-        text: &str,
-    ) -> Vec<NarrativeDetail> {
+    fn extract_narrative_details(&self, chapter_id: i64, text: &str) -> Vec<NarrativeDetail> {
         let mut details = Vec::new();
         let mut detail_counter = 0;
 
@@ -248,23 +250,31 @@ fn classify_narrative_line(line: &str) -> (NarrativeCategory, f32) {
         return (NarrativeCategory::Habit, 0.6);
     }
     // 承诺/约定
-    if line.contains("答应") || line.contains("承诺") || line.contains("约定") || line.contains("发誓")
+    if line.contains("答应")
+        || line.contains("承诺")
+        || line.contains("约定")
+        || line.contains("发誓")
     {
         return (NarrativeCategory::Promise, 0.7);
     }
     // 道具/物品
-    if line.contains("拿出") || line.contains("递给") || line.contains("握着") || line.contains("武器")
+    if line.contains("拿出")
+        || line.contains("递给")
+        || line.contains("握着")
+        || line.contains("武器")
     {
         return (NarrativeCategory::Prop, 0.5);
     }
     // 感官描写
-    if line.contains("闻到") || line.contains("看到") || line.contains("听到") || line.contains("触感")
+    if line.contains("闻到")
+        || line.contains("看到")
+        || line.contains("听到")
+        || line.contains("触感")
     {
         return (NarrativeCategory::Sensory, 0.4);
     }
     // 支线剧情
-    if line.contains("与此同时") || line.contains("另一边") || line.contains("同时")
-    {
+    if line.contains("与此同时") || line.contains("另一边") || line.contains("同时") {
         return (NarrativeCategory::Subplot, 0.6);
     }
 
@@ -297,7 +307,10 @@ mod tests {
 
         // 模拟写入 5 章
         for i in 1..=5 {
-            let text = format!("第{}章内容：主角开始行动了。突然出现了一个敌人。\n角色A说：你好。\n角色B感到紧张。", i);
+            let text = format!(
+                "第{}章内容：主角开始行动了。突然出现了一个敌人。\n角色A说：你好。\n角色B感到紧张。",
+                i
+            );
             pipeline.update(i, &text).unwrap();
         }
 

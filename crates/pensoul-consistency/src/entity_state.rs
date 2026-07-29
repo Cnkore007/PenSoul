@@ -1,6 +1,6 @@
+use pensoul_core::id::ChapterId;
 /// 实体状态管理模块
 use std::collections::HashMap;
-use pensoul_core::id::ChapterId;
 
 /// 实体类型
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
@@ -64,7 +64,11 @@ impl EntityStateManager {
     }
 
     /// 获取实体在特定章节的状态
-    pub fn get_state_in_chapter(&self, entity_id: &str, chapter_id: &ChapterId) -> Option<&EntityState> {
+    pub fn get_state_in_chapter(
+        &self,
+        entity_id: &str,
+        chapter_id: &ChapterId,
+    ) -> Option<&EntityState> {
         self.states
             .get(entity_id)?
             .iter()
@@ -114,7 +118,12 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    fn make_state(entity_id: &str, entity_type: EntityType, chapter_id: i64, version: i32) -> EntityState {
+    fn make_state(
+        entity_id: &str,
+        entity_type: EntityType,
+        chapter_id: i64,
+        version: i32,
+    ) -> EntityState {
         EntityState {
             entity_id: entity_id.to_string(),
             entity_type,
@@ -141,7 +150,9 @@ mod tests {
         manager.register_state(make_state("char_1", EntityType::Character, 1, 1));
         manager.register_state(make_state("char_1", EntityType::Character, 2, 1));
 
-        let state = manager.get_state_in_chapter("char_1", &ChapterId::new("2")).unwrap();
+        let state = manager
+            .get_state_in_chapter("char_1", &ChapterId::new("2"))
+            .unwrap();
         assert_eq!(state.chapter_id.as_str(), "2");
     }
 

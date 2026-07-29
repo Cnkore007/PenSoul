@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::packet::{estimate_tokens, ChapterSummary};
+use crate::packet::{ChapterSummary, estimate_tokens};
 
 /// 冷记忆 — 向量检索（原型用简单关键词匹配）
 ///
@@ -78,7 +78,12 @@ mod tests {
     use super::*;
     use pensoul_core::ChapterId;
 
-    fn make_summary(chapter_id: i64, title: &str, summary: &str, events: Vec<String>) -> ChapterSummary {
+    fn make_summary(
+        chapter_id: i64,
+        title: &str,
+        summary: &str,
+        events: Vec<String>,
+    ) -> ChapterSummary {
         ChapterSummary {
             chapter_id: ChapterId::new(chapter_id.to_string()),
             title: title.to_string(),
@@ -137,7 +142,12 @@ mod tests {
         for i in 1..=5 {
             cold.insert_chapter(
                 i,
-                make_summary(i, &format!("标题{}", i), &format!("这是一段很长的摘要内容{}", i), vec![]),
+                make_summary(
+                    i,
+                    &format!("标题{}", i),
+                    &format!("这是一段很长的摘要内容{}", i),
+                    vec![],
+                ),
             );
         }
 

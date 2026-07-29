@@ -93,10 +93,7 @@ impl GateEvaluator {
     ///
     /// 支持格式：`field_name >= number`、`field_name > number`、
     /// `field_name <= number`、`field_name < number`、`field_name == value`。
-    fn evaluate_condition(
-        condition: &str,
-        result: &serde_json::Value,
-    ) -> Result<bool> {
+    fn evaluate_condition(condition: &str, result: &serde_json::Value) -> Result<bool> {
         let condition = condition.trim();
 
         // 解析 "field op value" 模式
@@ -105,11 +102,12 @@ impl GateEvaluator {
                 let field = field.trim();
                 let value_str = value_str.trim();
 
-                let field_value = result.get(field).ok_or_else(|| {
-                    PensoulError::GateConditionFailed {
-                        reason: format!("字段 '{field}' 不存在于结果中"),
-                    }
-                })?;
+                let field_value =
+                    result
+                        .get(field)
+                        .ok_or_else(|| PensoulError::GateConditionFailed {
+                            reason: format!("字段 '{field}' 不存在于结果中"),
+                        })?;
 
                 // 尝试数值比较
                 if let (Some(num_val), Some(threshold)) =

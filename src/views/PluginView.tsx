@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   Puzzle,
   Trash2,
@@ -17,36 +17,7 @@ import {
   Plus,
 } from "lucide-react";
 import type { PluginConfig } from "../types";
-import { loadPlugins, savePlugins } from "../store";
-
-const builtinPlugins: PluginConfig[] = [
-  {
-    plugin_id: "standard-novel",
-    name: "标准小说工作流",
-    version: "1.0.0",
-    description: "默认的长篇小说创作流程，包含大纲生成、章节写作、一致性审查、文风校准等阶段。",
-    enabled: true,
-    stages: [
-      { name: "outline_generation", display_name: "大纲生成", tool: "llm_generate", gate: "manual", runner: "local", prompt_template: "根据用户提供的核心设定，生成完整的小说大纲...", allowed_tools: ["read_settings", "write_outline"], denied_tools: ["generate_prose"], timeout_seconds: 600, max_retries: 3 },
-      { name: "chapter_writing", display_name: "章节写作", tool: "llm_generate", gate: "auto", runner: "local", prompt_template: "根据大纲和前文内容，撰写本章正文...", allowed_tools: ["read_chapter", "read_outline", "read_character_state", "generate_prose"], denied_tools: ["modify_settings", "modify_outline"], timeout_seconds: 300, max_retries: 3 },
-      { name: "consistency_check", display_name: "一致性审查", tool: "llm_analyze", gate: "conditional", runner: "delegated", prompt_template: "对本章进行一致性检查...", allowed_tools: ["read_chapter", "read_character_state", "run_consistency_check"], denied_tools: ["generate_prose", "modify_settings"], timeout_seconds: 300, max_retries: 2 },
-      { name: "style_review", display_name: "文风审查", tool: "llm_analyze", gate: "conditional", runner: "delegated", prompt_template: "检查本章文风是否符合预设风格指纹...", allowed_tools: ["read_chapter", "analyze_style"], denied_tools: ["generate_prose"], timeout_seconds: 300, max_retries: 2 },
-      { name: "state_injection", display_name: "状态回灌", tool: "system", gate: "auto", runner: "local", prompt_template: "将本章关键信息回灌到角色状态和记忆系统...", allowed_tools: ["update_character_state", "update_memory"], denied_tools: ["generate_prose"], timeout_seconds: 60, max_retries: 1 },
-    ],
-  },
-  {
-    plugin_id: "webnovel-optimized",
-    name: "网文快写工作流",
-    version: "1.0.0",
-    description: "面向网络文学的快速创作流程，精简审查环节，加速产出。",
-    enabled: false,
-    stages: [
-      { name: "quick_outline", display_name: "快速大纲", tool: "llm_generate", gate: "auto", runner: "local", prompt_template: "快速生成3-5章的简要大纲...", allowed_tools: ["read_settings", "write_outline"], denied_tools: [], timeout_seconds: 120, max_retries: 2 },
-      { name: "batch_write", display_name: "批量写作", tool: "llm_generate", gate: "auto", runner: "local", prompt_template: "根据大纲连续生成多章正文...", allowed_tools: ["read_outline", "generate_prose"], denied_tools: [], timeout_seconds: 600, max_retries: 3 },
-      { name: "quick_check", display_name: "快速检查", tool: "llm_analyze", gate: "auto", runner: "local", prompt_template: "快速检查关键一致性问题...", allowed_tools: ["run_consistency_check"], denied_tools: [], timeout_seconds: 60, max_retries: 1 },
-    ],
-  },
-];
+import { listPlugins, installPlugin, removePlugin, togglePlugin } from "../ipc";
 
 const gateIcons: Record<string, React.ReactNode> = {
   auto: <Zap size={13} />,
@@ -66,35 +37,65 @@ const runnerLabels: Record<string, string> = {
 };
 
 export function PluginView() {
-  const [plugins, setPlugins] = useState<PluginConfig[]>(() => {
-    const saved = loadPlugins();
-    // 区分首次加载（植入默认）和用户主动删除（即使为空也不回退）
-    const raw = localStorage.getItem("pensoul_plugins");
-    if (raw === null) {
-      savePlugins(builtinPlugins);
-      return builtinPlugins;
-    }
-    return saved;
-  });
+  const [plugins, setPlugins] = useState<PluginConfig[]>([]);
+  const [loading, setLoading] = useState(true);
   const [expandedPlugin, setExpandedPlugin] = useState<string | null>("standard-novel");
-
-  useEffect(() => {
-    savePlugins(plugins);
-  }, [plugins]);
   const [yamlMode, setYamlMode] = useState(false);
   const [yamlContent, setYamlContent] = useState("");
   const [importing, setImporting] = useState(false);
   const [editingStage, setEditingStage] = useState<{ pluginId: string; stageIndex: number } | null>(null);
 
+  // 从后端加载插件列表
+  const loadPluginsFromBackend = useCallback(async () => {
+    setLoading(true);
+    try {
+      const raw = await listPlugins();
+      const mapped: PluginConfig[] = raw.map((p: any) => ({
+        plugin_id: p.plugin_id,
+        name: p.name,
+        version: p.version,
+        description: p.description,
+        enabled: p.enabled,
+        stages: (p.stages || []).map((s: any) => ({
+          name: s.name,
+          display_name: s.display_name,
+          tool: s.tool,
+          gate: s.gate,
+          runner: s.runner,
+          prompt_template: s.prompt_template || "",
+          allowed_tools: s.allowed_tools || [],
+          denied_tools: s.denied_tools || [],
+          timeout_seconds: s.timeout_seconds || 300,
+          max_retries: s.max_retries || 2,
+        })),
+      }));
+      setPlugins(mapped);
+    } catch (e) {
+      console.error("加载插件列表失败:", e);
+      setPlugins([]);
+    }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    loadPluginsFromBackend();
+  }, [loadPluginsFromBackend]);
+
   function handleToggle(pluginId: string, enabled: boolean) {
     setPlugins(prev =>
       prev.map(p => (p.plugin_id === pluginId ? { ...p, enabled } : p))
+    );
+    togglePlugin(pluginId, enabled).catch(e =>
+      console.error("切换插件状态失败:", e)
     );
   }
 
   function handleDelete(pluginId: string) {
     setPlugins(prev => prev.filter(p => p.plugin_id !== pluginId));
     if (expandedPlugin === pluginId) setExpandedPlugin(null);
+    removePlugin(pluginId).catch(e =>
+      console.error("删除插件失败:", e)
+    );
   }
 
   function handleImport() {
@@ -103,7 +104,13 @@ export function PluginView() {
 
   function handleImportSubmit() {
     if (yamlContent.trim()) {
-      alert("YAML 导入功能需要后端支持解析");
+      installPlugin(yamlContent.trim())
+        .then(() => {
+          loadPluginsFromBackend();
+        })
+        .catch(e => {
+          alert("导入失败: " + (e?.message || String(e)));
+        });
     }
     setImporting(false);
     setYamlContent("");
@@ -139,8 +146,30 @@ ${plugin.stages
       enabled: false,
       stages: [],
     };
-    setPlugins(prev => [...prev, newPlugin]);
-    setExpandedPlugin(newPlugin.plugin_id);
+    const yaml = `plugin_id: ${newPlugin.plugin_id}
+name: ${newPlugin.name}
+version: ${newPlugin.version}
+description: ${newPlugin.description}
+stages: []`;
+    installPlugin(yaml)
+      .then(() => loadPluginsFromBackend())
+      .catch(e => console.error("创建插件失败:", e));
+  }
+
+  if (loading) {
+    return (
+      <div className="plugin-view">
+        <div className="pv-header">
+          <div className="pv-header-left">
+            <h2 className="pv-title">造化工坊</h2>
+            <p className="pv-subtitle">声明式工作流 — 零代码可换的创作引擎</p>
+          </div>
+        </div>
+        <div className="empty-state">
+          <div className="empty-state-text">加载中...</div>
+        </div>
+      </div>
+    );
   }
 
   return (

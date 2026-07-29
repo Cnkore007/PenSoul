@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { Sidebar } from "./components/Sidebar";
 import { StatusBar } from "./components/StatusBar";
 import { WritingView } from "./views/WritingView";
@@ -12,9 +12,12 @@ import { ProjectManager } from "./views/ProjectManager";
 import LlmSettingsView from "./views/LlmSettingsView";
 import { PluginView } from "./views/PluginView";
 import { WorkflowView } from "./views/WorkflowView";
+import { ConceptView } from "./views/ConceptView";
+import { ExpertLibraryView } from "./views/ExpertLibraryView";
 import { ProjectDashboard } from "./views/ProjectDashboard";
 import type { ViewType, ProjectMeta, ProjectData } from "./types";
 import { loadProjectData, saveProjectData } from "./store";
+import { getHarnessStatus } from "./ipc";
 import "./tokens.css";
 import "./App.css";
 
@@ -79,8 +82,8 @@ function App() {
   const [projectData, setProjectData] = useState<ProjectData | null>(null);
   const [currentChapterId, setCurrentChapterId] = useState<string | null>(null);
   const [wordCount, setWordCount] = useState(0);
-  const [connected] = useState(true);
-  
+  const [connected, setConnected] = useState(false);
+
   // 全局错误捕获 — 将错误显示在页面底部
   const [appError, setAppError] = useState<string | null>(null);
   React.useEffect(() => {
@@ -91,11 +94,41 @@ function App() {
     return () => window.removeEventListener('error', handler);
   }, []);
 
+  // 检测后端连接状态
+  useEffect(() => {
+    let cancelled = false;
+    async function checkConnection() {
+      try {
+        await getHarnessStatus();
+        if (!cancelled) setConnected(true);
+      } catch {
+        if (!cancelled) setConnected(false);
+      }
+    }
+    checkConnection();
+    const interval = setInterval(checkConnection, 15000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, []);
+
+  // 当选中项目后，异步加载项目数据
+  useEffect(() => {
+    if (!currentProject) {
+      setProjectData(null);
+      return;
+    }
+    let cancelled = false;
+    loadProjectData(currentProject.project_id).then(data => {
+      if (!cancelled) setProjectData(data);
+    }).catch(err => {
+      console.error("加载项目数据失败:", err);
+      if (!cancelled) setProjectData(null);
+    });
+    return () => { cancelled = true; };
+  }, [currentProject]);
+
   // 进入项目空间，默认跳转到 dashboard（项目概览）
   const handleSelectProject = useCallback((project: ProjectMeta) => {
     setCurrentProject(project);
-    const data = loadProjectData(project.project_id);
-    setProjectData(data);
     setCurrentView("dashboard");
   }, []);
 
@@ -125,12 +158,15 @@ function App() {
     setWordCount(count);
   }, []);
 
-  // 保存项目数据到 localStorage
+  // 保存项目数据 — 先更新本地状态，再异步持久化到后端
   const persistProjectData = useCallback((updater: (prev: ProjectData) => ProjectData) => {
     setProjectData(prev => {
       if (!prev) return prev;
       const updated = updater(prev);
-      saveProjectData(updated);
+      // 异步保存到后端，不阻塞 UI
+      saveProjectData(updated).catch(err => {
+        console.error("保存项目数据失败:", err);
+      });
       return updated;
     });
   }, []);
@@ -146,6 +182,9 @@ function App() {
     if (currentView === "plugins") {
       return <PluginView />;
     }
+    if (currentView === "experts") {
+      return <ExpertLibraryView />;
+    }
 
     // 项目空间页面 — 需要项目上下文
     if (!currentProject || !projectData) {
@@ -153,6 +192,8 @@ function App() {
     }
 
     switch (currentView) {
+      case "concept":
+        return <ConceptView projectData={projectData} persistProjectData={persistProjectData} />;
       case "dashboard":
         return <ProjectDashboard project={currentProject} projectData={projectData} onNavigate={setCurrentView} persistProjectData={persistProjectData} />;
       case "outline":

@@ -69,9 +69,7 @@ pub fn bfs_find_affected(
                     node_id: neighbor_id.clone(),
                     chapter_id: neighbor_node.chapter_id,
                     severity,
-                    reason: format!(
-                        "{reason} → {relation:?} → {neighbor_id} (depth={next_depth})"
-                    ),
+                    reason: format!("{reason} → {relation:?} → {neighbor_id} (depth={next_depth})"),
                     suggested_action: action,
                 };
 
@@ -194,10 +192,11 @@ mod tests {
         nodes.insert("e2".into(), make_node("e2", NodeType::Entity, 2));
 
         let mut reverse_edges: HashMap<String, Vec<(String, EdgeRelation, f64)>> = HashMap::new();
-        reverse_edges
-            .entry("e2".into())
-            .or_default()
-            .push(("e1".into(), EdgeRelation::References, 1.0));
+        reverse_edges.entry("e2".into()).or_default().push((
+            "e1".into(),
+            EdgeRelation::References,
+            1.0,
+        ));
 
         // 变更 e2
         let results = bfs_find_affected(&reverse_edges, &nodes, 2, &["e2".into()], 5);
@@ -220,18 +219,21 @@ mod tests {
         nodes.insert("e4".into(), make_node("e4", NodeType::Entity, 4));
 
         let mut reverse_edges: HashMap<String, Vec<(String, EdgeRelation, f64)>> = HashMap::new();
-        reverse_edges
-            .entry("e2".into())
-            .or_default()
-            .push(("e1".into(), EdgeRelation::References, 1.0));
-        reverse_edges
-            .entry("e3".into())
-            .or_default()
-            .push(("e2".into(), EdgeRelation::References, 1.0));
-        reverse_edges
-            .entry("e4".into())
-            .or_default()
-            .push(("e3".into(), EdgeRelation::References, 1.0));
+        reverse_edges.entry("e2".into()).or_default().push((
+            "e1".into(),
+            EdgeRelation::References,
+            1.0,
+        ));
+        reverse_edges.entry("e3".into()).or_default().push((
+            "e2".into(),
+            EdgeRelation::References,
+            1.0,
+        ));
+        reverse_edges.entry("e4".into()).or_default().push((
+            "e3".into(),
+            EdgeRelation::References,
+            1.0,
+        ));
 
         // max_depth=2: 应找到 e3(depth=1), e2(depth=2)，但不包含 e1(depth=3)
         let results = bfs_find_affected(&reverse_edges, &nodes, 4, &["e4".into()], 2);
@@ -251,20 +253,23 @@ mod tests {
 
         let mut reverse_edges: HashMap<String, Vec<(String, EdgeRelation, f64)>> = HashMap::new();
         // e1 → e2
-        reverse_edges
-            .entry("e2".into())
-            .or_default()
-            .push(("e1".into(), EdgeRelation::Causes, 1.0));
+        reverse_edges.entry("e2".into()).or_default().push((
+            "e1".into(),
+            EdgeRelation::Causes,
+            1.0,
+        ));
         // e2 → e3
-        reverse_edges
-            .entry("e3".into())
-            .or_default()
-            .push(("e2".into(), EdgeRelation::Causes, 1.0));
+        reverse_edges.entry("e3".into()).or_default().push((
+            "e2".into(),
+            EdgeRelation::Causes,
+            1.0,
+        ));
         // e3 → e1 (cycle)
-        reverse_edges
-            .entry("e1".into())
-            .or_default()
-            .push(("e3".into(), EdgeRelation::Causes, 1.0));
+        reverse_edges.entry("e1".into()).or_default().push((
+            "e3".into(),
+            EdgeRelation::Causes,
+            1.0,
+        ));
 
         // 变更 e1, 足够深度
         let results = bfs_find_affected(&reverse_edges, &nodes, 1, &["e1".into()], 10);
@@ -308,14 +313,16 @@ mod tests {
         nodes.insert("e3".into(), make_node("e3", NodeType::Entity, 5));
 
         let mut reverse_edges: HashMap<String, Vec<(String, EdgeRelation, f64)>> = HashMap::new();
-        reverse_edges
-            .entry("e2".into())
-            .or_default()
-            .push(("e1".into(), EdgeRelation::References, 1.0));
-        reverse_edges
-            .entry("e3".into())
-            .or_default()
-            .push(("e2".into(), EdgeRelation::References, 1.0));
+        reverse_edges.entry("e2".into()).or_default().push((
+            "e1".into(),
+            EdgeRelation::References,
+            1.0,
+        ));
+        reverse_edges.entry("e3".into()).or_default().push((
+            "e2".into(),
+            EdgeRelation::References,
+            1.0,
+        ));
 
         let results = bfs_find_affected(&reverse_edges, &nodes, 5, &["e3".into()], 5);
         assert_eq!(results.len(), 2);

@@ -74,11 +74,7 @@ pub struct MessageMetadata {
 
 impl AgentMessage {
     /// 创建信号消息
-    pub fn signal(
-        from: AgentId,
-        to: AgentId,
-        signal: SignalPayload,
-    ) -> Self {
+    pub fn signal(from: AgentId, to: AgentId, signal: SignalPayload) -> Self {
         Self {
             msg_id: uuid::Uuid::new_v4().to_string(),
             channel: ChannelType::Signal,
@@ -92,11 +88,7 @@ impl AgentMessage {
     }
 
     /// 创建报告消息
-    pub fn report(
-        from: AgentId,
-        to: AgentId,
-        content: String,
-    ) -> Self {
+    pub fn report(from: AgentId, to: AgentId, content: String) -> Self {
         Self {
             msg_id: uuid::Uuid::new_v4().to_string(),
             channel: ChannelType::Report,

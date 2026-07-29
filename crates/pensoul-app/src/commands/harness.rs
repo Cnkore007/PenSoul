@@ -3,15 +3,11 @@ use crate::state::AppState;
 
 /// 启动 Harness 阶段
 #[tauri::command]
-pub async fn start_harness_stage(
-    state: tauri::State<'_, AppState>,
-) -> Result<String, String> {
+pub async fn start_harness_stage(state: tauri::State<'_, AppState>) -> Result<String, String> {
     let mut harness = state.harness.write();
 
     match harness.start_stage() {
-        Ok(inst) => {
-            serde_json::to_string(&inst).map_err(|e| e.to_string())
-        }
+        Ok(inst) => serde_json::to_string(&inst).map_err(|e| e.to_string()),
         Err(e) => Err(e.to_string()),
     }
 }
@@ -24,9 +20,7 @@ pub async fn complete_harness_stage(
 ) -> Result<(), String> {
     let mut harness = state.harness.write();
 
-    harness
-        .complete_stage(result)
-        .map_err(|e| e.to_string())
+    harness.complete_stage(result).map_err(|e| e.to_string())
 }
 
 /// 注入备忘录

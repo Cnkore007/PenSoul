@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::packet::{estimate_tokens, ChapterSummary, WarmMemoryData};
+use crate::packet::{ChapterSummary, WarmMemoryData, estimate_tokens};
 
 /// 温记忆 — 结构化摘要 + 角色状态 + 伏笔
 pub struct WarmMemory {

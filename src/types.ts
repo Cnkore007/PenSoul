@@ -126,6 +126,10 @@ export interface ProjectData {
   world: WorldData;
   workflow_id: string | null; // 关联的工作流 plugin_id
   style: StyleMetrics | null;
+  // 核心概念 / 高概念种子
+  concept: CoreConceptData;
+  // 萌芽数据 — 想法描述 + Agent 讨论配置
+  sprout: SproutData;
   settings: ProjectSettings;
 }
 
@@ -140,11 +144,27 @@ export interface InspirationItem {
   content: string;
 }
 
+// 核心概念 / 高概念 — 整部小说的"种子"
+export interface CoreConceptData {
+  // 核心想法 / 高概念（一句话概括）
+  highConcept: string;
+  // 故事前提 / 冲突前提
+  premise: string;
+  // 主角雏形
+  protagonistHint: string;
+  // 故事基调 / 风格
+  tone: string;
+  // 核心冲突
+  centralConflict: string;
+  // 灵感来源 / 创作缘由
+  inspiration: string;
+}
+
 // 创作规划设置
 export interface ProjectSettings {
   // 目标总章节数（0 表示未设定）
   targetChapters: number;
-  // 目标总字数（0 表示未设定）
+  // 目标总字数（自动计算：目标总章数 × 每章字数，无需手动填写）
   targetWords: number;
   // 每章目标字数（0 表示未设定）
   chapterTargetWords: number;
@@ -154,7 +174,106 @@ export interface ProjectSettings {
   targetVolumes: number;
 }
 
+// 默认的高概念示例
+// 讨论 Agent 配置
+export interface AgentDiscussionConfig {
+  id: string;
+  name: string;
+  model: string;
+  prompt: string;
+  perspective: string;
+  enabled: boolean;
+  // 关联的专家 ID（可选，从专家库选择时填充）
+  expertId?: string;
+}
+
+// 专家 — 蒸馏自著名人物的认知框架
+export interface Expert {
+  id: string;
+  name: string;
+  description: string;
+  // 来源人物/主题
+  sourcePersona: string;
+  // 配置的模型 ID
+  modelId: string;
+  // 评审维度
+  perspective: string;
+  // 默认评审提示词
+  defaultPrompt: string;
+  // 创建时间
+  createdAt: string;
+  // 女娲技能文件路径（可选）
+  skillPath?: string;
+  // 技能摘要
+  skillSummary?: string;
+}
+
+// 萌芽数据 — 核心想法 + 创作设定 + 讨论 Agent
+export interface SproutData {
+  // 用户对故事想法的自由描述
+  ideaDescription: string;
+  // 讨论 Agent 配置列表
+  agents: AgentDiscussionConfig[];
+}
+
+// 预置讨论 Agent
+export const DEFAULT_DISCUSSION_AGENTS: AgentDiscussionConfig[] = [
+  {
+    id: 'agent-market',
+    name: '市场分析师',
+    model: 'gpt-4o',
+    perspective: '商业与市场',
+    prompt: '从商业潜力和市场受众角度分析这个构思的可行性和市场定位。考虑目标读者群、题材热度、商业变现路径。',
+    enabled: true,
+  },
+  {
+    id: 'agent-logic',
+    name: '逻辑审查员',
+    model: 'gpt-4o',
+    perspective: '设定与逻辑',
+    prompt: '审查故事设定的内部一致性、情节逻辑的合理性、世界观规则的严谨性。指出潜在的逻辑漏洞和设定冲突。',
+    enabled: true,
+  },
+  {
+    id: 'agent-character',
+    name: '角色顾问',
+    model: 'gpt-4o',
+    perspective: '角色与情感',
+    prompt: '评估角色弧光的完整度、人物关系的张力、情感驱动的合理性。建议如何让角色更立体、更有代入感。',
+    enabled: true,
+  },
+  {
+    id: 'agent-style',
+    name: '文风品鉴师',
+    model: 'gpt-4o',
+    perspective: '文风与表达',
+    prompt: '分析构思所适合的文风基调、叙事视角选择、节奏把控建议。考虑如何用语言风格增强故事感染力。',
+    enabled: true,
+  },
+  {
+    id: 'agent-creative',
+    name: '创意激发师',
+    model: 'gpt-4o',
+    perspective: '创意延伸',
+    prompt: '基于现有构思进行创意延伸，提出意想不到的情节发展方向、设定亮点和叙事技巧，帮助构思更具原创性。',
+    enabled: true,
+  },
+];
+
+export function createDefaultConcept(): CoreConceptData {
+  return {
+    highConcept: '',
+    premise: '',
+    protagonistHint: '',
+    tone: '',
+    centralConflict: '',
+    inspiration: '',
+  };
+}
+
 export type ViewType =
+  | 'experts'
+  | 'concept'
   | 'writing'
   | 'outline'
   | 'character'

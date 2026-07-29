@@ -12,7 +12,7 @@ export function StyleWorkshop() {
   async function loadMetrics() {
     setLoading(true);
     const result = await getStyleMetrics();
-    setMetrics(result || { avg_sentence_length: 18.5, vocabulary_richness: 0.72, dialogue_ratio: 0.35, pace_score: 0.68, ai_pattern_score: 0.12 });
+    setMetrics(result);
     setLoading(false);
   }
 
@@ -37,29 +37,42 @@ export function StyleWorkshop() {
 
   if (loading) return <div className="loading-state">加载文风数据...</div>;
 
+  if (!metrics) {
+    return (
+      <div className="view-container">
+        <div className="view-header"><h2>墨韵品鉴</h2></div>
+        <div className="empty-state">
+          <div className="empty-state-icon">墨</div>
+          <div className="empty-state-text">暂无文风数据</div>
+          <div className="empty-state-sub">完成至少一个章节的写作后，系统将自动分析文风指标</div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="view-container">
       <div className="view-header"><h2>墨韵品鉴</h2></div>
       <div className="stat-grid stat-grid-4">
         <div className="stat-card">
           <div className="stat-card-icon"><BarChart3 size={16} className="stat-icon-indigo" /><span>平均句长</span></div>
-          <div className="stat-card-value">{metrics?.avg_sentence_length.toFixed(1)}</div>
+          <div className="stat-card-value">{metrics.avg_sentence_length.toFixed(1)}</div>
           <div className="stat-card-unit">字/句</div>
         </div>
         <div className="stat-card">
           <div className="stat-card-icon"><Activity size={16} className="stat-icon-jade" /><span>词汇丰富度</span></div>
-          <div className="stat-card-value stat-color-success">{((metrics?.vocabulary_richness || 0) * 100).toFixed(0)}%</div>
+          <div className="stat-card-value stat-color-success">{(metrics.vocabulary_richness * 100).toFixed(0)}%</div>
           <div className="stat-card-unit">TTR指数</div>
         </div>
         <div className="stat-card">
           <div className="stat-card-icon"><Feather size={16} className="stat-icon-ochre" /><span>对话占比</span></div>
-          <div className="stat-card-value stat-color-warning">{((metrics?.dialogue_ratio || 0) * 100).toFixed(0)}%</div>
+          <div className="stat-card-value stat-color-warning">{(metrics.dialogue_ratio * 100).toFixed(0)}%</div>
           <div className="stat-card-unit">对话/叙述</div>
         </div>
         <div className="stat-card">
           <div className="stat-card-icon"><ShieldAlert size={16} className="stat-icon-alert" /><span>AI痕迹</span></div>
-          <div className={"stat-card-value " + ((metrics?.ai_pattern_score || 0) > 0.2 ? "stat-color-error" : "stat-color-success")}>
-            {((metrics?.ai_pattern_score || 0) * 100).toFixed(0)}%
+          <div className={"stat-card-value " + (metrics.ai_pattern_score > 0.2 ? "stat-color-error" : "stat-color-success")}>
+            {(metrics.ai_pattern_score * 100).toFixed(0)}%
           </div>
           <div className="stat-card-unit">越低越好</div>
         </div>

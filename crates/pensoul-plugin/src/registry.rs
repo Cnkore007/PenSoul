@@ -22,8 +22,7 @@ impl PluginRegistry {
     /// 注册插件（带验证）
     pub fn register(&mut self, config: PluginConfig) -> Result<()> {
         PluginValidator::validate(&config)?;
-        self.plugins
-            .insert(config.plugin_id.clone(), config);
+        self.plugins.insert(config.plugin_id.clone(), config);
         Ok(())
     }
 
@@ -39,9 +38,10 @@ impl PluginRegistry {
 
     /// 将插件配置导出为 JSON 字符串
     pub fn export_plugin(&self, plugin_id: &str) -> Result<String> {
-        let config = self.plugins.get(plugin_id).ok_or_else(|| {
-            PensoulError::Internal(format!("插件 {} 不存在", plugin_id))
-        })?;
+        let config = self
+            .plugins
+            .get(plugin_id)
+            .ok_or_else(|| PensoulError::Internal(format!("插件 {} 不存在", plugin_id)))?;
         serde_json::to_string_pretty(config)
             .map_err(|e| PensoulError::SerializationError(e.to_string()))
     }

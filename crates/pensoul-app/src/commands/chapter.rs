@@ -1,7 +1,7 @@
 /// 章节管理命令
 use crate::state::AppState;
-use pensoul_core::ChapterId;
 use pensoul_concurrency::{Operation, OperationType};
+use pensoul_core::ChapterId;
 
 /// 获取章节
 #[tauri::command]
@@ -13,9 +13,7 @@ pub async fn get_chapter(
     let id = ChapterId::new(chapter_id);
 
     match ontology.get_chapter(&id) {
-        Some(chapter) => {
-            serde_json::to_value(chapter).map_err(|e| e.to_string())
-        }
+        Some(chapter) => serde_json::to_value(chapter).map_err(|e| e.to_string()),
         None => Err(format!("章节 {} 不存在", id)),
     }
 }
@@ -60,13 +58,11 @@ pub async fn save_chapter(
 
             Ok(result.actual_version.unwrap_or(expected_version + 1))
         }
-        pensoul_concurrency::OperationStatus::Conflict => {
-            Err(format!(
-                "版本冲突: 期望版本 {}，实际版本 {}",
-                expected_version,
-                result.actual_version.unwrap_or(-1)
-            ))
-        }
+        pensoul_concurrency::OperationStatus::Conflict => Err(format!(
+            "版本冲突: 期望版本 {}，实际版本 {}",
+            expected_version,
+            result.actual_version.unwrap_or(-1)
+        )),
         _ => Err("操作被拒绝".to_string()),
     }
 }

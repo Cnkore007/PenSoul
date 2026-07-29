@@ -1,12 +1,11 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   CheckCircle, XCircle, TestTube, Eye, EyeOff, Zap,
   Plus, Trash2, RefreshCw, Globe, Key, Loader2, Wifi, WifiOff,
   ChevronDown, ChevronRight,
 } from "lucide-react";
 import type { LlmProvider, LlmModel } from "../types";
-import { loadProviders, saveProviders, loadModels, saveModels, loadApiKeys, saveApiKeys } from "../store";
-import { httpRequest } from "../ipc";
+import { listProviders, listModels, saveProviders, saveModels, saveApiKey, setModelPreference, httpRequest } from "../ipc";
 
 interface ProviderForm {
   provider_id: string;
@@ -30,6 +29,7 @@ export default function LlmSettingsView() {
   const [expandedProviders, setExpandedProviders] = useState<Record<string, boolean>>({});
   const [testingModel, setTestingModel] = useState<string | null>(null);
   const [testResults, setTestResults] = useState<Record<string, 'success' | 'error'>>({});
+  const [loading, setLoading] = useState(true);
 
   // 新增供应商表单
   const [showAddForm, setShowAddForm] = useState(false);
@@ -41,34 +41,44 @@ export default function LlmSettingsView() {
     requires_api_key: true,
   });
 
-  useEffect(() => {
-    const savedProviders = loadProviders();
-    const savedModels = loadModels();
-    const savedKeys = loadApiKeys();
-    setProviders(savedProviders);
-    setModels(savedModels);
-    setApiKeys(savedKeys);
+  // 从后端加载数据
+  const loadFromBackend = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [savedProviders, savedModels] = await Promise.all([
+        listProviders(),
+        listModels(),
+      ]);
+      setProviders(savedProviders);
+      setModels(savedModels);
 
-    // 初始化编辑态
-    const bases: Record<string, string> = {};
-    const names: Record<string, string> = {};
-    savedProviders.forEach(p => {
-      bases[p.provider_id] = p.api_base;
-      names[p.provider_id] = p.display_name;
-    });
-    setEditingBase(bases);
-    setEditingName(names);
+      // 初始化编辑态
+      const bases: Record<string, string> = {};
+      const names: Record<string, string> = {};
+      savedProviders.forEach((p: LlmProvider) => {
+        bases[p.provider_id] = p.api_base;
+        names[p.provider_id] = p.display_name;
+      });
+      setEditingBase(bases);
+      setEditingName(names);
+    } catch (e) {
+      console.error("加载 LLM 配置失败:", e);
+    }
+    setLoading(false);
   }, []);
+
+  useEffect(() => {
+    loadFromBackend();
+  }, [loadFromBackend]);
 
   function flashSave(msg?: string) {
     setSaveMsg(msg || "已保存");
     setTimeout(() => setSaveMsg(null), 2000);
   }
 
-  // 持久化供应商
+  // 持久化供应商（本地状态 + 后端磁盘）
   function persistProviders(updated: LlmProvider[]) {
     setProviders(updated);
-    saveProviders(updated);
     // 确保编辑态同步
     const bases = { ...editingBase };
     const names = { ...editingName };
@@ -78,6 +88,8 @@ export default function LlmSettingsView() {
     });
     setEditingBase(bases);
     setEditingName(names);
+    // 保存到后端磁盘
+    saveProviders(updated).catch(e => console.error("保存供应商失败:", e));
     flashSave("供应商已保存");
   }
 
@@ -101,7 +113,18 @@ export default function LlmSettingsView() {
     persistProviders(updated);
   }
 
-  // API Key 已在 onChange 中实时保存，无需额外操作
+  // 保存 API Key — 通过 IPC 持久化到后端
+  async function handleSaveApiKey(providerId: string, key: string) {
+    setApiKeys(prev => ({ ...prev, [providerId]: key }));
+    if (key) {
+      try {
+        await saveApiKey(providerId, key);
+      } catch (e) {
+        console.error("保存 API Key 失败:", e);
+      }
+    }
+  }
+
   // 测试连接
   async function handleTestConnection(providerId: string) {
     const provider = providers.find(p => p.provider_id === providerId);
@@ -171,13 +194,10 @@ export default function LlmSettingsView() {
         }));
 
         if (remoteModels.length > 0) {
-          // 替换：移除该供应商的旧模型，添加新获取的模型
-          setModels(prev => {
-            const filtered = prev.filter(m => m.provider_id !== providerId);
-            const merged = [...filtered, ...remoteModels];
-            saveModels(merged);
-            return merged;
-          });
+          const newModels = [...models.filter(m => m.provider_id !== providerId), ...remoteModels];
+          setModels(newModels);
+          // 保存到后端磁盘
+          saveModels(newModels).catch(e => console.error("保存模型列表失败:", e));
           flashSave(`从 ${provider.display_name} 获取到 ${remoteModels.length} 个模型并已更新列表`);
         } else {
           flashSave("未获取到模型列表");
@@ -195,12 +215,9 @@ export default function LlmSettingsView() {
   function handleDeleteProvider(providerId: string) {
     const updated = providers.filter(p => p.provider_id !== providerId);
     persistProviders(updated);
-    // 同步删除对应的模型
-    setModels(prev => {
-      const filtered = prev.filter(m => m.provider_id !== providerId);
-      saveModels(filtered);
-      return filtered;
-    });
+    const newModels = models.filter(m => m.provider_id !== providerId);
+    setModels(newModels);
+    saveModels(newModels).catch(e => console.error("保存模型列表失败:", e));
   }
 
   // 新增供应商
@@ -219,7 +236,7 @@ export default function LlmSettingsView() {
     setNewProvider({ provider_id: "", name: "", display_name: "", api_base: "", requires_api_key: true });
   }
 
-  // 测试模型 — 真实 API 调用
+  // 测试模型
   const handleTestModel = async (modelId: string) => {
     const model = models.find(m => m.model_id === modelId);
     if (!model) { flashSave("模型不存在"); setTestingModel(null); return; }
@@ -272,14 +289,16 @@ export default function LlmSettingsView() {
   };
 
   // 切换模型启用
-  const handleToggle = (modelId: string, enabled: boolean) => {
-    setModels(prev => {
-      const updated = prev.map(m =>
-        m.model_id === modelId ? { ...m, is_available: enabled } : m
-      );
-      saveModels(updated);
-      return updated;
-    });
+  const handleToggle = async (modelId: string, enabled: boolean) => {
+    const newModels = models.map(m => m.model_id === modelId ? { ...m, is_available: enabled } : m);
+    setModels(newModels);
+    // 保存到后端磁盘
+    saveModels(newModels).catch(e => console.error("保存模型列表失败:", e));
+    try {
+      await setModelPreference(modelId, enabled);
+    } catch (e) {
+      console.error("切换模型状态失败:", e);
+    }
   };
 
   // 获取供应商对应的模型列表
@@ -293,7 +312,6 @@ export default function LlmSettingsView() {
     models: getModelsForProvider(p.provider_id),
   }));
 
-
   // 供应商标签配色
   function providerTag(id: string): { bg: string; fg: string } {
     const hues = [24, 210, 340, 153, 68, 195, 270, 330];
@@ -301,6 +319,17 @@ export default function LlmSettingsView() {
     for (let i = 0; i < id.length; i++) hash = ((hash << 5) - hash) + id.charCodeAt(i);
     const h = hues[Math.abs(hash) % hues.length];
     return { bg: "oklch(92% 0.025 " + h + ")", fg: "oklch(28% 0.04 " + h + ")" };
+  }
+
+  if (loading) {
+    return (
+      <div className="view-container">
+        <div className="view-header"><h2>模型设置</h2></div>
+        <div className="empty-state">
+          <div className="empty-state-text">加载中...</div>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -401,11 +430,17 @@ export default function LlmSettingsView() {
                             value={apiKeys[provider.provider_id] || ""}
                             onChange={e => {
                               const val = e.target.value;
-                              setApiKeys(prev => {
-                                const next = { ...prev, [provider.provider_id]: val };
-                                saveApiKeys(next);
-                                return next;
-                              });
+                              setApiKeys(prev => ({ ...prev, [provider.provider_id]: val }));
+                            }}
+                            onBlur={() => {
+                              const key = apiKeys[provider.provider_id] || "";
+                              if (key) handleSaveApiKey(provider.provider_id, key);
+                            }}
+                            onKeyDown={e => {
+                              if (e.key === 'Enter') {
+                                const key = apiKeys[provider.provider_id] || "";
+                                if (key) handleSaveApiKey(provider.provider_id, key);
+                              }
                             }}
                             placeholder="sk-..."
                             style={{

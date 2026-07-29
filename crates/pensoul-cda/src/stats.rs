@@ -81,10 +81,7 @@ mod tests {
             "e2".into(),
             ImpactNode::new("e2", NodeType::Entity, 2, "h2"),
         );
-        nodes.insert(
-            "e3".into(),
-            ImpactNode::new("e3", NodeType::Event, 1, "h3"),
-        );
+        nodes.insert("e3".into(), ImpactNode::new("e3", NodeType::Event, 1, "h3"));
 
         let edges = vec![
             ("e1".to_string(), "e2".to_string()),
