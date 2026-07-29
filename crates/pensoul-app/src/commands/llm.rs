@@ -142,6 +142,17 @@ pub async fn save_api_key(
     state.save_api_keys().map_err(|e| e.to_string())
 }
 
+/// 从后端读取已保存的 API 密钥
+#[tauri::command]
+pub async fn load_api_keys(
+    state: tauri::State<'_, AppState>,
+) -> Result<std::collections::HashMap<String, String>, String> {
+    // 先尝试从磁盘重新加载
+    let _ = state.load_api_keys();
+    let keys = state.api_keys.read();
+    Ok(keys.clone())
+}
+
 /// 测试模型连通性（从已保存的模型列表查找）
 #[tauri::command]
 pub async fn test_model(

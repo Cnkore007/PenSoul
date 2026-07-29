@@ -140,6 +140,10 @@ export async function saveApiKey(providerId: string, apiKey: string): Promise<vo
   await invoke("save_api_key", { providerId, apiKey });
 }
 
+export async function loadApiKeys(): Promise<Record<string, string>> {
+  return await invoke<Record<string, string>>("load_api_keys");
+}
+
 export async function testModel(modelId: string): Promise<boolean> {
   return await invoke<boolean>("test_model", { modelId });
 }
@@ -223,6 +227,24 @@ export async function loadExperts(): Promise<any[]> {
 export async function scanNuwaSkills(): Promise<any[]> {
   return await invoke<any[]>("scan_nuwa_skills");
 }
+export async function scanExpertsFolder(path: string): Promise<any[]> {
+  return await invoke<any[]>("scan_experts_folder", { path });
+}
+
+export async function deleteExpertSkill(skillPath: string): Promise<void> {
+  await invoke("delete_expert_skill", { skillPath });
+}
+
+export async function getExpertsFolder(): Promise<string> {
+  return await invoke<string>("get_experts_folder");
+}
+
+// 女娲蒸馏：调用 LLM 对名人进行蒸馏，返回专家结果
+// 通过 Tauri 事件 "distill-phase" 接收实时进度
+export async function distillExpert(persona: string): Promise<any> {
+  return await invoke<any>("distill_expert", { persona });
+}
+
 
 // ── 创作设定 ──
 

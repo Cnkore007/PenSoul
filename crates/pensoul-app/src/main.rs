@@ -87,7 +87,12 @@ fn main() {
             pensoul_app::commands::llm::save_models,
             pensoul_app::commands::llm::save_api_key,
             pensoul_app::commands::llm::test_model,
+            pensoul_app::commands::llm::load_api_keys,
             pensoul_app::commands::discussion::discuss_concept,
+            pensoul_app::commands::settings::distill_expert,
+            pensoul_app::commands::settings::scan_experts_folder,
+            pensoul_app::commands::settings::get_experts_folder,
+            pensoul_app::commands::settings::delete_expert_skill,
             pensoul_app::commands::harness_exec::execute_harness_step,
         ])
         .run(tauri::generate_context!())

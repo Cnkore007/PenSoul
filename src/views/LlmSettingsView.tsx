@@ -5,7 +5,7 @@ import {
   ChevronDown, ChevronRight,
 } from "lucide-react";
 import type { LlmProvider, LlmModel } from "../types";
-import { listProviders, listModels, saveProviders, saveModels, saveApiKey, setModelPreference, httpRequest } from "../ipc";
+import { listProviders, listModels, saveProviders, saveModels, saveApiKey, loadApiKeys, setModelPreference, httpRequest } from "../ipc";
 
 interface ProviderForm {
   provider_id: string;
@@ -45,10 +45,12 @@ export default function LlmSettingsView() {
   const loadFromBackend = useCallback(async () => {
     setLoading(true);
     try {
-      const [savedProviders, savedModels] = await Promise.all([
+      const [savedProviders, savedModels, savedKeys] = await Promise.all([
         listProviders(),
         listModels(),
+        loadApiKeys(),
       ]);
+      setApiKeys(savedKeys || {});
       setProviders(savedProviders);
       setModels(savedModels);
 
