@@ -1,6 +1,7 @@
 /// 概念讨论命令 — 调用真实 LLM 执行多 Agent 讨论
 use crate::state::AppState;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 #[derive(Debug, Deserialize)]
 pub struct AgentConfig {
@@ -27,22 +28,68 @@ pub async fn discuss_concept(
     idea_description: String,
     agents: Vec<AgentConfig>,
 ) -> Result<Vec<AgentDiscussionResult>, String> {
-    // 先克隆数据，释放锁后再做异步操作
-    let api_keys: std::collections::HashMap<String, String> = {
+    // 确保 API Key 已从磁盘加载
+    let _ = state.load_api_keys();
+
+    // 从磁盘加载供应商和模型配置
+    let saved_providers = load_providers(&state);
+    let saved_models = load_models(&state);
+
+    // 构建 model_id → provider_id 映射
+    let model_to_provider: HashMap<String, String> = saved_models.iter()
+        .filter_map(|m| {
+            let model_id = m.get("model_id")?.as_str()?;
+            let provider_id = m.get("provider_id")?.as_str()?;
+            Some((model_id.to_string(), provider_id.to_string()))
+        })
+        .collect();
+
+    // 构建 provider_id → api_base 映射
+    let provider_api_bases: HashMap<String, String> = saved_providers.iter()
+        .filter_map(|p| {
+            let pid = p.get("provider_id")?.as_str()?.to_string();
+            let api_base = p.get("api_base")?.as_str()?.to_string();
+            Some((pid, api_base))
+        })
+        .collect();
+
+    // 克隆 API keys
+    let api_keys: HashMap<String, String> = {
         let keys = state.api_keys.read();
         keys.clone()
     };
+
     let mut results = Vec::new();
 
     for agent in agents.iter().filter(|a| a.enabled) {
-        // 根据模型名确定供应商和 API key
-        let (provider_id, api_base) = match agent.model.as_str() {
-            m if m.starts_with("gpt-") => ("openai", "https://api.openai.com/v1"),
-            m if m.starts_with("claude-") => ("anthropic", "https://api.anthropic.com"),
-            m if m.starts_with("deepseek") => ("deepseek", "https://api.deepseek.com"),
-            m if m.starts_with("moonshot") => ("moonshot", "https://api.moonshot.cn/v1"),
-            _ => ("openai", "https://api.openai.com/v1"),
+        // 优先从 models.json 查找供应商；找不到则从模型名回退推断
+        let provider_id = model_to_provider.get(&agent.model)
+            .map(|s| s.as_str())
+            .or_else(|| infer_provider_from_model(&agent.model));
+
+        let provider_id = match provider_id {
+            Some(id) => id,
+            None => {
+                results.push(AgentDiscussionResult {
+                    agent_id: agent.id.clone(),
+                    agent_name: agent.name.clone(),
+                    perspective: agent.perspective.clone(),
+                    response: format!("⚠️ 无法确定模型「{}」所属的供应商，请先在「模型设置」中配置", agent.model),
+                });
+                continue;
+            }
         };
+
+        // 优先从 providers.json 取 api_base；找不到则硬编码回退
+        let api_base = provider_api_bases.get(provider_id)
+            .cloned()
+            .unwrap_or_else(|| match provider_id {
+                "openai" => "https://api.openai.com/v1".to_string(),
+                "anthropic" => "https://api.anthropic.com".to_string(),
+                "deepseek" => "https://api.deepseek.com".to_string(),
+                "moonshot" => "https://api.moonshot.cn/v1".to_string(),
+                _ => "https://api.openai.com/v1".to_string(),
+            });
 
         let api_key = match api_keys.get(provider_id) {
             Some(key) => key.clone(),
@@ -51,7 +98,7 @@ pub async fn discuss_concept(
                     agent_id: agent.id.clone(),
                     agent_name: agent.name.clone(),
                     perspective: agent.perspective.clone(),
-                    response: format!("⚠️ 未配置 {} 的 API Key，请在「模型设置」中配置", provider_id),
+                    response: format!("⚠️ 未配置「{}」的 API Key，请在「模型设置」中配置", provider_id),
                 });
                 continue;
             }
@@ -148,4 +195,45 @@ pub async fn discuss_concept(
     }
 
     Ok(results)
+}
+
+/// 从模型名回退推断供应商 ID
+fn infer_provider_from_model(model: &str) -> Option<&'static str> {
+    if model.starts_with("gpt-") || model.starts_with("o1") || model.starts_with("o3") {
+        Some("openai")
+    } else if model.starts_with("claude-") {
+        Some("anthropic")
+    } else if model.starts_with("deepseek") {
+        Some("deepseek")
+    } else if model.starts_with("moonshot") {
+        Some("moonshot")
+    } else {
+        None
+    }
+}
+
+/// 从磁盘加载供应商列表（与 llm.rs 逻辑一致）
+fn load_providers(state: &AppState) -> Vec<serde_json::Value> {
+    let file = state.config_dir().join("providers.json");
+    if file.exists() {
+        if let Ok(data) = std::fs::read_to_string(&file) {
+            if let Ok(list) = serde_json::from_str::<Vec<serde_json::Value>>(&data) {
+                return list;
+            }
+        }
+    }
+    Vec::new()
+}
+
+/// 从磁盘加载模型列表（与 llm.rs 逻辑一致）
+fn load_models(state: &AppState) -> Vec<serde_json::Value> {
+    let file = state.config_dir().join("models.json");
+    if file.exists() {
+        if let Ok(data) = std::fs::read_to_string(&file) {
+            if let Ok(list) = serde_json::from_str::<Vec<serde_json::Value>>(&data) {
+                return list;
+            }
+        }
+    }
+    Vec::new()
 }
