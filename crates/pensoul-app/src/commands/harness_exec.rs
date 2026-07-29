@@ -17,36 +17,28 @@ pub async fn execute_harness_step(
     project_context: String,
     stage_prompt: String,
 ) -> Result<HarnessStepResult, String> {
-    // 先克隆数据，释放锁后再做异步操作
-    let api_keys: std::collections::HashMap<String, String> = {
-        let keys = state.api_keys.read();
-        keys.clone()
-    };
+    use super::llm_helper as lh;
 
-    // 尝试找到可用的 API key
-    let providers = [("openai", "https://api.openai.com/v1"), ("deepseek", "https://api.deepseek.com"), ("moonshot", "https://api.moonshot.cn/v1")];
-    let mut api_key = String::new();
-    let mut api_base = String::new();
-    let mut model_id = "gpt-4o".to_string();
+    // 确保 API Key 已从磁盘加载
+    lh::ensure_api_keys_loaded(&state);
 
-    for (provider, base) in &providers {
-        if let Some(key) = api_keys.get(*provider) {
-            api_key = key.clone();
-            api_base = base.to_string();
-            // 根据供应商选择模型
-            model_id = match *provider {
-                "openai" => "gpt-4o".to_string(),
-                "deepseek" => "deepseek-chat".to_string(),
-                "moonshot" => "moonshot-v1-8k".to_string(),
-                _ => "gpt-4o".to_string(),
-            };
-            break;
-        }
-    }
+    let saved_providers = lh::load_providers(&state);
+    let api_keys = { state.api_keys.read().clone() };
 
-    if api_key.is_empty() {
-        return Err("未配置任何 LLM API Key，请在「模型设置」中配置".to_string());
-    }
+    // 找第一个有 API Key 的供应商
+    let (provider_id, api_key, api_base) = lh::find_any_available_provider(&saved_providers, &api_keys)
+        .ok_or_else(|| "未配置任何 LLM API Key，请在「模型设置」中配置".to_string())?;
+
+    // 从 models.json 找该供应商的模型；找不到则用默认
+    let saved_models = lh::load_models(&state);
+    let model_id = saved_models.iter()
+        .find(|m| {
+            m.get("provider_id").and_then(|v| v.as_str()) == Some(&provider_id)
+                && m.get("is_available").and_then(|v| v.as_bool()).unwrap_or(false)
+        })
+        .and_then(|m| m.get("model_id").and_then(|v| v.as_str()))
+        .unwrap_or("gpt-4o")
+        .to_string();
 
     // 构建系统提示词
     let system_prompt = format!(
@@ -54,46 +46,11 @@ pub async fn execute_harness_step(
         stage_name, stage_prompt, project_context
     );
 
-    // 调用 LLM
-    let url = format!("{}/chat/completions", api_base.trim_end_matches('/'));
-    let body = serde_json::json!({
-        "model": model_id,
-        "messages": [
-            { "role": "system", "content": system_prompt },
-            { "role": "user", "content": "请执行当前阶段的任务。" }
-        ],
-        "temperature": 0.7,
-        "max_tokens": 2048
-    });
-
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(120))
-        .build()
-        .map_err(|e| format!("创建 HTTP 客户端失败: {}", e))?;
-
-    let response = client
-        .post(&url)
-        .header("Authorization", format!("Bearer {}", api_key))
-        .header("Content-Type", "application/json")
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| format!("LLM 请求失败: {}", e))?;
-
-    let status = response.status();
-    let body_text = response.text().await.unwrap_or_default();
-
-    if !status.is_success() {
-        return Err(format!("LLM API 错误 ({}): {}", status, body_text));
-    }
-
-    let json: serde_json::Value = serde_json::from_str(&body_text)
-        .map_err(|e| format!("解析 LLM 响应失败: {}", e))?;
-
-    let output = json["choices"][0]["message"]["content"]
-        .as_str()
-        .unwrap_or("(无响应)")
-        .to_string();
+    let output = lh::call_llm(
+        &provider_id, &api_key, &api_base, &model_id,
+        &system_prompt, "请执行当前阶段的任务。",
+        0.7, 2048,
+    ).await?;
 
     Ok(HarnessStepResult {
         stage_name: stage_name.clone(),

@@ -2,7 +2,6 @@
 use crate::state::AppState;
 use pensoul_core::ProjectSettings;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use tauri::Emitter;
 
 /// 蒸馏阶段事件 —— 实时推送给前端
@@ -361,28 +360,19 @@ pub async fn distill_expert(
     state: tauri::State<'_, AppState>,
     persona: String,
 ) -> Result<pensoul_core::Expert, String> {
-    let api_keys: HashMap<String, String> = { let keys = state.api_keys.read(); keys.clone() };
+    // 使用共享辅助模块
+    use super::llm_helper as lh;
+    lh::ensure_api_keys_loaded(&state);
 
-    // 按 providers.json 中注册的供应商顺序，找第一个有 API Key 的
-    let config_dir = state.config_dir();
-    let providers_path = config_dir.join("providers.json");
-    let models_path = config_dir.join("models.json");
-    let saved_providers: Vec<serde_json::Value> = std::fs::read_to_string(&providers_path)
-        .ok().and_then(|d| serde_json::from_str(&d).ok()).unwrap_or_default();
-    let saved_models: Vec<serde_json::Value> = std::fs::read_to_string(&models_path)
-        .ok().and_then(|d| serde_json::from_str(&d).ok()).unwrap_or_default();
+    let saved_providers = lh::load_providers(&state);
+    let saved_models = lh::load_models(&state);
+    let api_keys = { state.api_keys.read().clone() };
 
-    let (_provider_id, api_key, api_base) = saved_providers.iter()
-        .filter_map(|p| {
-            let pid = p.get("provider_id").and_then(|v| v.as_str())?;
-            let key = api_keys.get(pid)?;
-            let base = p.get("api_base").and_then(|v| v.as_str())?;
-            Some((pid.to_string(), key.clone(), base.to_string()))
-        })
-        .next()
+    // 找第一个有 API Key 的供应商
+    let (_provider_id, api_key, api_base) = lh::find_any_available_provider(&saved_providers, &api_keys)
         .ok_or_else(|| "未配置任何 LLM API Key，请在模型设置中配置".to_string())?;
 
-    // 从已保存的模型中取第一个该供应商可用的模型，不硬编码 gpt-4o
+    // 从已保存的模型中取第一个该供应商可用的模型
     let model_id = saved_models.iter()
         .find(|m| {
             m.get("provider_id").and_then(|v| v.as_str()) == Some(&_provider_id)
@@ -404,7 +394,7 @@ pub async fn distill_expert(
          5. 经典名言（1-2条）
 请用中文。", persona
     );
-    let research = call_llm(&api_key, &api_base, model_id, &research_prompt).await?;
+    let research = lh::call_llm(&_provider_id, &api_key, &api_base, model_id, "你是一个专业的认知框架分析师。你的任务是提炼人物的思维方式和决策逻辑。回答简洁、有深度、直击本质。", &research_prompt, 0.7, 2048).await?;
     emit_phase(&app_handle, "人物研究", "done", "研究完成", &research).ok();
 
     // Phase 2: 生成技能卡并保存到 Experts 文件夹
@@ -428,7 +418,7 @@ pub async fn distill_expert(
          【评审提示词】写给 AI 扮演的规则，第二人称「你」，约150字", persona, research
     );
 
-    let skill_content = call_llm(&api_key, &api_base, model_id, &skill_gen_prompt).await?;
+    let skill_content = lh::call_llm(&_provider_id, &api_key, &api_base, model_id, "你是一个专业的认知框架分析师。你的任务是提炼人物的思维方式和决策逻辑。回答简洁、有深度、直击本质。", &skill_gen_prompt, 0.7, 2048).await?;
 
     // 从生成的文本中提取各个部分
     let name = extract_field(&skill_content, "【名称】");
@@ -560,23 +550,3 @@ fn emit_phase(app_handle: &tauri::AppHandle, phase: &str, status: &str, message:
     Ok(())
 }
 
-/// 调用 LLM API
-async fn call_llm(api_key: &str, api_base: &str, model_id: &str, prompt: &str) -> Result<String, String> {
-    let url = format!("{}/chat/completions", api_base.trim_end_matches('/'));
-    let body = serde_json::json!({
-        "model": model_id,
-        "messages": [
-            { "role": "system", "content": "你是一个专业的认知框架分析师。你的任务是提炼人物的思维方式和决策逻辑。回答简洁、有深度、直击本质。" },
-            { "role": "user", "content": prompt }
-        ],
-        "temperature": 0.7,
-        "max_tokens": 2048
-    });
-    let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(120)).build().map_err(|e| format!("创建 HTTP 客户端失败: {}", e))?;
-    let response = client.post(&url).header("Authorization", format!("Bearer {}", api_key)).header("Content-Type", "application/json").json(&body).send().await.map_err(|e| format!("LLM 请求失败: {}", e))?;
-    let status = response.status();
-    let body_text = response.text().await.unwrap_or_default();
-    if !status.is_success() { return Err(format!("LLM API 错误 ({}): {}", status, body_text)); }
-    let json: serde_json::Value = serde_json::from_str(&body_text).map_err(|e| format!("解析 LLM 响应失败: {}", e))?;
-    Ok(json["choices"][0]["message"]["content"].as_str().unwrap_or("").to_string())
-}

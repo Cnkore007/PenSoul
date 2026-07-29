@@ -8,6 +8,7 @@ pub mod harness;
 pub mod http;
 pub mod inspiration;
 pub mod llm;
+pub(crate) mod llm_helper;
 pub mod memory;
 pub mod model;
 pub mod plugin;
