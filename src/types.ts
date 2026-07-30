@@ -214,6 +214,46 @@ export interface SproutData {
   ideaDescription: string;
   // 讨论 Agent 配置列表
   agents: AgentDiscussionConfig[];
+  // 预置 Agent 是否已被用户移除（true 时即使 agents 为空也不再回退到预置）
+  presetsDismissed?: boolean;
+}
+
+// 讨论发言记录（一轮一条）
+export interface DiscussionTurn {
+  agent_id: string;
+  agent_name: string;
+  perspective: string;
+  round: number; // 1=立论 2=交锋
+  content: string;
+}
+
+// 结构化讨论成果
+export interface DiscussionSynthesis {
+  summary: string;
+  locations: Array<{ name: string; description: string }>;
+  timeline_events: Array<{ story_time: string; description: string }>;
+  setting_rules: Array<{ name: string; description: string }>;
+  characters: Array<{
+    name: string;
+    personality_traits: Array<[string, number]>;
+    current_mood?: string;
+    description?: string;
+  }>;
+}
+
+// 讨论完整输出
+export interface DiscussionOutput {
+  turns: DiscussionTurn[];
+  synthesis: DiscussionSynthesis;
+}
+
+// 讨论进度事件（后端实时推送）
+export interface DiscussionEvent {
+  agent_id: string;
+  agent_name: string;
+  round: number; // 1=立论 2=交锋 3=成果
+  status: string; // running / done / error
+  content: string;
 }
 
 // 预置讨论 Agent

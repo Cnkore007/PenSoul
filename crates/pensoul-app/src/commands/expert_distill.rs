@@ -1,11 +1,16 @@
-//! 专家蒸馏 IPC 命令 —— 调用 LLM 将人物思维提炼为技能卡
+//! 专家蒸馏 IPC 命令 —— 加载 pensoul-skill-Experts 技能，按其方法论调用 LLM
+//! 将人物的思维方式提炼为可参与创作讨论的专家技能卡。
 //!
-//! 从 experts.rs 拆分而来（单文件 500 行上限约束）。
+//! 产物约定（与 skills/pensoul-skill-Experts 一致）：
+//! - 目录：`Experts/<名字>-expert/`
+//! - 模板：角色规则 / 创作讨论工作流 / 核心心智模型 / 创作决策启发式 /
+//!   表达 DNA / 价值观与反模式 / 诚实边界（无身份卡、生平年表、智识谱系）
+//! - 调研过程写入 `references/research/` 随产物自包含保存
 use crate::state::AppState;
 use serde::{Deserialize, Serialize};
 use tauri::Emitter;
 
-use super::experts::experts_base_dir;
+use super::experts::{experts_base_dir, extract_section_any, parse_skill_md};
 
 /// 蒸馏阶段事件 —— 实时推送给前端
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -16,13 +21,36 @@ pub struct DistillPhaseEvent {
     pub detail: String,
 }
 
+/// 技能文件在工作区内的相对路径
+const SKILL_RELATIVE_PATH: &str = "skills/pensoul-skill-Experts/SKILL.md";
+
+/// 找不到技能文件时使用的内置简版方法论（保证发布版可用）。
+/// 完整方法论见 skills/pensoul-skill-Experts/SKILL.md。
+const FALLBACK_METHODOLOGY: &str = r#"# PenSoul · 专家思维蒸馏术（简版）
+
+核心理念：提炼思维框架，不是复制人物生平。捕捉 HOW they think，不是 WHAT they said。
+
+产物红线：不保留人物简介——不写身份卡、生平时间线、智识谱系，只保留可运行的思维方式。
+
+调研六维度：1 著作（反复≥3次的核心论点=真信念）2 对话（被追问时的即兴反应）
+3 表达（高频用词句式、幽默方式）4 他者（外部批评与盲点）5 决策（真实创作决策 vs 声称）
+6 演变（思想转折点，非生平年表）。
+
+心智模型三重验证：跨域复现（≥2个领域出现）、生成力（能推断对新问题的立场）、
+排他性（不是所有聪明人都这样想）。三重通过才是心智模型，取 3-7 个，宁少勿多。
+
+矛盾保留：发现矛盾不要调和，矛盾是深度的来源。
+
+诚实边界：明确写出做不到什么、信息截止时间、信息不足的维度。
+宁可生成诚实标注局限的 60 分专家，也不要编造的 90 分专家。
+"#;
+
 #[tauri::command]
 pub async fn distill_expert(
     app_handle: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
     persona: String,
 ) -> Result<pensoul_core::Expert, String> {
-    // 使用共享辅助模块
     use super::llm_helper as lh;
     lh::ensure_api_keys_loaded(&state);
 
@@ -47,193 +75,262 @@ pub async fn distill_expert(
         .and_then(|m| m.get("model_id").and_then(|v| v.as_str()))
         .unwrap_or("gpt-4o");
 
-    // Phase 1: 人物研究
+    // 加载 pensoul-skill-Experts 技能作为蒸馏方法论
+    let (methodology, skill_source) = load_distill_methodology(&state);
+    emit_phase(&app_handle, "加载蒸馏技能", "done", &skill_source, "").ok();
+
+    let auth = lh::ProviderAuth {
+        provider_id: &_provider_id,
+        api_key: &api_key,
+        api_base: &api_base,
+    };
+
+    // ── Phase 1: 人物调研（技能的六维度框架）──
     emit_phase(
         &app_handle,
-        "人物研究",
+        "人物调研",
         "running",
-        &format!("正在搜集「{}」的背景与思维特征...", persona),
+        &format!("正在按六维度框架调研「{}」的思维方式...", persona),
         "",
     )
     .ok();
 
     let research_prompt = format!(
-        "你是一位人物分析师。请用简短的文字为「{}」提炼：
-         1. 人物简介（一句话）
-         2. 核心理念（一句话）
-         3. 思维特征（一句话）
-         4. 表达风格（一句话）
-         5. 经典名言（1-2条）
-请用中文。",
-        persona
+        "你是「PenSoul · 专家思维蒸馏术」的调研执行者。上述方法论是你的工作手册。\n\
+         现在执行其中的 Phase 1（多源信息采集），对象为「{persona}」。\n\n\
+         注意：你无法联网检索，请基于你的知识储备调研，并对不确定的信息明确标注置信度。\n\
+         严格按以下六个维度输出，每个维度 3-8 条要点，每条注明（一手/二手/推测）：\n\
+         1. 著作与系统思考：反复出现≥3次的核心论点、自创术语、推崇的书/作者\n\
+         2. 对话与即兴思考：被追问时的回答方式、即兴类比、改变立场的瞬间\n\
+         3. 表达风格 DNA：高频用词句式、幽默方式、确定性表达习惯\n\
+         4. 他者视角：外部观察到的模式、批评与争议、与同行对比\n\
+         5. 创作决策：重大创作决策的背景与逻辑、言行一致/不一致案例\n\
+         6. 思维演变：创作观的思想转折点（不是生平年表）\n\n\
+         硬性要求：发现矛盾时保留矛盾，不要调和；信息不足的维度直接标注「信息不足」。\n\
+         用中文输出。",
     );
-    let research = lh::call_llm(&lh::ProviderAuth { provider_id: &_provider_id, api_key: &api_key, api_base: &api_base }, model_id, "你是一个专业的认知框架分析师。你的任务是提炼人物的思维方式和决策逻辑。回答简洁、有深度、直击本质。", &research_prompt, 0.7, 2048).await?;
-    emit_phase(&app_handle, "人物研究", "done", "研究完成", &research).ok();
+    let research = lh::call_llm(&auth, model_id, &methodology, &research_prompt, 0.7, 4096).await?;
+    emit_phase(&app_handle, "人物调研", "done", "调研完成", &research).ok();
 
-    // Phase 2: 生成技能卡并保存到 Experts 文件夹
+    // ── Phase 2: 技能构建（按产物模板生成 SKILL.md）──
     emit_phase(
         &app_handle,
-        "技能生成",
+        "技能构建",
         "running",
-        &format!("正在为「{}」生成技能卡...", persona),
+        &format!("正在为「{}」提炼心智模型并构建专家技能...", persona),
         "",
     )
     .ok();
 
-    let skill_gen_prompt = format!(
-        "基于以下关于「{}」的研究，生成一份结构化的创作思维技能。
-
-{}\n
-         请按以下格式输出（不要 JSON，用纯文本按章节输出）：
-         ---
-         【名称】
-         【描述】
-         【评审维度】
-         【身份卡】以「我是谁」开头，第一人称，100字以内
-         【心智模型】3-5句话描述
-         【决策原则】3-5条，每条一句话
-         【表达DNA】几句话描述
-         【评审提示词】写给 AI 扮演的规则，第二人称「你」，约150字",
-        persona, research
-    );
-
-    let skill_content = lh::call_llm(&lh::ProviderAuth { provider_id: &_provider_id, api_key: &api_key, api_base: &api_base }, model_id, "你是一个专业的认知框架分析师。你的任务是提炼人物的思维方式和决策逻辑。回答简洁、有深度、直击本质。", &skill_gen_prompt, 0.7, 2048).await?;
-
-    // 从生成的文本中提取各个部分
-    let name = extract_field(&skill_content, "【名称】");
-    let description = extract_field(&skill_content, "【描述】");
-    let perspective = extract_field(&skill_content, "【评审维度】");
-    let identity_card = extract_field(&skill_content, "【身份卡】");
-    let focus_dims = extract_field(&skill_content, "【核心关注维度】");
-    let criteria = extract_field(&skill_content, "【判断标准】");
-    let questions = extract_field(&skill_content, "【追问习惯】");
-    let decision = extract_field(&skill_content, "【决策原则】");
-    let expression = extract_field(&skill_content, "【表达DNA】");
-    let default_prompt = extract_field(&skill_content, "【评审提示词】");
-    let boundaries = extract_field(&skill_content, "【诚实边界】");
-
-    let expert_name = if name.is_empty() { &persona } else { &name };
-
-    // 保存到 Experts 文件夹
-    let safe_name: String = expert_name
+    // 目标目录名（中文保留）：frontmatter 的 name 必须与之一致
+    let safe_name: String = persona
         .chars()
         .map(|c| match c {
             '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' | ' ' => '_',
             _ => c,
         })
         .collect();
-    let dir_name = format!("{}-perspective", safe_name);
+    let dir_name = format!("{}-expert", safe_name);
 
+    let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+    let build_prompt = format!(
+        "你是「PenSoul · 专家思维蒸馏术」的提炼与构建者。上述方法论是你的工作手册。\n\
+         基于以下对「{persona}」的调研，执行 Phase 2（框架提炼）与 Phase 3（专家构建），\n\
+         产出最终的 SKILL.md 文件内容。\n\n\
+         ═══════ 调研素材 ═══════\n{research}\n═══════ 调研素材结束 ═══════\n\n\
+         构建要求：\n\
+         1. 从素材中提炼 3-7 个心智模型，每个必须通过三重验证（跨域复现/生成力/排他性），\n\
+            包含：名称、一句话描述、证据（≥2个场景）、应用（什么创作问题适用）、局限\n\
+         2. 提炼 5-10 条创作决策启发式，每条含应用场景和案例\n\
+         3. 表达 DNA：句式/词汇/节奏/幽默/确定性/引用习惯\n\
+         4. 价值观与反模式：我追求的（创作价值观排序）/ 我拒绝的（创作反模式）/ 我自己也没想清楚的（内在张力，≥2对）\n\
+         5. 创作讨论工作流：Step1 问题分类 → Step2 [人物]式审视（3-5 个审视维度，必须从心智模型反推，\n\
+            每个维度有具体看点）→ Step3 输出讨论意见\n\
+         6. 诚实边界：≥3 条具体局限，并注明「调研时间：{today}」\n\n\
+         产物红线（违反即失败）：\n\
+         - 禁止出现人物简介类内容：身份卡、生平介绍、生平时间线、最新动态、智识谱系\n\
+         - 禁止编造此人没说过的话；禁止把通用道理包装成此人的独特见解\n\
+         - 禁止堆砌金句，心智模型必须是可运行的框架\n\n\
+         输出格式（严格遵守）：\n\
+         - 只输出 SKILL.md 的 markdown 内容，前后不要任何解释\n\
+         - 用 ===SKILL_MD_BEGIN=== 和 ===SKILL_MD_END=== 包裹全部内容\n\
+         - 文件以 ---\\nname: {dir_name}\\ndescription: <一句话中文描述>\\n--- 开头\n\
+           （name 字段必须原样写 {dir_name}，禁止翻译成英文或拼音）\n\
+         - 正文 section 依次为：# {persona} · 创作思维系统 / ## 角色规则（第一人称参与创作讨论，\n\
+           不复述生平）/ ## 创作讨论工作流 / ## 核心心智模型（### 模型N: 名称）/ ## 创作决策启发式 /\n\
+           ## 表达 DNA / ## 价值观与反模式 / ## 诚实边界",
+    );
+    let raw_output = lh::call_llm(&auth, model_id, &methodology, &build_prompt, 0.7, 8192).await?;
+
+    // 提取标记之间的 SKILL.md 内容，并强制校正 frontmatter 的 name 为目录名（防 LLM 译成英文）
+    let skill_md_raw = extract_skill_md(&raw_output)
+        .ok_or_else(|| "LLM 输出中未找到 SKILL.md 内容标记，请重试".to_string())?;
+    let skill_md = normalize_frontmatter_name(&skill_md_raw, &dir_name);
+
+    // 解析产物，提取专家卡片字段
+    let (frontmatter, body) = parse_skill_md(&skill_md);
+    let fm_desc = frontmatter.get("description").cloned().unwrap_or_default();
+    let models_section = extract_section_any(&body, &["核心心智模型"]);
+    let decision = extract_section_any(&body, &["创作决策启发式", "决策启发式"]);
+    let expression = extract_section_any(&body, &["表达 DNA", "表达DNA"]);
+    let boundaries = extract_section_any(&body, &["诚实边界"]);
+
+    if models_section.is_empty() {
+        return Err("生成的技能缺少「核心心智模型」章节，请重试".to_string());
+    }
+
+    let expert_name = persona.clone();
+
+    // 保存到 Experts 文件夹：<名字>-expert/
     let experts_base = experts_base_dir(&state);
     let skill_dir = experts_base.join(&dir_name);
-    let _ = std::fs::create_dir_all(&skill_dir);
+    let research_dir = skill_dir.join("references").join("research");
+    std::fs::create_dir_all(&research_dir).map_err(|e| format!("创建技能目录失败: {e}"))?;
 
-    let review_framework = format!(
-        "### 核心关注维度\n\n{}\n\n### 判断标准\n\n{}\n\n### 追问习惯\n\n{}",
-        focus_dims.trim(),
-        criteria.trim(),
-        questions.trim()
+    // 调研过程自包含保存（方法论要求：不存文件的调研等于没做）
+    let research_md = format!(
+        "# 「{}」LLM 调研记录\n\n> 调研时间：{}\n> 说明：应用内蒸馏为单次 LLM 调研，\
+         未经多源交叉验证，置信度以文中标注为准。\n\n{}",
+        persona, today, research
     );
-    let skill_md = format!(
-        "---
-name: {}
-description: {}
----
-
-# {} · PenSoul 创作思维
-
-> {}
-
-## 身份卡
-
-{}
-
-## 评审框架
-
-{}
-
-## 决策启发式
-
-{}
-
-## 表达DNA
-
-{}
-
-## 评审提示词
-
-{}
-
-## 诚实边界
-
-{}",
-        dir_name,
-        description.trim(),
-        expert_name,
-        description.trim(),
-        identity_card.trim(),
-        review_framework,
-        decision.trim(),
-        expression.trim(),
-        default_prompt.trim(),
-        boundaries.trim()
-    );
+    std::fs::write(research_dir.join("01-llm-research.md"), research_md)
+        .map_err(|e| format!("写入调研记录失败: {e}"))?;
 
     let skill_file = skill_dir.join("SKILL.md");
-    let _ = std::fs::write(&skill_file, &skill_md);
+    std::fs::write(&skill_file, &skill_md).map_err(|e| format!("写入 SKILL.md 失败: {e}"))?;
 
-    let desc_combined = format!("【PenSoul技能】{} - {}", persona, description.trim());
+    let mut prompt_parts = Vec::new();
+    prompt_parts.push(format!("## 核心心智模型\n{}", models_section.trim()));
+    if !decision.is_empty() {
+        prompt_parts.push(format!("## 创作决策启发式\n{}", decision.trim()));
+    }
+    if !expression.is_empty() {
+        prompt_parts.push(format!("## 表达 DNA\n{}", expression.trim()));
+    }
+    if !boundaries.is_empty() {
+        prompt_parts.push(format!("## 诚实边界\n{}", boundaries.trim()));
+    }
+    let default_prompt = prompt_parts.join("\n\n");
+
+    let desc_combined = format!("【PenSoul专家】{} - {}", persona, fm_desc.trim());
 
     let expert = pensoul_core::Expert {
         id: format!("distilled-{}", uuid::Uuid::new_v4()),
-        name: expert_name.to_string(),
+        name: expert_name.clone(),
         description: desc_combined,
         source_persona: persona.clone(),
-        model_id: "gpt-4o".to_string(),
-        perspective: perspective.trim().to_string(),
-        default_prompt: default_prompt.trim().to_string(),
-        created_at: chrono::Utc::now().format("%Y-%m-%d").to_string(),
+        model_id: model_id.to_string(),
+        // 卡片维度只显示一句话；完整心智模型在 SKILL.md 与 default_prompt 中
+        perspective: format!("以{}的视角对设定及核心想法进行讨论", persona),
+        default_prompt,
+        created_at: today,
         skill_path: Some(skill_file.to_string_lossy().to_string()),
-        skill_summary: Some(format!("PenSoul技能 · {}", persona)),
+        skill_summary: Some(format!("PenSoul专家 · {}", persona)),
     };
 
     emit_phase(
         &app_handle,
-        "技能生成",
+        "技能构建",
         "done",
-        "技能生成完成！",
+        "技能构建完成！",
         &format!("已生成「{}」并保存到 Experts/{}", expert_name, dir_name),
     )
     .ok();
     Ok(expert)
 }
 
-/// 从 LLM 输出的纯文本中提取字段值
-fn extract_field(text: &str, field_name: &str) -> String {
-    let mut result = String::new();
-    let mut capturing = false;
-    for line in text.lines() {
-        if line.trim().starts_with(field_name) {
-            capturing = true;
-            // 提取冒号后的内容
-            if let Some((_, content)) = line.split_once('】') {
-                let content = content.trim();
-                if !content.is_empty() {
-                    result.push_str(content);
-                    result.push('\n');
-                }
-            }
-            continue;
-        }
-        if capturing {
-            if line.trim().starts_with("【") {
-                break;
-            }
-            result.push_str(line);
-            result.push('\n');
+/// 加载 pensoul-skill-Experts 技能内容作为蒸馏方法论。
+/// 返回 (方法论文本, 来源描述)。找不到技能文件时回退到内置简版。
+fn load_distill_methodology(state: &AppState) -> (String, String) {
+    for candidate in skill_file_candidates(state) {
+        if candidate.exists()
+            && let Ok(content) = std::fs::read_to_string(&candidate)
+        {
+            return (content, format!("已加载蒸馏技能: {}", candidate.display()));
         }
     }
-    result.trim().to_string()
+    (
+        FALLBACK_METHODOLOGY.to_string(),
+        "未找到 skills/pensoul-skill-Experts/SKILL.md，使用内置简版方法论".to_string(),
+    )
+}
+
+/// 技能文件候选路径：沿可执行文件向上找、Experts 目录的同级、当前工作目录
+fn skill_file_candidates(state: &AppState) -> Vec<std::path::PathBuf> {
+    let mut candidates = Vec::new();
+
+    // 沿可执行文件路径逐级向上（覆盖 target/debug 与 .app bundle 两种形态）
+    if let Ok(exe) = std::env::current_exe() {
+        for ancestor in exe.ancestors() {
+            candidates.push(ancestor.join(SKILL_RELATIVE_PATH));
+        }
+    }
+
+    // Experts 目录的同级 skills/（Experts 与工作区根同级）
+    if let Some(root) = experts_base_dir(state).parent().map(|p| p.to_path_buf()) {
+        candidates.push(root.join(SKILL_RELATIVE_PATH));
+    }
+
+    // 当前工作目录
+    if let Ok(cwd) = std::env::current_dir() {
+        candidates.push(cwd.join(SKILL_RELATIVE_PATH));
+    }
+
+    candidates
+}
+
+/// 强制将 SKILL.md frontmatter 中的 name 校正为实际目录名。
+/// LLM 有时会把中文名翻译成英文/拼音（如 luxun），此处以用户输入为准；
+/// 缺少 frontmatter 时补一个最小的。
+fn normalize_frontmatter_name(content: &str, dir_name: &str) -> String {
+    let mut lines: Vec<String> = content.lines().map(|l| l.to_string()).collect();
+    if lines.first().map(|l| l.trim()) != Some("---") {
+        return format!("---\nname: {}\n---\n\n{}", dir_name, content);
+    }
+    // 在前两个 --- 之间查找 name 行并替换；没有则在 frontmatter 末尾插入
+    let mut name_written = false;
+    let mut fm_end = None;
+    for (i, line) in lines.iter().enumerate().skip(1) {
+        if line.trim() == "---" {
+            fm_end = Some(i);
+            break;
+        }
+    }
+    let scan_end = fm_end.unwrap_or(lines.len());
+    for line in lines[1..scan_end].iter_mut() {
+        if line.starts_with("name:") {
+            *line = format!("name: {}", dir_name);
+            name_written = true;
+        }
+    }
+    if !name_written {
+        lines.insert(fm_end.unwrap_or(1), format!("name: {}", dir_name));
+    }
+    lines.join("\n")
+}
+
+/// 从 LLM 输出中提取 ===SKILL_MD_BEGIN=== 与 ===SKILL_MD_END=== 之间的内容，
+/// 并剥离可能残留的 markdown 代码围栏。
+fn extract_skill_md(output: &str) -> Option<String> {
+    let begin = output.find("===SKILL_MD_BEGIN===")? + "===SKILL_MD_BEGIN===".len();
+    let end = output.rfind("===SKILL_MD_END===")?;
+    if end <= begin {
+        return None;
+    }
+    let mut text = output[begin..end].trim().to_string();
+
+    // 剥离 ```markdown / ``` 围栏
+    if let Some(stripped) = text.strip_prefix("```") {
+        let without_open = stripped.strip_prefix("markdown").unwrap_or(stripped);
+        text = without_open
+            .trim_end()
+            .strip_suffix("```")
+            .unwrap_or(without_open.trim_end())
+            .trim()
+            .to_string();
+    }
+
+    if text.is_empty() { None } else { Some(text) }
 }
 
 /// 向 Tauri 前端发射蒸馏阶段事件

@@ -1,8 +1,14 @@
-//! 专家（女娲蒸馏）相关 IPC 命令
+//! 专家（PenSoul 专家蒸馏）相关 IPC 命令
 //!
 //! 从 settings.rs 拆分而来，包含专家扫描、导入、删除等功能；
 //! 蒸馏流程见 `expert_distill.rs`。
+//!
+//! 技能目录约定：新格式为 `<名字>-expert/`（pensoul-skill-Experts 产物，无人物简介），
+//! 兼容旧格式 `<名字>-perspective/`。
 use crate::state::AppState;
+
+/// 受支持的技能目录后缀（新格式优先）
+const SKILL_DIR_SUFFIXES: [&str; 2] = ["-expert", "-perspective"];
 
 /// 扫描女娲蒸馏技能目录，返回可导入的专家列表
 #[tauri::command]
@@ -17,13 +23,13 @@ pub async fn scan_nuwa_skills() -> Result<Vec<pensoul_core::Expert>, String> {
     ];
 
     for base in &search_dirs {
-        let found = scan_perspective_dirs(base)?;
+        let found = scan_skill_dirs(base)?;
         experts.extend(found);
     }
     Ok(experts)
 }
 
-/// 扫描本地 Experts 文件夹中预制的女娲蒸馏专家
+/// 扫描本地 Experts 文件夹中预制的蒸馏专家
 #[tauri::command]
 pub async fn scan_experts_folder(path: String) -> Result<Vec<pensoul_core::Expert>, String> {
     let experts_path = std::path::PathBuf::from(&path);
@@ -32,11 +38,11 @@ pub async fn scan_experts_folder(path: String) -> Result<Vec<pensoul_core::Exper
         return Err(format!("目录不存在或不可读: {}", path));
     }
 
-    scan_perspective_dirs(&experts_path)
+    scan_skill_dirs(&experts_path)
 }
 
-/// 扫描目录下所有 `*-perspective/SKILL.md`，解析为专家列表。
-fn scan_perspective_dirs(base: &std::path::Path) -> Result<Vec<pensoul_core::Expert>, String> {
+/// 扫描目录下所有 `*-expert/`（新格式）与 `*-perspective/`（旧格式）的 SKILL.md，解析为专家列表。
+fn scan_skill_dirs(base: &std::path::Path) -> Result<Vec<pensoul_core::Expert>, String> {
     let mut experts = Vec::new();
     if !base.exists() {
         return Ok(experts);
@@ -49,7 +55,7 @@ fn scan_perspective_dirs(base: &std::path::Path) -> Result<Vec<pensoul_core::Exp
             continue;
         }
         let dir_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-        if !dir_name.ends_with("-perspective") {
+        if !SKILL_DIR_SUFFIXES.iter().any(|s| dir_name.ends_with(s)) {
             continue;
         }
         let skill_file = path.join("SKILL.md");
@@ -60,38 +66,37 @@ fn scan_perspective_dirs(base: &std::path::Path) -> Result<Vec<pensoul_core::Exp
             std::fs::read_to_string(&skill_file).map_err(|e| format!("读取 SKILL.md 失败: {e}"))?;
 
         let (frontmatter, body) = parse_skill_md(&content);
-        let fm_name = frontmatter
-            .get("name")
-            .cloned()
-            .unwrap_or_else(|| dir_name.to_string());
         let fm_desc = frontmatter.get("description").cloned().unwrap_or_default();
-        let persona = fm_name
-            .strip_suffix("-perspective")
-            .unwrap_or(&fm_name)
+        // 人物名以目录名为准（frontmatter 的 name 可能被写成英文/拼音）
+        let persona = SKILL_DIR_SUFFIXES
+            .iter()
+            .find_map(|s| dir_name.strip_suffix(s))
+            .unwrap_or(dir_name)
             .to_string();
 
+        // 新旧模板 section 名兼容：新模板无身份卡，用「创作决策启发式」「表达 DNA」
         let identity = extract_section(&body, "身份卡");
-        let perspective_text = extract_section(&body, "核心心智模型");
-        let decision = extract_section(&body, "决策启发式");
-        let expression = extract_section(&body, "表达DNA");
+        let models_section = extract_section(&body, "核心心智模型");
+        let decision = extract_section_any(&body, &["创作决策启发式", "决策启发式"]);
+        let expression = extract_section_any(&body, &["表达 DNA", "表达DNA"]);
 
         let description = if identity.is_empty() {
             fm_desc.clone()
         } else {
             format!("{}\n\n{}", identity.trim(), fm_desc.trim())
         };
-        let perspective = if perspective_text.is_empty() {
-            persona.clone()
-        } else {
-            perspective_text.trim().to_string()
-        };
+        // 卡片维度只显示一句话；完整心智模型并入 default_prompt
+        let perspective = format!("以{}的视角对设定及核心想法进行讨论", persona);
 
         let mut prompt_parts = Vec::new();
+        if !models_section.is_empty() {
+            prompt_parts.push(format!("## 核心心智模型\n{}", models_section.trim()));
+        }
         if !decision.is_empty() {
-            prompt_parts.push(format!("## 决策启发式\n{}", decision.trim()));
+            prompt_parts.push(format!("## 创作决策启发式\n{}", decision.trim()));
         }
         if !expression.is_empty() {
-            prompt_parts.push(format!("## 表达DNA\n{}", expression.trim()));
+            prompt_parts.push(format!("## 表达 DNA\n{}", expression.trim()));
         }
         let default_prompt = if prompt_parts.is_empty() {
             fm_desc.clone()
@@ -117,7 +122,7 @@ fn scan_perspective_dirs(base: &std::path::Path) -> Result<Vec<pensoul_core::Exp
 
 /// 解析 SKILL.md 的 YAML frontmatter（不需要 serde_yaml）
 /// 返回 (frontmatter键值对, markdown body)
-fn parse_skill_md(content: &str) -> (std::collections::HashMap<String, String>, String) {
+pub(crate) fn parse_skill_md(content: &str) -> (std::collections::HashMap<String, String>, String) {
     let mut fm = std::collections::HashMap::new();
     let body = if let Some(rest) = content.strip_prefix("---") {
         if let Some(end_idx) = rest.find("\n---") {
@@ -147,7 +152,7 @@ fn parse_skill_md(content: &str) -> (std::collections::HashMap<String, String>, 
 }
 
 /// 从 markdown body 中提取某个 ## 标题下的内容，直到下一个 ## 标题
-fn extract_section(body: &str, heading: &str) -> String {
+pub(crate) fn extract_section(body: &str, heading: &str) -> String {
     let marker = format!("## {}", heading);
     let lines: Vec<&str> = body.lines().collect();
     let mut capturing = false;
@@ -166,6 +171,15 @@ fn extract_section(body: &str, heading: &str) -> String {
         }
     }
     result.join("\n").trim().to_string()
+}
+
+/// 按候选标题顺序提取 section，返回第一个非空结果（用于新旧模板兼容）
+pub(crate) fn extract_section_any(body: &str, headings: &[&str]) -> String {
+    headings
+        .iter()
+        .map(|h| extract_section(body, h))
+        .find(|s| !s.is_empty())
+        .unwrap_or_default()
 }
 
 /// 保存专家列表到后端（全局存储，不绑定项目）
@@ -204,7 +218,7 @@ pub async fn load_experts(
 /// # 安全校验
 /// 这是不可逆的递归删除，必须防止前端传入任意路径：
 /// 1. 目标必须是名为 `SKILL.md` 的文件；
-/// 2. 其父目录必须以 `-perspective` 结尾；
+/// 2. 其父目录必须以 `-expert`（新格式）或 `-perspective`（旧格式）结尾；
 /// 3. 规范化（canonicalize）后的父目录必须位于受信任的根目录之一：
 ///    应用 Experts 目录、`~/.codex/skills`、`~/.agents/skills`。
 #[tauri::command]
@@ -227,14 +241,14 @@ pub async fn delete_expert_skill(
         .ok_or_else(|| "无效的技能路径".to_string())?
         .to_path_buf();
 
-    // 2. 父目录必须是 <name>-perspective/
+    // 2. 父目录必须是 <name>-expert/ 或 <name>-perspective/
     let dir_name = parent
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or_default();
-    if !dir_name.ends_with("-perspective") {
+    if !SKILL_DIR_SUFFIXES.iter().any(|s| dir_name.ends_with(s)) {
         return Err(format!(
-            "目标目录不是技能目录（须以 -perspective 结尾）: {dir_name}"
+            "目标目录不是技能目录（须以 -expert 或 -perspective 结尾）: {dir_name}"
         ));
     }
 

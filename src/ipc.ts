@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import type { DiscussionOutput } from "./types";
 
 // ── 项目管理 ──
 
@@ -162,7 +163,7 @@ export async function generateInspiration(contextType: string, contextData: stri
   return await invoke<any[]>("generate_inspiration", { contextType, contextData });
 }
 
-// ── 概念讨论（真实 LLM 调用） ──
+// ── 概念讨论（真实 LLM 调用，两轮交锋 + 结构化成果） ──
 
 export interface DiscussAgent {
   id: string;
@@ -173,15 +174,8 @@ export interface DiscussAgent {
   enabled: boolean;
 }
 
-export interface DiscussResult {
-  agent_id: string;
-  agent_name: string;
-  perspective: string;
-  response: string;
-}
-
-export async function discussConcept(ideaDescription: string, agents: DiscussAgent[]): Promise<DiscussResult[]> {
-  return await invoke<DiscussResult[]>("discuss_concept", { ideaDescription, agents });
+export async function discussConcept(ideaDescription: string, agents: DiscussAgent[]): Promise<DiscussionOutput> {
+  return await invoke<DiscussionOutput>("discuss_concept", { ideaDescription, agents });
 }
 
 // ── 造化工坊执行（真实 LLM 调用） ──

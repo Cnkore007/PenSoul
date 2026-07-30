@@ -1,13 +1,15 @@
-import { useState, useMemo, useCallback, useEffect } from "react";
-import type { ProjectData, SproutData, AgentDiscussionConfig, LlmModel, Expert } from "../types";
+import { useState, useMemo, useCallback, useEffect, useRef } from "react";
+import type { ProjectData, SproutData, AgentDiscussionConfig, LlmModel, Expert, DiscussionTurn, DiscussionSynthesis, DiscussionEvent } from "../types";
 import { DEFAULT_DISCUSSION_AGENTS } from "../types";
 import {
   Lightbulb, Target, Bot, MessageSquare,
   Plus, Trash2, GripVertical, FileText,
   PenLine, Layers, BarChart3, BookOpen,
-  CheckCircle2, Save, Upload, UserCheck,
+  Save, Upload, UserCheck,
 } from "lucide-react";
+import { listen } from "@tauri-apps/api/event";
 import { saveSprout, loadSprout, saveSettings, loadExperts, listModels, discussConcept } from "../ipc";
+import { DiscussionPanel, type SelectedResults } from "../components/DiscussionPanel";
 
 interface ConceptViewProps {
   projectData: ProjectData;
@@ -130,7 +132,7 @@ export function ConceptView({ projectData, persistProjectData }: ConceptViewProp
     }));
   }, [persistProjectData]);
 
-  // 从专家库添加 Agent
+  // 从专家库添加 Agent（预置模式下：预置自动消失，替换为专家 Agent）
   const addExpertAsAgent = useCallback((expert: Expert) => {
     const newAgent: AgentDiscussionConfig = {
       id: "agent-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6),
@@ -141,7 +143,12 @@ export function ConceptView({ projectData, persistProjectData }: ConceptViewProp
       enabled: true,
       expertId: expert.id,
     };
-    updateSprout(prev => ({ ...prev, agents: [...prev.agents, newAgent] }));
+    updateSprout(prev => {
+      const usingPresets = prev.agents.length === 0 && !prev.presetsDismissed;
+      // 防止重复添加同一专家
+      const rest = usingPresets ? [] : prev.agents.filter(a => a.expertId !== expert.id);
+      return { ...prev, agents: [...rest, newAgent], presetsDismissed: true };
+    });
   }, [updateSprout]);
 
 
@@ -153,7 +160,7 @@ export function ConceptView({ projectData, persistProjectData }: ConceptViewProp
     }));
   }, [persistProjectData]);
 
-  // 添加 Agent
+  // 添加 Agent（预置模式下：预置自动消失）
   const addAgent = useCallback(() => {
     const defaultModel = availableModels.length > 0 ? availableModels[0].model_id : "gpt-4o";
     const newAgent: AgentDiscussionConfig = {
@@ -164,12 +171,25 @@ export function ConceptView({ projectData, persistProjectData }: ConceptViewProp
       prompt: "请从综合角度分析这个构思的可行性。",
       enabled: true,
     };
-    updateSprout(prev => ({ ...prev, agents: [...prev.agents, newAgent] }));
+    updateSprout(prev => {
+      const usingPresets = prev.agents.length === 0 && !prev.presetsDismissed;
+      return { ...prev, agents: [...(usingPresets ? [] : prev.agents), newAgent], presetsDismissed: true };
+    });
   }, [updateSprout, availableModels]);
 
-  // 删除 Agent
+  // 删除 Agent（预置模式下：删除某个预置后，其余预置落地为普通 Agent）
   const removeAgent = useCallback((id: string) => {
-    updateSprout(prev => ({ ...prev, agents: prev.agents.filter(a => a.id !== id) }));
+    updateSprout(prev => {
+      const usingPresets = prev.agents.length === 0 && !prev.presetsDismissed;
+      if (usingPresets) {
+        return {
+          ...prev,
+          agents: DEFAULT_DISCUSSION_AGENTS.filter(a => a.id !== id),
+          presetsDismissed: true,
+        };
+      }
+      return { ...prev, agents: prev.agents.filter(a => a.id !== id) };
+    });
   }, [updateSprout]);
 
   // 更新单个 Agent
@@ -195,52 +215,126 @@ export function ConceptView({ projectData, persistProjectData }: ConceptViewProp
     }
   }, [updateAgent, availableExpertsList]);
 
-  // 重置为预置 Agent
+  // 重置为预置 Agent（清空自定义，回到预置回退模式）
   const resetAgents = useCallback(() => {
-    updateSprout(prev => ({ ...prev, agents: [...DEFAULT_DISCUSSION_AGENTS] }));
+    updateSprout(prev => ({ ...prev, agents: [], presetsDismissed: false }));
   }, [updateSprout]);
 
-  // 启动讨论（真实 LLM 调用）
-  const agents = sprout.agents.length > 0 ? sprout.agents : DEFAULT_DISCUSSION_AGENTS;
+  // 启动讨论（真实 LLM 调用，两轮交锋 + 结构化成果）
+  // 预置回退模式：agents 为空且用户未移除预置时，显示预置 Agent
+  const usingPresets = sprout.agents.length === 0 && !sprout.presetsDismissed;
+  const agents = usingPresets ? DEFAULT_DISCUSSION_AGENTS : sprout.agents;
   const [discussionError, setDiscussionError] = useState<string | null>(null);
+  const [turns, setTurns] = useState<DiscussionTurn[]>([]);
+  const [synthesis, setSynthesis] = useState<DiscussionSynthesis | null>(null);
+  const [liveEvents, setLiveEvents] = useState<Record<string, DiscussionEvent>>({});
+  const [discussing, setDiscussing] = useState(false);
+  const [generated, setGenerated] = useState(false);
+  const unlistenRef = useRef<(() => void) | null>(null);
+
+  useEffect(() => {
+    return () => { if (unlistenRef.current) unlistenRef.current(); };
+  }, []);
 
   const startDiscussion = useCallback(async () => {
     try {
       setDiscussionError(null);
       setDiscussing(true);
-      setDiscussionResults({});
+      setTurns([]);
+      setSynthesis(null);
+      setLiveEvents({});
+      setGenerated(false);
       const enabledAgents = agents.filter(a => a.enabled);
       if (enabledAgents.length === 0) {
-        setDiscussionError("没有启用的 Agent，请先启用至少一个 Agent");
+        setDiscussionError("没有启用的 Agent，请先添加至少一个 Agent");
         setDiscussing(false);
         return;
       }
-      // 调用后端真实 LLM 讨论
-      const results = await discussConcept(
-        sprout.ideaDescription,
-        enabledAgents.map(a => ({
-          id: a.id,
-          name: a.name,
-          model: a.model,
-          prompt: a.prompt,
-          perspective: a.perspective,
-          enabled: a.enabled,
-        })),
-      );
-      const resultsMap: Record<string, string> = {};
-      for (const r of results) {
-        resultsMap[r.agent_id] = `【${r.agent_name} - ${r.perspective}视角】\n\n${r.response}`;
+
+      // 订阅实时讨论进度事件
+      const unlisten = await listen<DiscussionEvent>("discussion-event", (evt) => {
+        const e = evt.payload;
+        setLiveEvents(prev => ({ ...prev, [`${e.agent_id}-${e.round}`]: e }));
+        if (e.status === "done" && (e.round === 1 || e.round === 2)) {
+          setTurns(prev => {
+            // 事件可能重复，按 agent+round 去重
+            if (prev.some(t => t.agent_id === e.agent_id && t.round === e.round)) return prev;
+            return [...prev, {
+              agent_id: e.agent_id,
+              agent_name: e.agent_name,
+              perspective: "",
+              round: e.round,
+              content: e.content,
+            }];
+          });
+        }
+      });
+      unlistenRef.current = unlisten;
+
+      try {
+        const output = await discussConcept(
+          sprout.ideaDescription,
+          enabledAgents.map(a => ({
+            id: a.id,
+            name: a.name,
+            model: a.model,
+            prompt: a.prompt,
+            perspective: a.perspective,
+            enabled: a.enabled,
+          })),
+        );
+        setTurns(output.turns);
+        setSynthesis(output.synthesis);
+      } finally {
+        if (unlistenRef.current) { unlistenRef.current(); unlistenRef.current = null; }
+        setDiscussing(false);
       }
-      setDiscussionResults(resultsMap);
-      setDiscussing(false);
     } catch (e: any) {
       setDiscussionError("讨论出错: " + (e?.message || String(e)));
       setDiscussing(false);
     }
   }, [agents, sprout.ideaDescription]);
 
-  const [discussionResults, setDiscussionResults] = useState<Record<string, string>>({});
-  const [discussing, setDiscussing] = useState(false);
+  // 确认生成：把勾选的成果写入世界观与人物志（按名称去重）
+  const handleConfirmGenerate = useCallback((selected: SelectedResults) => {
+    persistProjectData?.(prev => {
+      const existingLoc = new Set(prev.world.locations.map(l => l.name));
+      const existingEvt = new Set(prev.world.timeline_events.map(e => `${e.story_time}-${e.description}`));
+      const existingRule = new Set(prev.world.setting_rules.map(r => r.title));
+      const existingChar = new Set(prev.characters.map(c => c.name));
+
+      const now = Date.now();
+      const newLocations = selected.locations
+        .filter(l => !existingLoc.has(l.name))
+        .map((l, i) => ({ id: `loc-${now}-${i}`, name: l.name, description: l.description }));
+      const newEvents = selected.timeline_events
+        .filter(e => !existingEvt.has(`${e.story_time}-${e.description}`))
+        .map((e, i) => ({ event_id: `evt-${now}-${i}`, story_time: e.story_time, description: e.description }));
+      const newRules = selected.setting_rules
+        .filter(r => !existingRule.has(r.name))
+        .map((r, i) => ({ rule_id: `rule-${now}-${i}`, title: r.name, description: r.description }));
+      const newCharacters = selected.characters
+        .filter(c => !existingChar.has(c.name))
+        .map((c, i) => ({
+          id: `char-${now}-${i}`,
+          name: c.name,
+          personality_traits: c.personality_traits,
+          current_mood: c.current_mood || "",
+          relationships: [],
+        }));
+
+      return {
+        ...prev,
+        world: {
+          locations: [...prev.world.locations, ...newLocations],
+          timeline_events: [...prev.world.timeline_events, ...newEvents],
+          setting_rules: [...prev.world.setting_rules, ...newRules],
+        },
+        characters: [...prev.characters, ...newCharacters],
+      };
+    });
+    setGenerated(true);
+  }, [persistProjectData]);
 
   const hasIdea = sprout.ideaDescription.trim().length > 0;
 
@@ -416,6 +510,11 @@ export function ConceptView({ projectData, persistProjectData }: ConceptViewProp
           <span style={{ fontSize: "var(--text-xs)", color: "var(--color-ink-3)", letterSpacing: "0.5px", marginLeft: "auto" }}>
             配置多个 Agent 从不同维度讨论构思
           </span>
+          {usingPresets && (
+            <span style={{ fontSize: "var(--text-2xs)", padding: "2px 8px", borderRadius: "var(--radius-xs)", background: "var(--color-indigo-wash)", color: "var(--color-indigo)" }}>
+              预置 · 添加专家后自动替换
+            </span>
+          )}
           <button className="btn btn-secondary" style={{ padding: "4px 10px", fontSize: "var(--text-xs)" }} onClick={resetAgents}>
             重置预置
           </button>
@@ -549,28 +648,17 @@ export function ConceptView({ projectData, persistProjectData }: ConceptViewProp
         </div>
       )}
 
-      {/* ── 讨论结果 ── */}
-      {Object.keys(discussionResults).length > 0 && (
-        <div style={{ background: "var(--color-paper)", border: "1px solid var(--color-rule-light)", borderRadius: "var(--radius-md)", padding: "var(--space-lg) var(--space-xl)", boxShadow: "var(--shadow-subtle)" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: "var(--space-md)", paddingBottom: "var(--space-sm)", borderBottom: "1px solid var(--color-rule-light)" }}>
-            <CheckCircle2 size={18} style={{ color: "var(--color-jade)" }} />
-            <span style={{ fontFamily: "var(--font-brush)", fontSize: "var(--text-md)", letterSpacing: "2px", color: "var(--color-ink)" }}>讨论结果</span>
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-md)" }}>
-            {agents.filter(a => a.enabled).map(agent => (
-              <div key={agent.id} style={{ border: "1px solid var(--color-rule-light)", borderRadius: "var(--radius-md)", padding: "var(--space-md) var(--space-lg)" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: "var(--space-sm)" }}>
-                  <Bot size={16} style={{ color: "var(--color-accent)" }} />
-                  <span style={{ fontFamily: "var(--font-brush)", fontSize: "var(--text-sm)", letterSpacing: "1px", color: "var(--color-ink)" }}>{agent.name}</span>
-                  <span style={{ fontSize: "var(--text-2xs)", color: "var(--color-ink-3)" }}>{agent.model} &middot; {agent.perspective}</span>
-                </div>
-                <div style={{ fontSize: "var(--text-xs)", color: "var(--color-ink-2)", lineHeight: 1.8, whiteSpace: "pre-wrap", padding: "var(--space-sm)", background: "var(--color-paper-warm)", borderRadius: "var(--radius-sm)" }}>
-                  {discussionResults[agent.id] || "(等待回应...)"}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
+      {/* ── 讨论过程 + 讨论成果 ── */}
+      {(turns.length > 0 || Object.keys(liveEvents).length > 0 || synthesis) && (
+        <DiscussionPanel
+          agents={agents}
+          turns={turns}
+          liveEvents={liveEvents}
+          synthesis={synthesis}
+          discussing={discussing}
+          onConfirmGenerate={handleConfirmGenerate}
+          generated={generated}
+        />
       )}
     </div>
   );

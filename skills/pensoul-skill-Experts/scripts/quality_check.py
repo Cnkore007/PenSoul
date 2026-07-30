@@ -7,7 +7,7 @@
     python3 quality_check.py <SKILL.md路径>
 
 示例:
-    python3 quality_check.py ~/.codex/skills/elon-musk-perspective/SKILL.md
+    python3 quality_check.py Experts/chekhov-expert/SKILL.md
 """
 
 import sys

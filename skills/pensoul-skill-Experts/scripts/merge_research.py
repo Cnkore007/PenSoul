@@ -5,10 +5,10 @@
 一手/二手占比、关键发现。
 
 用法:
-    python3 merge_research.py <skill目录路径>
+    python3 merge_research.py <专家skill目录路径>
 
 示例:
-    python3 merge_research.py ~/.codex/skills/elon-musk-perspective
+    python3 merge_research.py Experts/chekhov-expert
 
 输出: 打印markdown格式的摘要表格到stdout
 """
@@ -23,7 +23,7 @@ AGENTS = {
     '03-expression-dna': '表达',
     '04-external-views': '他者',
     '05-decisions': '决策',
-    '06-timeline': '时间线',
+    '06-evolution': '思维演变',
 }
 
 

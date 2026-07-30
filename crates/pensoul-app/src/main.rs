@@ -7,18 +7,30 @@ use std::path::PathBuf;
 fn main() {
     // 使用可靠路径：优先取 Tauri 数据目录，回退到当前目录
     let base_dir = if cfg!(debug_assertions) {
-        // 开发模式：项目根目录下的 data
-        // 从可执行文件路径向上找项目根目录（target/debug/pensoul-app → project_root）
-        let exe_dir = std::env::current_exe()
-            .ok()
-            .and_then(|p| p.parent().map(|p| p.to_path_buf()))
-            .unwrap_or_else(|| PathBuf::from("."));
-        // exe_dir = target/debug, 向上三级到项目根
-        let project_root = exe_dir
-            .parent() // target
-            .and_then(|p| p.parent()) // project_root
-            .unwrap_or(&exe_dir);
-        project_root.join("data")
+        // 开发模式：项目根目录下的 data。
+        // 沿可执行文件路径向上找含 Cargo.toml 的工作区根目录，
+        // 兼容 cargo tauri dev（target/debug/pensoul-app）与
+        // .app bundle（target/debug/bundle/macos/PenSoul.app/Contents/MacOS/...）两种形态。
+        let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("."));
+        let workspace_root = exe
+            .ancestors()
+            .find(|p| p.join("Cargo.toml").exists())
+            .map(|p| p.to_path_buf());
+        match workspace_root {
+            Some(root) => root.join("data"),
+            None => {
+                // 回退：exe_dir 向上两级
+                let exe_dir = exe
+                    .parent()
+                    .map(|p| p.to_path_buf())
+                    .unwrap_or_else(|| PathBuf::from("."));
+                let project_root = exe_dir
+                    .parent() // target
+                    .and_then(|p| p.parent()) // project_root
+                    .unwrap_or(&exe_dir);
+                project_root.join("data")
+            }
+        }
     } else {
         // 生产模式：用户文档目录下的 PenSoul 目录
         let home = dirs::data_dir().unwrap_or_else(|| PathBuf::from("."));
