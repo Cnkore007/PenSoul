@@ -68,6 +68,7 @@ mod tests {
             chapter_id: ChapterId::new(id),
             volume_id: VolumeId::new("vol1"),
             title: title.to_string(),
+            summary: String::new(),
             content: content.to_string(),
             word_count: content.len() as u32,
             version: 1,

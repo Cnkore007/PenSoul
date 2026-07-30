@@ -1,8 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
-import { Save, BookOpen, ChevronRight, ChevronDown, FileText, Sparkles } from "lucide-react";
+import { Save, BookOpen, ChevronRight, ChevronDown, FileText } from "lucide-react";
 import { TipTapEditor } from "../components/TipTapEditor";
 import type { ProjectData, Chapter } from "../types";
-import { InspirationPanel } from "../components/InspirationPanel";
 
 interface WritingViewProps {
   projectData: ProjectData;
@@ -19,7 +18,6 @@ export function WritingView({ projectData, persistProjectData, chapterId, onWord
   const [selectedId, setSelectedId] = useState<string | null>(chapterId);
   const [expandedVolumes, setExpandedVolumes] = useState<Record<string, boolean>>({});
   const [showNav, setShowNav] = useState(true);
-  const [inspirationOpen, setInspirationOpen] = useState(false);
 
   // 展开所有卷
   useEffect(() => {
@@ -144,16 +142,6 @@ export function WritingView({ projectData, persistProjectData, chapterId, onWord
             {chapter && <span className={`badge badge-${chapter.status.toLowerCase()}`}>{chapter.status}</span>}
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            {chapter && (
-              <button
-                className="btn btn-ghost"
-                onClick={() => setInspirationOpen(!inspirationOpen)}
-                title="AI 灵感"
-                style={{ color: inspirationOpen ? "var(--color-accent)" : undefined }}
-              >
-                <Sparkles size={15} /> 灵感
-              </button>
-            )}
             <button className={"btn btn-primary" + (saving || !chapter ? " btn-disabled" : "")} onClick={handleSave} disabled={saving || !chapter}>
               <Save size={15} /> {saving ? "保存中..." : "保存"}
             </button>
@@ -162,7 +150,7 @@ export function WritingView({ projectData, persistProjectData, chapterId, onWord
         {saveMsg && <div className="save-message success">{saveMsg}</div>}
         <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
           {chapter ? (
-            <TipTapEditor content={content} onChange={setContent} placeholder="落笔之处，便是江湖..." />
+            <TipTapEditor key={chapter.chapter_id} content={content} onChange={setContent} placeholder="落笔之处，便是江湖..." />
           ) : (
             <div className="empty-state" style={{ flex: 1 }}>
               <div className="empty-state-icon">笔</div>
@@ -178,24 +166,6 @@ export function WritingView({ projectData, persistProjectData, chapterId, onWord
           )}
         </div>
       </div>
-
-      {/* 灵感面板（在编辑区底部） */}
-      {chapter && (
-        <div className="writing-info" style={{ borderTop: "1px solid var(--color-border)", marginTop: 0 }}>
-          <InspirationPanel
-            contextType="writing"
-            contextData={useMemo(() => JSON.stringify({
-              chapter_title: chapter.title,
-              chapter_content: content,
-              chapter_word_count: chapter.word_count,
-              total_chapters: totalChapters,
-            }), [chapter?.chapter_id, chapter?.title, content, chapter?.word_count, totalChapters])}
-            externalExpanded={inspirationOpen}
-            onToggle={() => setInspirationOpen(!inspirationOpen)}
-            hideTrigger={true}
-          />
-        </div>
-      )}
 
       {/* 信息侧边栏 */}
       {chapter && (

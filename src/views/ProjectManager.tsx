@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Trash2, Edit3, BookOpen, Calendar, FileText, Sparkles } from "lucide-react";
 import type { ProjectMeta } from "../types";
 import * as ipc from "../ipc";
+import logoUrl from "../assets/logo.png";
 
 interface ProjectManagerProps {
   onSelectProject: (project: ProjectMeta) => void;
@@ -92,7 +93,7 @@ export function ProjectManager({ onSelectProject, currentProjectId: _currentProj
     <div className="project-manager">
       <div className="pm-hero">
         <div className="pm-hero-content">
-          <div className="pm-hero-seal">笔</div>
+          <img className="pm-hero-logo" src={logoUrl} alt="PenSoul" draggable={false} />
           <div>
             <h1 className="pm-hero-title">作品库</h1>
             <p className="pm-hero-subtitle">笔墨落处，便是江湖</p>
@@ -104,9 +105,7 @@ export function ProjectManager({ onSelectProject, currentProjectId: _currentProj
       </div>
 
       {error && (
-        <div style={{ padding: "8px 16px", margin: "0 16px", background: "#fef2f2", color: "#991b1b", borderRadius: 6, fontSize: "var(--text-sm)" }}>
-          {error}
-        </div>
+        <div className="pm-error-banner">{error}</div>
       )}
 
       {projects.length === 0 && !loading ? (

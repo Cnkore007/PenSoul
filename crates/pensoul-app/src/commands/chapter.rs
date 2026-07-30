@@ -1,7 +1,7 @@
 //! 章节管理命令
 use crate::state::AppState;
 use pensoul_concurrency::{Operation, OperationType};
-use pensoul_core::ChapterId;
+use pensoul_core::{ChapterId, ChapterStatus, Volume, VolumeId};
 
 /// 获取章节
 #[tauri::command]
@@ -106,4 +106,170 @@ pub async fn list_chapters(
         .collect();
 
     Ok(chapters)
+}
+
+/// 新建或更新章节（插入式保存）
+///
+/// `save_chapter` 只更新已存在章节的内容；前端在大纲中新建的章节
+/// （含讨论成果导入的章节）必须走这里才能落盘。
+/// 梗概属于大纲层信息，与正文 content 分开存储。
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn upsert_chapter(
+    state: tauri::State<'_, AppState>,
+    chapter_id: String,
+    volume_id: String,
+    title: String,
+    content: String,
+    summary: String,
+    status: String,
+) -> Result<(), String> {
+    if chapter_id.trim().is_empty() {
+        return Err("章节 ID 不能为空".to_string());
+    }
+    let id = ChapterId::new(chapter_id);
+    let vid = VolumeId::new(volume_id);
+    let status: ChapterStatus = serde_json::from_value(serde_json::Value::String(status))
+        .map_err(|e| format!("非法章节状态: {e}"))?;
+    let now = chrono::Utc::now().to_rfc3339();
+
+    {
+        let mut ontology = state.ontology.write();
+        // 卷不存在时自动补建（标题由 save_volumes 后续覆盖）
+        if !ontology.volumes.iter().any(|v| v.volume_id == vid) {
+            ontology.volumes.push(Volume {
+                volume_id: vid.clone(),
+                title: vid.as_str().to_string(),
+                chapter_ids: Vec::new(),
+                summary: String::new(),
+            });
+        }
+        match ontology.chapters.iter_mut().find(|ch| ch.chapter_id == id) {
+            Some(ch) => {
+                ch.title = title;
+                ch.volume_id = vid;
+                ch.summary = summary;
+                ch.status = status;
+                if ch.content != content {
+                    ch.content = content;
+                    ch.version += 1;
+                }
+                ch.word_count = ch.content.chars().count() as u32;
+                ch.updated_at = now;
+            }
+            None => {
+                let word_count = content.chars().count() as u32;
+                ontology.chapters.push(pensoul_core::Chapter {
+                    chapter_id: id.clone(),
+                    volume_id: vid,
+                    title,
+                    summary,
+                    content,
+                    word_count,
+                    version: 1,
+                    status,
+                    consistency_score: 1.0,
+                    created_at: now.clone(),
+                    updated_at: now,
+                });
+            }
+        }
+        // 同步卷的章节列表（先分组再写回，避免经由锁守卫的交叉借用）
+        let mut by_volume: std::collections::HashMap<String, Vec<ChapterId>> =
+            std::collections::HashMap::new();
+        for ch in &ontology.chapters {
+            by_volume
+                .entry(ch.volume_id.as_str().to_string())
+                .or_default()
+                .push(ch.chapter_id.clone());
+        }
+        for vol in ontology.volumes.iter_mut() {
+            if let Some(ids) = by_volume.get(vol.volume_id.as_str()) {
+                vol.chapter_ids = ids.clone();
+            }
+        }
+    }
+
+    // 注册并发版本，后续 save_chapter 走乐观锁才不会误报冲突
+    {
+        let concurrency = state.concurrency.read();
+        if concurrency.get_version(id.as_str()) == -1 {
+            let ontology = state.ontology.read();
+            if let Some(ch) = ontology.get_chapter(&id) {
+                concurrency.restore_chapter(id.as_str(), &ch.content, ch.version);
+            }
+        }
+    }
+
+    state.save().map_err(|e| e.to_string())
+}
+
+/// 保存卷列表（卷名等元数据）
+///
+/// 卷的归属关系以章节的 volume_id 为准，这里只持久化标题与摘要；
+/// chapter_ids 由后端按章节归属自动同步。
+#[tauri::command]
+pub async fn save_volumes(
+    state: tauri::State<'_, AppState>,
+    volumes: Vec<serde_json::Value>,
+) -> Result<(), String> {
+    #[derive(serde::Deserialize)]
+    struct VolumeInput {
+        volume_id: String,
+        #[serde(default)]
+        title: String,
+        #[serde(default)]
+        summary: String,
+    }
+
+    let mut parsed = Vec::with_capacity(volumes.len());
+    for v in volumes {
+        let input: VolumeInput = serde_json::from_value(v).map_err(|e| e.to_string())?;
+        if input.volume_id.trim().is_empty() {
+            return Err("卷 ID 不能为空".to_string());
+        }
+        parsed.push(input);
+    }
+
+    {
+        let mut ontology = state.ontology.write();
+        let mut volumes = Vec::with_capacity(parsed.len());
+        for input in parsed {
+            let vid = VolumeId::new(input.volume_id);
+            let title = if input.title.trim().is_empty() {
+                vid.as_str().to_string()
+            } else {
+                input.title
+            };
+            let chapter_ids = ontology
+                .chapters
+                .iter()
+                .filter(|ch| ch.volume_id == vid)
+                .map(|ch| ch.chapter_id.clone())
+                .collect();
+            volumes.push(Volume {
+                volume_id: vid,
+                title,
+                chapter_ids,
+                summary: input.summary,
+            });
+        }
+        ontology.volumes = volumes;
+    }
+
+    state.save().map_err(|e| e.to_string())
+}
+
+/// 列出所有卷
+#[tauri::command]
+pub async fn get_volumes(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<serde_json::Value>, String> {
+    let ontology = state.ontology.read();
+    let volumes: Vec<serde_json::Value> = ontology
+        .volumes
+        .iter()
+        .filter_map(|v| serde_json::to_value(v).ok())
+        .collect();
+    Ok(volumes)
 }

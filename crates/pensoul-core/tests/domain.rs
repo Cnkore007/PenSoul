@@ -28,6 +28,7 @@ fn test_chapter_all_status_variants_round_trip() {
             chapter_id: ChapterId::from_i64(i as i64 + 1),
             volume_id: VolumeId::new("vol-1"),
             title: "标题".to_string(),
+            summary: String::new(),
             content: "正文".to_string(),
             word_count: 2500,
             version: 1,

@@ -2,6 +2,7 @@ export interface Chapter {
   chapter_id: string;
   volume_id?: string;
   title: string;
+  summary?: string; // 章节梗概（大纲层信息，非正文）
   content: string;
   word_count: number;
   version: number;
@@ -185,6 +186,8 @@ export interface AgentDiscussionConfig {
   enabled: boolean;
   // 关联的专家 ID（可选，从专家库选择时填充）
   expertId?: string;
+  // 关联专家的技能文件路径（可选，讨论时加载作为系统提示词）
+  skillPath?: string;
 }
 
 // 专家 — 蒸馏自著名人物的认知框架
@@ -216,6 +219,11 @@ export interface SproutData {
   agents: AgentDiscussionConfig[];
   // 预置 Agent 是否已被用户移除（true 时即使 agents 为空也不再回退到预置）
   presetsDismissed?: boolean;
+  // 最近一次讨论的结果（发言 + 成果），切换页面后保留
+  lastDiscussion?: {
+    turns: DiscussionTurn[];
+    synthesis: DiscussionSynthesis;
+  };
 }
 
 // 讨论发言记录（一轮一条）
@@ -238,7 +246,9 @@ export interface DiscussionSynthesis {
     personality_traits: Array<[string, number]>;
     current_mood?: string;
     description?: string;
+    relationships?: Array<{ from: string; to: string; relation_type: string; strength: number }>;
   }>;
+  outline_beats: Array<{ title: string; description: string; chapter_hint?: string }>;
 }
 
 // 讨论完整输出

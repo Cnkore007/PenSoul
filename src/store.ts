@@ -163,18 +163,37 @@ function transformWorldData(raw: any): { locations: any[]; timeline_events: any[
 }
 
 // 将前端 WorldData 格式转换为后端 WorldLayer 结构
+// 注意：后端 WorldLayer 反序列化要求字段齐全，缺字段会导致整个 save_world 失败（重启后世界观丢失）
 function toBackendWorld(world: any): any {
   return {
     world_id: "default",
     name: "default",
     spatial_model: {
-      locations: world.locations ?? [],
+      locations: (world.locations ?? []).map((l: any) => ({
+        id: l.id,
+        name: l.name ?? "",
+        description: l.description ?? "",
+        spatial_tags: l.spatial_tags ?? [],
+      })),
       hierarchy: [],
     },
     timeline: {
-      events: world.timeline_events ?? [],
+      events: (world.timeline_events ?? []).map((e: any) => ({
+        event_id: e.event_id,
+        story_time: e.story_time ?? "",
+        chapter_id: e.chapter_id ?? "",
+        description: e.description ?? "",
+        participants: e.participants ?? [],
+      })),
+      epoch_markers: [],
     },
-    setting_rules: world.setting_rules ?? [],
+    setting_rules: (world.setting_rules ?? []).map((r: any) => ({
+      rule_id: r.rule_id,
+      category: r.category ?? "",
+      title: r.title ?? "",
+      description: r.description ?? "",
+      constraints: r.constraints ?? [],
+    })),
     glossary: [],
     item_graph: [],
   };
@@ -185,40 +204,53 @@ export async function loadProjectData(projectId: string): Promise<ProjectData> {
     // 先确保项目已打开
     await ipc.openProject(projectId);
 
-    const [chapters, characters, world, settings, concept, sprout] = await Promise.all([
+    const [chapters, characters, world, settings, concept, sprout, volumesMeta] = await Promise.all([
       ipc.listChapters(),
       ipc.getCharacters(),
       ipc.getWorld(),
       ipc.loadSettings(),
       ipc.loadConcept(),
       ipc.loadSprout(),
+      ipc.getVolumes(),
     ]);
 
+    // 卷元数据（标题以持久化的卷列表为准）
+    const volTitleMap = new Map<string, string>(
+      (volumesMeta ?? []).map((v: any) => [v.volume_id as string, (v.title as string) || ""]),
+    );
+
     // 将 chapters 组织成 volumes 结构
-    const volumeMap = new Map<string, { title: string; chapters: any[] }>();
+    const volumeMap = new Map<string, any[]>();
     for (const ch of chapters) {
       const volId = ch.volume_id || "_default";
-      if (!volumeMap.has(volId)) {
-        volumeMap.set(volId, { title: volId === "_default" ? "默认卷" : volId, chapters: [] });
-      }
-      volumeMap.get(volId)!.chapters.push(ch);
+      if (!volumeMap.has(volId)) volumeMap.set(volId, []);
+      volumeMap.get(volId)!.push(ch);
     }
 
-    const volumes = Array.from(volumeMap.entries()).map(([volId, vol]) => ({
+    const mapChapter = (ch: any, volId: string) => ({
+      chapter_id: ch.chapter_id,
+      volume_id: ch.volume_id || volId,
+      title: ch.title,
+      summary: ch.summary || "",
+      content: ch.content || "",
+      word_count: ch.word_count || 0,
+      version: ch.version || 1,
+      status: ch.status || "Draft",
+    });
+    const toVolume = (volId: string, chs: any[]) => ({
       volume_id: volId,
-      title: vol.title,
-      chapter_count: vol.chapters.length,
+      title: volTitleMap.get(volId) || (volId === "_default" ? "默认卷" : volId),
+      chapter_count: chs.length,
       expanded: true,
-      chapters: vol.chapters.map((ch: any) => ({
-        chapter_id: ch.chapter_id,
-        volume_id: ch.volume_id || volId,
-        title: ch.title,
-        content: ch.content || "",
-        word_count: ch.word_count || 0,
-        version: ch.version || 1,
-        status: ch.status || "Draft",
-      })),
-    }));
+      chapters: chs.map(ch => mapChapter(ch, volId)),
+    });
+
+    // 卷顺序：先按后端卷列表，再补上只有章节没有元数据的卷
+    const orderedVolIds = [
+      ...(volumesMeta ?? []).map((v: any) => v.volume_id as string).filter(id => volumeMap.has(id)),
+      ...Array.from(volumeMap.keys()).filter(id => !(volumesMeta ?? []).some((v: any) => v.volume_id === id)),
+    ];
+    const volumes = orderedVolIds.map(volId => toVolume(volId, volumeMap.get(volId)!));
 
     return {
       project_id: projectId,
@@ -274,14 +306,21 @@ export async function saveProjectData(data: ProjectData): Promise<void> {
       ipc.saveSprout(toBackendSprout(data.sprout)),
     ]);
 
-    // 保存每个有变更的章节
+    // 保存每个章节（upsert：新建章节也能落盘，梗概随章节一起持久化）
     for (const vol of data.volumes) {
       for (const ch of vol.chapters) {
-        if (ch.content !== undefined) {
-          await ipc.saveChapter(ch.chapter_id, ch.content, ch.version - 1);
-        }
+        await ipc.upsertChapter(
+          ch.chapter_id,
+          ch.volume_id || vol.volume_id,
+          ch.title,
+          ch.content ?? "",
+          ch.summary ?? "",
+          ch.status,
+        );
       }
     }
+    // 保存卷元数据（标题）
+    await ipc.saveVolumes(data.volumes.map(v => ({ volume_id: v.volume_id, title: v.title })));
 
     await ipc.saveProject();
   } catch (e) {

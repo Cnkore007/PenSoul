@@ -5,6 +5,7 @@ import {
   ChevronsLeft, ChevronsRight, ArrowLeft, Lightbulb,
 } from "lucide-react";
 import type { ViewType, ProjectMeta } from "../types";
+import logoUrl from "../assets/logo.png";
 
 interface SidebarProps {
   currentView: ViewType;
@@ -65,8 +66,13 @@ export function Sidebar({ currentView, onViewChange, currentProject, onExitProje
   return (
     <div className={`sidebar-spine ${expanded ? "" : "sidebar-collapsed"}`}>
       <div className="spine-brand">
-        <div className="spine-brand-char">笔</div>
-        {expanded && <div className="spine-brand-text">PenSoul</div>}
+        <img className="spine-brand-logo" src={logoUrl} alt="PenSoul" draggable={false} />
+        {expanded && (
+          <div className="spine-brand-text-wrap">
+            <div className="spine-brand-text">PenSoul</div>
+            <div className="spine-brand-sub">创意写作工坊</div>
+          </div>
+        )}
       </div>
 
       {/* 项目返回按钮 + 项目名称 */}

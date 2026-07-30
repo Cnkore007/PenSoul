@@ -45,6 +45,27 @@ export async function saveChapter(chapterId: string, content: string, expectedVe
   return await invoke<number>("save_chapter", { chapterId, content, expectedVersion });
 }
 
+// 新建或更新章节（含标题/卷归属/梗概），新建章节必须走这里才能落盘
+export async function upsertChapter(
+  chapterId: string,
+  volumeId: string,
+  title: string,
+  content: string,
+  summary: string,
+  status: string
+): Promise<void> {
+  await invoke("upsert_chapter", { chapterId, volumeId, title, content, summary, status });
+}
+
+// 持久化卷列表（卷名等元数据）
+export async function saveVolumes(volumes: Array<{ volume_id: string; title: string; summary?: string }>): Promise<void> {
+  await invoke("save_volumes", { volumes });
+}
+
+export async function getVolumes(): Promise<any[]> {
+  return await invoke<any[]>("get_volumes");
+}
+
 // ── 角色 ──
 
 export async function getCharacters(): Promise<any> {
@@ -157,12 +178,6 @@ export async function routeModel(taskType: string): Promise<any> {
   return await invoke<any>("route_model", { taskType });
 }
 
-// ── 灵感生成 ──
-
-export async function generateInspiration(contextType: string, contextData: string): Promise<any[]> {
-  return await invoke<any[]>("generate_inspiration", { contextType, contextData });
-}
-
 // ── 概念讨论（真实 LLM 调用，两轮交锋 + 结构化成果） ──
 
 export interface DiscussAgent {
@@ -172,10 +187,17 @@ export interface DiscussAgent {
   prompt: string;
   perspective: string;
   enabled: boolean;
+  skill_path?: string | null;
 }
 
-export async function discussConcept(ideaDescription: string, agents: DiscussAgent[]): Promise<DiscussionOutput> {
-  return await invoke<DiscussionOutput>("discuss_concept", { ideaDescription, agents });
+export async function discussConcept(ideaDescription: string, settingsContext: string, agents: DiscussAgent[]): Promise<DiscussionOutput> {
+  return await invoke<DiscussionOutput>("discuss_concept", { ideaDescription, settingsContext, agents });
+}
+
+// ── 页面内容优化（世界观/人物志） ──
+
+export async function optimizeContent(contentType: string, contentJson: string, modelId: string | null): Promise<string> {
+  return await invoke<string>("optimize_content", { contentType, contentJson, modelId });
 }
 
 // ── 造化工坊执行（真实 LLM 调用） ──

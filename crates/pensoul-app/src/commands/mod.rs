@@ -13,6 +13,7 @@ pub mod llm;
 pub(crate) mod llm_helper;
 pub mod memory;
 pub mod model;
+pub mod optimize;
 pub mod plugin;
 /// IPC 命令模块
 pub mod project;

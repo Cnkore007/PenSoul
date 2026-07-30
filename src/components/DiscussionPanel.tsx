@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Bot, CheckCircle2, Loader2, XCircle, MapPin, Clock, BookOpen, Users, Sparkles } from "lucide-react";
+import { Bot, CheckCircle2, Loader2, XCircle, MapPin, Clock, BookOpen, Users, Sparkles, ListOrdered } from "lucide-react";
 import type { DiscussionTurn, DiscussionSynthesis, DiscussionEvent, AgentDiscussionConfig } from "../types";
 
 interface DiscussionPanelProps {
@@ -16,7 +16,14 @@ export interface SelectedResults {
   locations: Array<{ name: string; description: string }>;
   timeline_events: Array<{ story_time: string; description: string }>;
   setting_rules: Array<{ name: string; description: string }>;
-  characters: Array<{ name: string; personality_traits: Array<[string, number]>; current_mood?: string; description?: string }>;
+  characters: Array<{
+    name: string;
+    personality_traits: Array<[string, number]>;
+    current_mood?: string;
+    description?: string;
+    relationships?: Array<{ from: string; to: string; relation_type: string; strength: number }>;
+  }>;
+  outline_beats: Array<{ title: string; description: string; chapter_hint?: string }>;
 }
 
 const ROUND_LABELS: Record<number, string> = { 1: "第一轮 · 立论", 2: "第二轮 · 交锋" };
@@ -69,6 +76,7 @@ export function DiscussionPanel({ agents, turns, liveEvents, synthesis, discussi
       { key: "timeline_events", label: "时间线", icon: <Clock size={14} />, items: synthesis.timeline_events.map(i => ({ title: i.story_time, desc: i.description })), target: "世界观" },
       { key: "setting_rules", label: "设定规则", icon: <BookOpen size={14} />, items: synthesis.setting_rules.map(i => ({ title: i.name, desc: i.description })), target: "世界观" },
       { key: "characters", label: "人物", icon: <Users size={14} />, items: synthesis.characters.map(i => ({ title: i.name, desc: i.description || i.personality_traits.map(t => t[0]).join("、") })), target: "人物志" },
+      { key: "outline_beats", label: "情节脉络", icon: <ListOrdered size={14} />, items: (synthesis.outline_beats ?? []).map(i => ({ title: i.chapter_hint ? `${i.title}（${i.chapter_hint}）` : i.title, desc: i.description })), target: "大纲" },
     ].filter(g => g.items.length > 0);
   }, [synthesis]);
 
@@ -84,6 +92,7 @@ export function DiscussionPanel({ agents, turns, liveEvents, synthesis, discussi
       timeline_events: pick("timeline_events", synthesis.timeline_events),
       setting_rules: pick("setting_rules", synthesis.setting_rules),
       characters: pick("characters", synthesis.characters),
+      outline_beats: pick("outline_beats", synthesis.outline_beats ?? []),
     });
   };
 
@@ -132,7 +141,7 @@ export function DiscussionPanel({ agents, turns, liveEvents, synthesis, discussi
             <Sparkles size={18} style={{ color: "var(--color-jade)" }} />
             <span style={{ fontFamily: "var(--font-brush)", fontSize: "var(--text-md)", letterSpacing: "2px", color: "var(--color-ink)" }}>讨论成果</span>
             <span style={{ marginLeft: "auto", fontSize: "var(--text-2xs)", color: "var(--color-ink-3)" }}>
-              勾选要采纳的条目，确认后写入世界观与人物志
+              勾选要采纳的条目，确认后写入世界观、人物志与大纲
             </span>
           </div>
 
@@ -180,7 +189,7 @@ export function DiscussionPanel({ agents, turns, liveEvents, synthesis, discussi
                 </button>
                 {generated && (
                   <span style={{ fontSize: "var(--text-xs)", color: "var(--color-jade)" }}>
-                    已写入世界观与人物志，可前往对应页面查看
+                    已写入世界观、人物志与大纲，可前往对应页面查看
                   </span>
                 )}
               </div>

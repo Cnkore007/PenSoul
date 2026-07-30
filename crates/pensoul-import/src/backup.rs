@@ -188,6 +188,7 @@ mod tests {
                 chapter_id: ChapterId::new("ch1"),
                 volume_id: VolumeId::new("vol1"),
                 title: "标题一".to_string(),
+                summary: String::new(),
                 content: "内容一".to_string(),
                 word_count: 3,
                 version: 1,

@@ -30,6 +30,7 @@ fn make_chapter(chapter_id: &str, title: &str) -> Chapter {
         chapter_id: ChapterId::new(chapter_id),
         volume_id: VolumeId::new("vol_1"),
         title: title.to_string(),
+        summary: String::new(),
         content: format!("这是「{title}」的内容。"),
         word_count: 100,
         version: 1,

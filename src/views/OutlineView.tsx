@@ -1,7 +1,6 @@
-import { useState, useMemo } from "react";
-import { ChevronRight, ChevronDown, FileText, Plus, Sparkles } from "lucide-react";
+import { useState } from "react";
+import { ChevronRight, ChevronDown, FileText, Plus } from "lucide-react";
 import type { ProjectData, VolumeWithChapters, Chapter } from "../types";
-import { InspirationPanel } from "../components/InspirationPanel";
 
 interface OutlineViewProps {
   projectData: ProjectData;
@@ -15,7 +14,6 @@ export function OutlineView({ projectData, persistProjectData, onSelectChapter, 
   const [showNewVolume, setShowNewVolume] = useState(false);
   const [newChapterTitle, setNewChapterTitle] = useState("");
   const [showNewChapterFor, setShowNewChapterFor] = useState<string | null>(null);
-  const [inspirationOpen, setInspirationOpen] = useState(false);
 
   const volumes = projectData.volumes;
   const totalChapters = volumes.reduce((s, v) => s + v.chapters.length, 0);
@@ -68,14 +66,6 @@ export function OutlineView({ projectData, persistProjectData, onSelectChapter, 
       <div className="view-header">
         <h2>大纲</h2>
         <div style={{ display: "flex", gap: 8 }}>
-          <button
-            className="btn btn-ghost"
-            onClick={() => setInspirationOpen(!inspirationOpen)}
-            title="AI 灵感"
-            style={{ color: inspirationOpen ? "var(--color-accent)" : undefined }}
-          >
-            <Sparkles size={15} /> 灵感
-          </button>
           <button className="btn btn-primary" onClick={() => setShowNewVolume(true)}>
             <Plus size={15} /> 新建卷
           </button>
@@ -114,7 +104,14 @@ export function OutlineView({ projectData, persistProjectData, onSelectChapter, 
                     onClick={() => onSelectChapter(ch.chapter_id)}
                     className={"chapter-item" + (currentChapterId === ch.chapter_id ? " active" : "")}>
                     <FileText size={13} className="chapter-icon" />
-                    <span className={"chapter-title" + (currentChapterId === ch.chapter_id ? " active" : "")}>{ch.title}</span>
+                    <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 2 }}>
+                      <span className={"chapter-title" + (currentChapterId === ch.chapter_id ? " active" : "")}>{ch.title}</span>
+                      {ch.summary && (
+                        <span style={{ fontSize: "var(--text-2xs)", color: "var(--color-ink-3)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                          {ch.summary}
+                        </span>
+                      )}
+                    </div>
                     <span className="chapter-words">{ch.word_count.toLocaleString()} 字</span>
                     <div className={"status-dot status-dot-" + ch.status.toLowerCase()} />
                   </div>
@@ -143,18 +140,6 @@ export function OutlineView({ projectData, persistProjectData, onSelectChapter, 
         <span className="outline-stat-sep">·</span>
         <span>{totalWords.toLocaleString()} 字</span>
       </div>
-      <InspirationPanel
-        contextType="outline"
-        contextData={useMemo(() => JSON.stringify({
-          volumes: projectData.volumes.map(v => ({
-            title: v.title,
-            chapters: v.chapters.map(c => c.title),
-          })),
-        }), [projectData.volumes])}
-        externalExpanded={inspirationOpen}
-        onToggle={() => setInspirationOpen(!inspirationOpen)}
-        hideTrigger={true}
-      />
     </div>
   );
 }

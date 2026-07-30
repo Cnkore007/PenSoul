@@ -1,7 +1,7 @@
-import { useState, useMemo } from "react";
-import { MapPin, Clock, BookOpen, Plus, Trash2, Sparkles } from "lucide-react";
-import type { ProjectData } from "../types";
-import { InspirationPanel } from "../components/InspirationPanel";
+import { useState, useMemo, useCallback } from "react";
+import { MapPin, Clock, BookOpen, Plus, Trash2, Edit3 } from "lucide-react";
+import type { ProjectData, WorldData } from "../types";
+import { OptimizeControls } from "../components/OptimizeControls";
 
 type TabType = "locations" | "timeline" | "rules";
 
@@ -21,9 +21,20 @@ export function WorldView({ projectData, persistProjectData }: WorldViewProps) {
   const [showForm, setShowForm] = useState(false);
   const [formName, setFormName] = useState("");
   const [formDesc, setFormDesc] = useState("");
-  const [inspirationOpen, setInspirationOpen] = useState(false);
+  // 行内编辑
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editDesc, setEditDesc] = useState("");
 
   const world = projectData.world;
+
+  // 优化/撤回：写回项目数据（函数式更新，组件卸载后仍生效）
+  const applyWorld = useCallback((parsed: WorldData) => {
+    if (!Array.isArray(parsed.locations) || !Array.isArray(parsed.timeline_events) || !Array.isArray(parsed.setting_rules)) return;
+    persistProjectData(prev => ({ ...prev, world: parsed }));
+  }, [persistProjectData]);
+
+  const worldJson = useMemo(() => JSON.stringify(world), [world]);
 
   function handleAdd() {
     if (!formName.trim()) return;
@@ -56,28 +67,84 @@ export function WorldView({ projectData, persistProjectData }: WorldViewProps) {
     }
   }
 
+  function startEdit(id: string, name: string, desc: string) {
+    setEditingId(id);
+    setEditName(name);
+    setEditDesc(desc);
+  }
+
+  function handleSaveEdit() {
+    if (!editingId || !editName.trim()) return;
+    const name = editName.trim();
+    const desc = editDesc.trim();
+    if (tab === "locations") {
+      persistProjectData(prev => ({
+        ...prev,
+        world: { ...prev.world, locations: prev.world.locations.map(l => l.id === editingId ? { ...l, name, description: desc } : l) },
+      }));
+    } else if (tab === "timeline") {
+      persistProjectData(prev => ({
+        ...prev,
+        world: { ...prev.world, timeline_events: prev.world.timeline_events.map(e => e.event_id === editingId ? { ...e, story_time: name, description: desc } : e) },
+      }));
+    } else {
+      persistProjectData(prev => ({
+        ...prev,
+        world: { ...prev.world, setting_rules: prev.world.setting_rules.map(r => r.rule_id === editingId ? { ...r, title: name, description: desc } : r) },
+      }));
+    }
+    setEditingId(null);
+  }
+
+  // 优化：由全局优化管理器执行（见 OptimizeControls），跨页面切换不中断
+
   const currentTab = tabs.find(t => t.id === tab)!;
   const items = tab === "locations" ? world.locations : tab === "timeline" ? world.timeline_events : world.setting_rules;
+
+  const renderItem = (id: string, title: string, desc: string, titleTag?: string) => {
+    if (editingId === id) {
+      return (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, flex: 1 }}>
+          <input className="pm-input" style={{ marginBottom: 0 }} value={editName} onChange={e => setEditName(e.target.value)} autoFocus />
+          <textarea className="pm-textarea" style={{ marginBottom: 0 }} rows={2} value={editDesc} onChange={e => setEditDesc(e.target.value)} />
+          <div style={{ display: "flex", gap: 8 }}>
+            <button className="btn btn-primary" onClick={handleSaveEdit} disabled={!editName.trim()}>保存</button>
+            <button className="btn btn-secondary" onClick={() => setEditingId(null)}>取消</button>
+          </div>
+        </div>
+      );
+    }
+    return (
+      <>
+        <div>
+          {titleTag ? <span className="timeline-tag">{titleTag}</span> : <h4 className="detail-title">{title}</h4>}
+          <p className="detail-desc">{desc}</p>
+        </div>
+        <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+          <button className="pv-icon-btn" onClick={() => startEdit(id, title, desc)} title="编辑"><Edit3 size={14} /></button>
+          <button className="pv-icon-btn pv-icon-btn-danger" onClick={() => handleDeleteItem(id)} title="删除"><Trash2 size={14} /></button>
+        </div>
+      </>
+    );
+  };
 
   return (
     <div className="view-container">
       <div className="view-header">
         <h2>世界观</h2>
         <div style={{ display: "flex", gap: 8 }}>
-          <button
-            className="btn btn-ghost"
-            onClick={() => setInspirationOpen(!inspirationOpen)}
-            title="AI 灵感"
-            style={{ color: inspirationOpen ? "var(--color-accent)" : undefined }}
-          >
-            <Sparkles size={15} /> 灵感
-          </button>
+          <OptimizeControls
+            type="world"
+            contentJson={worldJson}
+            apply={applyWorld}
+            disabled={world.locations.length + world.timeline_events.length + world.setting_rules.length === 0}
+          />
           <button className="btn btn-primary" onClick={() => setShowForm(true)}><Plus size={15} /> 新增</button>
         </div>
       </div>
       <div className="tab-bar">
         {tabs.map(t => (
-          <button key={t.id} onClick={() => { setTab(t.id); setShowForm(false); }} className={"tab-item" + (tab === t.id ? " active" : "")}>{t.icon} {t.label}</button>
+          <button key={t.id} onClick={() => { setTab(t.id); setShowForm(false); setEditingId(null); }} className={"tab-item" + (tab === t.id ? " active" : "")}>{t.icon} {t.label}</button>
         ))}
       </div>
 
@@ -104,35 +171,21 @@ export function WorldView({ projectData, persistProjectData }: WorldViewProps) {
         <div>
           {tab === "locations" && world.locations.map(loc => (
             <div key={loc.id} className="detail-item" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-              <div><h4 className="detail-title">{loc.name}</h4><p className="detail-desc">{loc.description}</p></div>
-              <button className="pv-icon-btn pv-icon-btn-danger" onClick={() => handleDeleteItem(loc.id)}><Trash2 size={14} /></button>
+              {renderItem(loc.id, loc.name, loc.description)}
             </div>
           ))}
           {tab === "timeline" && world.timeline_events.map(evt => (
             <div key={evt.event_id} className="timeline-item" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-              <div><span className="timeline-tag">{evt.story_time}</span><p className="detail-desc">{evt.description}</p></div>
-              <button className="pv-icon-btn pv-icon-btn-danger" onClick={() => handleDeleteItem(evt.event_id)}><Trash2 size={14} /></button>
+              {renderItem(evt.event_id, evt.story_time, evt.description, evt.story_time)}
             </div>
           ))}
           {tab === "rules" && world.setting_rules.map(rule => (
             <div key={rule.rule_id} className="detail-item" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-              <div><h4 className="detail-title">{rule.title}</h4><p className="detail-desc">{rule.description}</p></div>
-              <button className="pv-icon-btn pv-icon-btn-danger" onClick={() => handleDeleteItem(rule.rule_id)}><Trash2 size={14} /></button>
+              {renderItem(rule.rule_id, rule.title, rule.description)}
             </div>
           ))}
         </div>
       )}
-      <InspirationPanel
-        contextType="world"
-        contextData={useMemo(() => JSON.stringify({
-          locations: projectData.world.locations,
-          timeline_events: projectData.world.timeline_events,
-          setting_rules: projectData.world.setting_rules,
-        }), [projectData.world])}
-        externalExpanded={inspirationOpen}
-        onToggle={() => setInspirationOpen(!inspirationOpen)}
-        hideTrigger={true}
-      />
     </div>
   );
 }

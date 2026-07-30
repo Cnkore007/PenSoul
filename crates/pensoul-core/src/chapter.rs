@@ -10,6 +10,9 @@ pub struct Chapter {
     pub volume_id: VolumeId,
     /// 章节标题
     pub title: String,
+    /// 章节梗概（大纲层信息，非正文）
+    #[serde(default)]
+    pub summary: String,
     /// 章节内容
     pub content: String,
     /// 字数

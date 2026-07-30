@@ -1,11 +1,15 @@
-import { useState, useMemo } from "react";
-import { UserPlus, Trash2, Sparkles } from "lucide-react";
+import { useState, useMemo, useCallback } from "react";
+import { UserPlus, Trash2, Edit3 } from "lucide-react";
 import type { ProjectData, CharacterData } from "../types";
-import { InspirationPanel } from "../components/InspirationPanel";
+import { OptimizeControls } from "../components/OptimizeControls";
 
 interface CharacterViewProps {
   projectData: ProjectData;
   persistProjectData: (updater: (prev: ProjectData) => ProjectData) => void;
+}
+
+function parseTraits(text: string): Array<[string, number]> {
+  return text.split(/[,，、\s]+/).filter(Boolean).map(t => [t.trim(), 0.5]);
 }
 
 export function CharacterView({ projectData, persistProjectData }: CharacterViewProps) {
@@ -13,17 +17,28 @@ export function CharacterView({ projectData, persistProjectData }: CharacterView
   const [name, setName] = useState("");
   const [traits, setTraits] = useState("");
   const [mood, setMood] = useState("");
-  const [inspirationOpen, setInspirationOpen] = useState(false);
+  // 行内编辑
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editTraits, setEditTraits] = useState("");
+  const [editMood, setEditMood] = useState("");
 
   const characters = projectData.characters;
 
+  // 优化/撤回：写回项目数据（函数式更新，组件卸载后仍生效）
+  const applyCharacters = useCallback((parsed: CharacterData[]) => {
+    if (!Array.isArray(parsed)) return;
+    persistProjectData(prev => ({ ...prev, characters: parsed }));
+  }, [persistProjectData]);
+
+  const charactersJson = useMemo(() => JSON.stringify(characters), [characters]);
+
   function handleAdd() {
     if (!name.trim()) return;
-    const traitPairs: [string, number][] = traits.split(/[,，、\s]+/).filter(Boolean).map(t => [t.trim(), 0.5]);
     const char: CharacterData = {
       id: `char-${Date.now()}`,
       name: name.trim(),
-      personality_traits: traitPairs,
+      personality_traits: parseTraits(traits),
       current_mood: mood.trim() || undefined,
       relationships: [],
     };
@@ -35,19 +50,38 @@ export function CharacterView({ projectData, persistProjectData }: CharacterView
     persistProjectData(prev => ({ ...prev, characters: prev.characters.filter(c => c.id !== id) }));
   }
 
+  function startEdit(char: CharacterData) {
+    setEditingId(char.id);
+    setEditName(char.name);
+    setEditTraits(char.personality_traits.map(t => t[0]).join("、"));
+    setEditMood(char.current_mood || "");
+  }
+
+  function handleSaveEdit() {
+    if (!editingId || !editName.trim()) return;
+    persistProjectData(prev => ({
+      ...prev,
+      characters: prev.characters.map(c => c.id === editingId ? {
+        ...c,
+        name: editName.trim(),
+        personality_traits: parseTraits(editTraits),
+        current_mood: editMood.trim() || undefined,
+      } : c),
+    }));
+    setEditingId(null);
+  }
+
   return (
     <div className="view-container">
       <div className="view-header">
         <h2>人物志</h2>
         <div style={{ display: "flex", gap: 8 }}>
-          <button
-            className="btn btn-ghost"
-            onClick={() => setInspirationOpen(!inspirationOpen)}
-            title="AI 灵感"
-            style={{ color: inspirationOpen ? "var(--color-accent)" : undefined }}
-          >
-            <Sparkles size={15} /> 灵感
-          </button>
+          <OptimizeControls
+            type="character"
+            contentJson={charactersJson}
+            apply={applyCharacters}
+            disabled={characters.length === 0}
+          />
           <button className="btn btn-primary" onClick={() => setShowForm(true)}><UserPlus size={15} /> 新建角色</button>
         </div>
       </div>
@@ -76,40 +110,53 @@ export function CharacterView({ projectData, persistProjectData }: CharacterView
         <div className="grid-auto">
           {characters.map(char => (
             <div key={char.id} className="char-card">
-              <div className="char-header">
-                <div className="char-avatar"><span className="char-avatar-letter">{char.name.charAt(0)}</span></div>
-                <div className="char-info">
-                  <h3 className="char-name">{char.name}</h3>
-                  {char.current_mood && <span className="char-mood">{char.current_mood}</span>}
+              {editingId === char.id ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  <input className="pm-input" style={{ marginBottom: 0 }} value={editName} onChange={e => setEditName(e.target.value)} autoFocus />
+                  <input className="pm-input" style={{ marginBottom: 0 }} placeholder="性格特征（逗号分隔）" value={editTraits} onChange={e => setEditTraits(e.target.value)} />
+                  <input className="pm-input" style={{ marginBottom: 0 }} placeholder="当前心境（可选）" value={editMood} onChange={e => setEditMood(e.target.value)} />
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button className="btn btn-primary" onClick={handleSaveEdit} disabled={!editName.trim()}>保存</button>
+                    <button className="btn btn-secondary" onClick={() => setEditingId(null)}>取消</button>
+                  </div>
                 </div>
-                <button className="pv-icon-btn pv-icon-btn-danger" onClick={() => handleDelete(char.id)} title="删除"><Trash2 size={14} /></button>
-              </div>
-              <div className="char-section">
-                <div className="char-section-label">性情</div>
-                <div className="char-traits">
-                  {char.personality_traits.map(([trait]) => (
-                    <span key={trait} className="tag tag-accent">{trait}</span>
-                  ))}
-                </div>
-              </div>
+              ) : (
+                <>
+                  <div className="char-header">
+                    <div className="char-avatar"><span className="char-avatar-letter">{char.name.charAt(0)}</span></div>
+                    <div className="char-info">
+                      <h3 className="char-name">{char.name}</h3>
+                      {char.current_mood && <span className="char-mood">{char.current_mood}</span>}
+                    </div>
+                    <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+                      <button className="pv-icon-btn" onClick={() => startEdit(char)} title="编辑"><Edit3 size={14} /></button>
+                      <button className="pv-icon-btn pv-icon-btn-danger" onClick={() => handleDelete(char.id)} title="删除"><Trash2 size={14} /></button>
+                    </div>
+                  </div>
+                  <div className="char-section">
+                    <div className="char-section-label">性情</div>
+                    <div className="char-traits">
+                      {char.personality_traits.map(([trait]) => (
+                        <span key={trait} className="tag tag-accent">{trait}</span>
+                      ))}
+                    </div>
+                  </div>
+                  {char.relationships.length > 0 && (
+                    <div className="char-section">
+                      <div className="char-section-label">关系</div>
+                      <div style={{ fontSize: "var(--text-2xs)", color: "var(--color-ink-3)", lineHeight: 1.6 }}>
+                        {char.relationships.map((r, i) => (
+                          <div key={i}>{r.from} → {r.to}：{r.relation_type}</div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
             </div>
           ))}
         </div>
       )}
-      {/* 灵感面板 */}
-      <InspirationPanel
-        contextType="character"
-        contextData={useMemo(() => JSON.stringify({
-          characters: projectData.characters.map(c => ({
-            name: c.name,
-            traits: c.personality_traits.map(t => t[0]),
-            mood: c.current_mood,
-          })),
-        }), [projectData.characters])}
-        externalExpanded={inspirationOpen}
-        onToggle={() => setInspirationOpen(!inspirationOpen)}
-        hideTrigger={true}
-      />
     </div>
   );
 }

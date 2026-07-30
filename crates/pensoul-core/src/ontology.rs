@@ -127,6 +127,7 @@ mod tests {
             chapter_id: ChapterId::new(chapter_id),
             volume_id: VolumeId::new("vol-1"),
             title: format!("第{chapter_id}章"),
+            summary: String::new(),
             content: String::new(),
             word_count: 0,
             version: 1,
