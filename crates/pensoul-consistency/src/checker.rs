@@ -7,9 +7,10 @@ use crate::rules::{ConsistencyRule, get_all_rules};
 use crate::scope::{ConsistencyCheckScope, determine_scope};
 use pensoul_core::id::ChapterId;
 
-/// 将 ChapterId 转为 i64，便于做加减运算。非数字 ID 返回 0。
-fn chapter_to_i64(ch: &ChapterId) -> i64 {
-    ch.as_str().parse::<i64>().unwrap_or(0)
+/// 将 ChapterId 转为 i64，便于做加减运算。非数字 ID 返回 None，
+/// 由调用方显式跳过，禁止静默映射为第 0 章造成误判。
+fn chapter_to_i64(ch: &ChapterId) -> Option<i64> {
+    ch.as_i64()
 }
 
 /// 将 i64 转回 ChapterId。
@@ -45,6 +46,13 @@ impl IncrementalChecker {
     /// 注册状态
     pub fn register_state(&mut self, state: EntityState) {
         self.state_manager.register_state(state);
+    }
+
+    /// 注册或更新状态（同实体同章节替换）。
+    ///
+    /// 集成层在章节重复保存时应使用此方法而非 `register_state`。
+    pub fn upsert_state(&mut self, state: EntityState) {
+        self.state_manager.upsert_state(state);
     }
 
     /// 增量检查特定章节的特定实体类型
@@ -182,10 +190,14 @@ impl IncrementalChecker {
                     .collect()
             }
             ConsistencyCheckScope::ChapterPlusNeighbors => {
-                // 当前章节及前后各一章
-                let num = chapter_to_i64(chapter_id);
-                let start = i64_to_chapter(std::cmp::max(0, num - 1));
-                let end = i64_to_chapter(num + 1);
+                // 当前章节及前后各一章；非数字章节 ID 无法定位邻居，退化为仅之前状态
+                let (start, end) = match chapter_to_i64(chapter_id) {
+                    Some(num) => (
+                        i64_to_chapter(std::cmp::max(0, num - 1)),
+                        i64_to_chapter(num + 1),
+                    ),
+                    None => (i64_to_chapter(0), chapter_id.clone()),
+                };
                 self.state_manager
                     .get_states_in_chapter_range(entity_id, &start, &end)
                     .into_iter()

@@ -38,3 +38,45 @@ impl Default for SproutData {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_new_all_empty() {
+        let s = SproutData::new();
+        assert!(s.idea_description.is_empty());
+        assert!(s.agents.is_empty());
+    }
+
+    #[test]
+    fn test_default_matches_new() {
+        let a = SproutData::new();
+        let b = SproutData::default();
+        assert_eq!(
+            serde_json::to_value(&a).unwrap(),
+            serde_json::to_value(&b).unwrap()
+        );
+    }
+
+    #[test]
+    fn test_sprout_serde_round_trip_with_agents() {
+        let mut s = SproutData::new();
+        s.idea_description = "一个关于时间循环的故事".to_string();
+        s.agents.push(AgentDiscussionConfig {
+            id: "agent-1".to_string(),
+            name: "逻辑评审".to_string(),
+            model: "kimi".to_string(),
+            prompt: "检查逻辑漏洞".to_string(),
+            perspective: "逻辑".to_string(),
+            enabled: true,
+        });
+        let json = serde_json::to_string(&s).unwrap();
+        let back: SproutData = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.idea_description, "一个关于时间循环的故事");
+        assert_eq!(back.agents.len(), 1);
+        assert!(back.agents[0].enabled);
+        assert_eq!(back.agents[0].perspective, "逻辑");
+    }
+}

@@ -19,13 +19,19 @@ impl GateEvaluator {
     ///
     /// # 逻辑
     /// - **Auto**: 直接返回 `passed = true`。
-    /// - **Manual**: 检查 `result` 中的 `human_approved` 字段。
+    /// - **Manual**: 仅当引擎收到带外人工批准（`manual_approved = true`）时放行。
+    ///   注意：绝不读取 `result` 中的字段来判断人工意图——阶段产出由 AI 生成，
+    ///   AI 可以通过写入 `human_approved: true` 自我批准，使人工门控失效。
     /// - **Conditional**: 优先读取 `result.score`，若 >= 80 则通过；
     ///   否则尝试解析 `stage.gate_condition` 表达式。
     ///
     /// # 错误
     /// 当条件表达式无法解析时返回 `GateConditionFailed`。
-    pub fn evaluate(stage: &Stage, result: &serde_json::Value) -> Result<GateResult> {
+    pub fn evaluate(
+        stage: &Stage,
+        result: &serde_json::Value,
+        manual_approved: bool,
+    ) -> Result<GateResult> {
         match &stage.gate_type {
             GateType::Auto => Ok(GateResult {
                 passed: true,
@@ -33,22 +39,15 @@ impl GateEvaluator {
                 reason: "自动放行".to_string(),
             }),
 
-            GateType::Manual => {
-                let approved = result
-                    .get("human_approved")
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(false);
-
-                Ok(GateResult {
-                    passed: approved,
-                    score: None,
-                    reason: if approved {
-                        "人工确认通过".to_string()
-                    } else {
-                        "等待人工确认".to_string()
-                    },
-                })
-            }
+            GateType::Manual => Ok(GateResult {
+                passed: manual_approved,
+                score: None,
+                reason: if manual_approved {
+                    "人工确认通过".to_string()
+                } else {
+                    "等待人工确认".to_string()
+                },
+            }),
 
             GateType::Conditional => {
                 // 优先从 result.score 获取分数
@@ -163,23 +162,33 @@ mod tests {
     fn test_auto_gate_always_passes() {
         let stage = make_stage(GateType::Auto, None);
         let result = serde_json::json!({});
-        let gr = GateEvaluator::evaluate(&stage, &result).unwrap();
+        let gr = GateEvaluator::evaluate(&stage, &result, false).unwrap();
         assert!(gr.passed);
     }
 
     #[test]
-    fn test_manual_gate_approved() {
+    fn test_manual_gate_approved_out_of_band() {
         let stage = make_stage(GateType::Manual, None);
-        let result = serde_json::json!({"human_approved": true});
-        let gr = GateEvaluator::evaluate(&stage, &result).unwrap();
+        // 人工批准来自带外通道，与 result 内容无关
+        let result = serde_json::json!({});
+        let gr = GateEvaluator::evaluate(&stage, &result, true).unwrap();
         assert!(gr.passed);
     }
 
     #[test]
     fn test_manual_gate_rejected() {
         let stage = make_stage(GateType::Manual, None);
-        let result = serde_json::json!({"human_approved": false});
-        let gr = GateEvaluator::evaluate(&stage, &result).unwrap();
+        let result = serde_json::json!({});
+        let gr = GateEvaluator::evaluate(&stage, &result, false).unwrap();
+        assert!(!gr.passed);
+    }
+
+    #[test]
+    fn test_manual_gate_ignores_result_field() {
+        let stage = make_stage(GateType::Manual, None);
+        // AI 在 result 中伪造 human_approved 也不能放行
+        let result = serde_json::json!({"human_approved": true});
+        let gr = GateEvaluator::evaluate(&stage, &result, false).unwrap();
         assert!(!gr.passed);
     }
 
@@ -187,7 +196,7 @@ mod tests {
     fn test_conditional_gate_score_pass() {
         let stage = make_stage(GateType::Conditional, None);
         let result = serde_json::json!({"score": 85.0});
-        let gr = GateEvaluator::evaluate(&stage, &result).unwrap();
+        let gr = GateEvaluator::evaluate(&stage, &result, false).unwrap();
         assert!(gr.passed);
         assert_eq!(gr.score, Some(85.0));
     }
@@ -196,7 +205,7 @@ mod tests {
     fn test_conditional_gate_score_fail() {
         let stage = make_stage(GateType::Conditional, None);
         let result = serde_json::json!({"score": 60.0});
-        let gr = GateEvaluator::evaluate(&stage, &result).unwrap();
+        let gr = GateEvaluator::evaluate(&stage, &result, false).unwrap();
         assert!(!gr.passed);
     }
 
@@ -204,7 +213,7 @@ mod tests {
     fn test_conditional_gate_boundary_80() {
         let stage = make_stage(GateType::Conditional, None);
         let result = serde_json::json!({"score": 80.0});
-        let gr = GateEvaluator::evaluate(&stage, &result).unwrap();
+        let gr = GateEvaluator::evaluate(&stage, &result, false).unwrap();
         assert!(gr.passed);
     }
 
@@ -212,7 +221,7 @@ mod tests {
     fn test_conditional_gate_condition_expression() {
         let stage = make_stage(GateType::Conditional, Some("consistency_score >= 80"));
         let result = serde_json::json!({"consistency_score": 90});
-        let gr = GateEvaluator::evaluate(&stage, &result).unwrap();
+        let gr = GateEvaluator::evaluate(&stage, &result, false).unwrap();
         assert!(gr.passed);
     }
 
@@ -220,7 +229,7 @@ mod tests {
     fn test_conditional_gate_condition_fail() {
         let stage = make_stage(GateType::Conditional, Some("consistency_score >= 80"));
         let result = serde_json::json!({"consistency_score": 70});
-        let gr = GateEvaluator::evaluate(&stage, &result).unwrap();
+        let gr = GateEvaluator::evaluate(&stage, &result, false).unwrap();
         assert!(!gr.passed);
     }
 
@@ -228,7 +237,7 @@ mod tests {
     fn test_conditional_gate_no_score_no_condition() {
         let stage = make_stage(GateType::Conditional, None);
         let result = serde_json::json!({});
-        let gr = GateEvaluator::evaluate(&stage, &result).unwrap();
+        let gr = GateEvaluator::evaluate(&stage, &result, false).unwrap();
         assert!(!gr.passed);
     }
 
@@ -236,7 +245,7 @@ mod tests {
     fn test_evaluate_condition_invalid_expr() {
         let stage = make_stage(GateType::Conditional, Some("nonsense_expression"));
         let result = serde_json::json!({});
-        let err = GateEvaluator::evaluate(&stage, &result);
+        let err = GateEvaluator::evaluate(&stage, &result, false);
         assert!(err.is_err());
     }
 }

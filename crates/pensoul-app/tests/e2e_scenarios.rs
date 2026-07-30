@@ -134,8 +134,8 @@ fn test_chapter_writing_flow() {
     );
 
     // 5. 注入备忘录
-    engine.inject_memo("current_chapter", "ch_001");
-    engine.inject_memo("chapter_title", "第一章：开端");
+    engine.inject_memo("current_chapter", "ch_001").unwrap();
+    engine.inject_memo("chapter_title", "第一章：开端").unwrap();
     assert_eq!(engine.memo.get("current_chapter"), Some("ch_001"));
 
     // 6. 完成阶段
@@ -347,9 +347,11 @@ fn test_crash_recovery() {
     let _ = engine.start_stage();
 
     // 注入备忘录
-    engine.inject_memo("chapter_id", "ch_001");
-    engine.inject_memo("chapter_title", "崩溃恢复测试章节");
-    engine.inject_memo("word_count", "1500");
+    engine.inject_memo("chapter_id", "ch_001").unwrap();
+    engine
+        .inject_memo("chapter_title", "崩溃恢复测试章节")
+        .unwrap();
+    engine.inject_memo("word_count", "1500").unwrap();
 
     // 3. 获取快照并保存状态
     let state_before = engine.build_state();
@@ -399,7 +401,7 @@ fn test_memory_injection() {
     // 1. 创建四种记忆层
     let mut hot = HotMemory::new(2);
     let mut warm = WarmMemory::new();
-    let mut cold = ColdMemory::new();
+    let mut cold = ColdMemory::new(2);
     let mut narrative = NarrativeMemory::new();
 
     // 2. 向热记忆添加章节

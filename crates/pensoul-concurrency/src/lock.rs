@@ -1,7 +1,7 @@
 use blake3::Hasher;
+use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::Mutex;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum OperationType {
@@ -72,26 +72,45 @@ impl ConcurrencyController {
             last_modified_at: now_millis(),
         };
 
-        self.versions
-            .lock()
-            .unwrap()
-            .insert(chapter_id.to_string(), version);
+        self.versions.lock().insert(chapter_id.to_string(), version);
     }
 
     pub fn get_version(&self, chapter_id: &str) -> i32 {
-        let versions = self.versions.lock().unwrap();
+        let versions = self.versions.lock();
         versions.get(chapter_id).map(|v| v.version).unwrap_or(-1)
     }
 
+    /// 从持久化数据恢复章节版本（项目加载/切换时由集成层调用）。
+    ///
+    /// 并发控制器本身只存活于内存，若不与本体中持久化的 `chapter.version`
+    /// 同步，重启后所有保存都会因版本错位而永久冲突。
+    pub fn restore_chapter(&self, chapter_id: &str, content: &str, version: i32) {
+        let mut hasher = Hasher::new();
+        hasher.update(content.as_bytes());
+        let checksum = hasher.finalize().to_hex().to_string();
+
+        let restored = ChapterVersion {
+            chapter_id: chapter_id.to_string(),
+            version,
+            checksum,
+            last_modified_by: "restore".to_string(),
+            last_modified_at: now_millis(),
+        };
+
+        self.versions
+            .lock()
+            .insert(chapter_id.to_string(), restored);
+    }
+
     pub fn submit_operation(&self, mut op: Operation) -> Operation {
-        let mut versions = self.versions.lock().unwrap();
+        let mut versions = self.versions.lock();
 
         let chapter_version = match versions.get_mut(&op.chapter_id) {
             Some(cv) => cv,
             None => {
                 op.status = OperationStatus::Rejected;
                 op.actual_version = None;
-                self.operation_log.lock().unwrap().push(op.clone());
+                self.operation_log.lock().push(op.clone());
                 return op;
             }
         };
@@ -116,17 +135,17 @@ impl ConcurrencyController {
         }
 
         drop(versions);
-        self.operation_log.lock().unwrap().push(op.clone());
+        self.operation_log.lock().push(op.clone());
         op
     }
 
     pub fn get_chapter_lock(&self, chapter_id: &str) -> Option<ChapterVersion> {
-        let versions = self.versions.lock().unwrap();
+        let versions = self.versions.lock();
         versions.get(chapter_id).cloned()
     }
 
     pub fn get_pending_ops(&self) -> Vec<Operation> {
-        let log = self.operation_log.lock().unwrap();
+        let log = self.operation_log.lock();
         log.iter()
             .filter(|op| op.status == OperationStatus::Pending)
             .cloned()
@@ -134,7 +153,7 @@ impl ConcurrencyController {
     }
 
     pub fn get_operation_log(&self) -> Vec<Operation> {
-        self.operation_log.lock().unwrap().clone()
+        self.operation_log.lock().clone()
     }
 }
 

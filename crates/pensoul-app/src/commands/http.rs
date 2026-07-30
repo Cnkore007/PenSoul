@@ -19,8 +19,16 @@ pub struct HttpResponse {
 }
 
 /// 通用 HTTP 请求代理
+///
+/// # 安全策略
+/// 该命令是 WebView 的网络出口，必须防止被滥用为开放代理：
+/// - 仅允许 `https`；`http` 只允许本机回环地址（本地模型调试）。
+/// - 禁止云元数据地址（169.254.169.254 等 link-local）。
+/// - 禁止指向私网网段的 http 请求。
 #[tauri::command]
 pub async fn http_request(request: HttpRequest) -> Result<HttpResponse, String> {
+    validate_request_url(&request.url)?;
+
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
         .user_agent("PenSoul/0.1")
@@ -82,4 +90,64 @@ pub async fn http_request(request: HttpRequest) -> Result<HttpResponse, String> 
         body,
         ok,
     })
+}
+
+/// 校验代理请求的目标 URL。
+fn validate_request_url(url: &str) -> Result<(), String> {
+    let parsed = reqwest::Url::parse(url).map_err(|e| format!("非法的 URL: {e}"))?;
+    let scheme = parsed.scheme();
+    let host = parsed.host_str().unwrap_or("").to_lowercase();
+
+    let is_loopback = matches!(host.as_str(), "localhost" | "127.0.0.1" | "::1" | "[::1]")
+        || host.starts_with("127.");
+
+    // link-local / 云元数据地址一律禁止
+    if host.starts_with("169.254.") {
+        return Err("禁止访问 link-local 地址（云元数据风险）".to_string());
+    }
+
+    match scheme {
+        "https" => Ok(()),
+        "http" => {
+            if is_loopback {
+                Ok(())
+            } else {
+                Err("http 明文请求仅允许指向本机回环地址".to_string())
+            }
+        }
+        other => Err(format!("不允许的协议: {other}")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_request_url;
+
+    #[test]
+    fn test_https_public_allowed() {
+        assert!(validate_request_url("https://api.openai.com/v1/chat").is_ok());
+    }
+
+    #[test]
+    fn test_http_loopback_allowed() {
+        assert!(validate_request_url("http://localhost:11434/v1/chat").is_ok());
+        assert!(validate_request_url("http://127.0.0.1:8080/test").is_ok());
+    }
+
+    #[test]
+    fn test_http_remote_rejected() {
+        assert!(validate_request_url("http://evil.example.com/").is_err());
+    }
+
+    #[test]
+    fn test_metadata_ip_rejected() {
+        assert!(validate_request_url("http://169.254.169.254/latest/meta-data").is_err());
+        assert!(validate_request_url("https://169.254.169.254/").is_err());
+    }
+
+    #[test]
+    fn test_other_scheme_rejected() {
+        assert!(validate_request_url("file:///etc/passwd").is_err());
+        assert!(validate_request_url("ftp://example.com/").is_err());
+    }
 }

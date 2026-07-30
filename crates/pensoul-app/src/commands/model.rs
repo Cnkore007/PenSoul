@@ -6,18 +6,20 @@ use std::collections::HashMap;
 /// 从磁盘加载模型偏好设置
 fn load_preferences_from_disk(state: &AppState) -> HashMap<String, Vec<String>> {
     let file = state.config_dir().join("model-preferences.json");
-    if file.exists() {
-        if let Ok(data) = std::fs::read_to_string(&file) {
-            if let Ok(map) = serde_json::from_str::<HashMap<String, Vec<String>>>(&data) {
-                return map;
-            }
-        }
+    if file.exists()
+        && let Ok(data) = std::fs::read_to_string(&file)
+        && let Ok(map) = serde_json::from_str::<HashMap<String, Vec<String>>>(&data)
+    {
+        return map;
     }
     HashMap::new()
 }
 
 /// 保存模型偏好设置到磁盘
-fn save_preferences_to_disk(state: &AppState, prefs: &HashMap<String, Vec<String>>) -> Result<(), String> {
+fn save_preferences_to_disk(
+    state: &AppState,
+    prefs: &HashMap<String, Vec<String>>,
+) -> Result<(), String> {
     let config_dir = state.config_dir();
     std::fs::create_dir_all(&config_dir).map_err(|e| e.to_string())?;
     let data = serde_json::to_string_pretty(prefs).map_err(|e| e.to_string())?;
@@ -150,7 +152,14 @@ pub async fn route_model(
 /// 将路由器中所有任务偏好持久化到磁盘
 fn persist_all_preferences(state: &AppState) -> Result<(), String> {
     let router = state.model_router.read();
-    let task_types = [TaskType::General, TaskType::Outline, TaskType::Drafting, TaskType::Revision, TaskType::Consistency, TaskType::Style];
+    let task_types = [
+        TaskType::General,
+        TaskType::Outline,
+        TaskType::Drafting,
+        TaskType::Revision,
+        TaskType::Consistency,
+        TaskType::Style,
+    ];
     let mut prefs: HashMap<String, Vec<String>> = HashMap::new();
     for tt in &task_types {
         let model_ids: Vec<String> = router
@@ -163,7 +172,7 @@ fn persist_all_preferences(state: &AppState) -> Result<(), String> {
         }
     }
     drop(router);
-    save_preferences_to_disk(&state, &prefs)
+    save_preferences_to_disk(state, &prefs)
 }
 
 /// 启动时同步偏好（在 state 初始化后调用）

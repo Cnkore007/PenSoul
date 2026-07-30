@@ -8,13 +8,13 @@ fn load_plugins_from_disk(state: &AppState) {
     if !file.exists() {
         return;
     }
-    if let Ok(data) = std::fs::read_to_string(&file) {
-        if let Ok(list) = serde_json::from_str::<Vec<serde_json::Value>>(&data) {
-            let mut registry = state.plugin_registry.write();
-            for item in list {
-                if let Ok(json_str) = serde_json::to_string(&item) {
-                    let _ = registry.import_plugin(&json_str);
-                }
+    if let Ok(data) = std::fs::read_to_string(&file)
+        && let Ok(list) = serde_json::from_str::<Vec<serde_json::Value>>(&data)
+    {
+        let mut registry = state.plugin_registry.write();
+        for item in list {
+            if let Ok(json_str) = serde_json::to_string(&item) {
+                let _ = registry.import_plugin(&json_str);
             }
         }
     }
@@ -26,13 +26,17 @@ fn save_plugins_to_disk(state: &AppState) -> Result<(), String> {
     std::fs::create_dir_all(&config_dir).map_err(|e| e.to_string())?;
 
     let registry = state.plugin_registry.read();
-    let plugin_ids: Vec<String> = registry.list_plugins().into_iter().map(|s| s.to_string()).collect();
+    let plugin_ids: Vec<String> = registry
+        .list_plugins()
+        .into_iter()
+        .map(|s| s.to_string())
+        .collect();
     let mut configs = Vec::new();
     for id in &plugin_ids {
-        if let Ok(json) = registry.export_plugin(id) {
-            if let Ok(config) = serde_json::from_str::<serde_json::Value>(&json) {
-                configs.push(config);
-            }
+        if let Ok(json) = registry.export_plugin(id)
+            && let Ok(config) = serde_json::from_str::<serde_json::Value>(&json)
+        {
+            configs.push(config);
         }
     }
     drop(registry);
@@ -69,14 +73,12 @@ pub async fn install_plugin(
     state: tauri::State<'_, AppState>,
     yaml_content: String,
 ) -> Result<(), String> {
-    let config: PluginConfig = serde_json::from_str(&yaml_content)
-        .map_err(|e| format!("解析插件配置失败: {}", e))?;
+    let config: PluginConfig =
+        serde_json::from_str(&yaml_content).map_err(|e| format!("解析插件配置失败: {}", e))?;
 
     {
         let mut registry = state.plugin_registry.write();
-        registry
-            .register(config)
-            .map_err(|e| e.to_string())?;
+        registry.register(config).map_err(|e| e.to_string())?;
     }
     save_plugins_to_disk(&state)
 }
@@ -132,9 +134,7 @@ pub async fn toggle_plugin(
 
     {
         let mut registry = state.plugin_registry.write();
-        registry
-            .register(config)
-            .map_err(|e| e.to_string())?;
+        registry.register(config).map_err(|e| e.to_string())?;
     }
     save_plugins_to_disk(&state)
 }

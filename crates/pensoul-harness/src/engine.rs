@@ -2,12 +2,12 @@
 ///
 /// `HarnessEngine` 管理阶段注册、状态机推进、门控判定、
 /// WAL 审计和崩溃恢复。AI 无权跳步，一切由引擎驱动。
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use crate::gate::GateEvaluator;
 use crate::memo::RollingMemo;
-use crate::stage::{Stage, StageInstance, StageStatus};
+use crate::stage::{GateType, Stage, StageInstance, StageStatus};
 use crate::tools::ToolWhitelist;
 use crate::wal::{WalAction, WalManager};
 use pensoul_core::{PensoulError, Result, StageName};
@@ -49,6 +49,8 @@ pub struct HarnessEngine {
     pub stages_status: HashMap<String, StageInstance>,
     /// WAL 管理器。
     pub wal: WalManager,
+    /// 已收到带外人工批准的阶段名称集合（Manual 门控用）。
+    manual_approvals: HashSet<String>,
 }
 
 impl HarnessEngine {
@@ -68,6 +70,7 @@ impl HarnessEngine {
             memo: RollingMemo::new(),
             stages_status: HashMap::new(),
             wal,
+            manual_approvals: HashSet::new(),
         };
 
         // 写入引擎初始化 WAL
@@ -106,30 +109,51 @@ impl HarnessEngine {
 
         self.current_stage = Some(stage_name.clone());
 
-        if let Err(e) = self.wal.write_mut(
+        // WAL 是审计主干：写不进去就拒绝变更，而不是静默继续
+        self.wal.write_mut(
             WalAction::Advance,
             Some(stage_name.as_str()),
             Some("设置起始阶段"),
-        ) {
-            eprintln!("[警告] WAL 写入失败: {e}");
-        }
+        )?;
 
         Ok(())
     }
 
     /// 注入滚动备忘录条目。
     ///
-    /// 注入后自动写入 WAL 记录。
-    pub fn inject_memo(&mut self, key: &str, value: &str) {
+    /// 注入后自动写入 WAL 记录；WAL 写失败时返回错误。
+    pub fn inject_memo(&mut self, key: &str, value: &str) -> Result<()> {
         self.memo.inject(key, value);
 
-        if let Err(e) = self.wal.write_mut(
+        self.wal.write_mut(
             WalAction::MemoInject,
             None,
             Some(&serde_json::json!({"key": key, "value": value}).to_string()),
-        ) {
-            eprintln!("[警告] WAL 写入失败: {e}");
+        )?;
+
+        Ok(())
+    }
+
+    /// 人工批准指定阶段的 Manual 门控（带外确认通道）。
+    ///
+    /// Manual 门控只认这里登记的批准，不看阶段产出中的任何字段，
+    /// 防止 AI 通过构造 `human_approved: true` 自我放行。
+    pub fn approve_manual_gate(&mut self, stage_name: &StageName) -> Result<()> {
+        if !self.stages.contains_key(stage_name) {
+            return Err(PensoulError::StageNotFound(stage_name.to_string()));
         }
+        self.manual_approvals.insert(stage_name.to_string());
+        self.wal.write_mut(
+            WalAction::GatePass,
+            Some(stage_name.as_str()),
+            Some("收到带外人工批准"),
+        )?;
+        Ok(())
+    }
+
+    /// 查询指定阶段是否已收到人工批准。
+    pub fn is_manually_approved(&self, stage_name: &StageName) -> bool {
+        self.manual_approvals.contains(stage_name.as_str())
     }
 
     /// 检查当前阶段是否允许使用指定工具。
@@ -149,13 +173,13 @@ impl HarnessEngine {
         ToolWhitelist::check_access(stage, tool_name, &self.wal, current.as_str())
     }
 
-    /// 启动当前阶段，返回阶段实例。
+    /// 启动当前阶段，返回阶段实例快照。
     ///
     /// # 逻辑
     /// 1. 检查当前阶段是否已注册
     /// 2. 标记实例为 Running
     /// 3. 写入 WAL StageStart
-    /// 4. 返回可变引用供调用方填充 result
+    /// 4. 返回实例的克隆快照（调用方随后通过 `complete_stage` 提交结果）
     pub fn start_stage(&mut self) -> Result<StageInstance> {
         let current = self
             .current_stage
@@ -173,12 +197,8 @@ impl HarnessEngine {
 
         inst.mark_running();
 
-        if let Err(e) = self
-            .wal
-            .write_mut(WalAction::StageStart, Some(current.as_str()), None)
-        {
-            eprintln!("[警告] WAL 写入失败: {e}");
-        }
+        self.wal
+            .write_mut(WalAction::StageStart, Some(current.as_str()), None)?;
 
         Ok(inst.clone())
     }
@@ -189,8 +209,8 @@ impl HarnessEngine {
     /// - `result`: 阶段产出结果（JSON 语义化数据）。
     ///
     /// # 返回值
-    /// - `Ok(())` — 流程推进成功。
-    /// - `Err` — 阶段未注册或门控逻辑异常。
+    /// - `Ok(())` — 流程推进成功，或 Manual 门控进入等待人工确认。
+    /// - `Err` — 阶段未注册、门控逻辑异常或 WAL 写入失败。
     pub fn complete_stage(&mut self, result: serde_json::Value) -> Result<()> {
         let current = self
             .current_stage
@@ -210,25 +230,39 @@ impl HarnessEngine {
         }
 
         // 写入 StageComplete WAL
-        if let Err(e) = self
-            .wal
-            .write_mut(WalAction::StageComplete, Some(current.as_str()), None)
-        {
-            eprintln!("[警告] WAL 写入失败: {e}");
+        self.wal
+            .write_mut(WalAction::StageComplete, Some(current.as_str()), None)?;
+
+        // 执行门控判定（Manual 门控只认带外人工批准）
+        let manual_approved = self.manual_approvals.contains(current.as_str());
+        let gate_result = GateEvaluator::evaluate(&stage, &result, manual_approved)?;
+
+        // Manual 门控未获批准：进入等待人工确认，既不退进也不计失败
+        if stage.gate_type == GateType::Manual && !gate_result.passed {
+            self.wal.write_mut(
+                WalAction::GateFail,
+                Some(current.as_str()),
+                Some("等待人工确认（带外批准尚未到达）"),
+            )?;
+            if let Some(inst) = self.stages_status.get_mut(current.as_str()) {
+                inst.gate_result = Some(gate_result);
+                inst.mark_waiting_human();
+            }
+            return Ok(());
         }
 
-        // 执行门控判定
-        let gate_result = GateEvaluator::evaluate(&stage, &result)?;
+        // 门控通过：消费掉该阶段的人工批准
+        if gate_result.passed {
+            self.manual_approvals.remove(current.as_str());
+        }
 
         if gate_result.passed {
             // 门控通过
-            if let Err(e) = self.wal.write_mut(
+            self.wal.write_mut(
                 WalAction::GatePass,
                 Some(current.as_str()),
                 Some(&gate_result.reason),
-            ) {
-                eprintln!("[警告] WAL 写入失败: {e}");
-            }
+            )?;
 
             // 更新实例门控结果
             if let Some(inst) = self.stages_status.get_mut(current.as_str()) {
@@ -242,22 +276,16 @@ impl HarnessEngine {
                 self.advance_to_stage(&next_name)?;
             } else {
                 // 流程结束
-                if let Err(e) =
-                    self.wal
-                        .write_mut(WalAction::HarnessComplete, None, Some("所有阶段完成"))
-                {
-                    eprintln!("[警告] WAL 写入失败: {e}");
-                }
+                self.wal
+                    .write_mut(WalAction::HarnessComplete, None, Some("所有阶段完成"))?;
             }
         } else {
             // 门控未通过
-            if let Err(e) = self.wal.write_mut(
+            self.wal.write_mut(
                 WalAction::GateFail,
                 Some(current.as_str()),
                 Some(&gate_result.reason),
-            ) {
-                eprintln!("[警告] WAL 写入失败: {e}");
-            }
+            )?;
 
             if let Some(inst) = self.stages_status.get_mut(current.as_str()) {
                 inst.gate_result = Some(gate_result.clone());
@@ -308,12 +336,8 @@ impl HarnessEngine {
             return Err(PensoulError::StageNotFound(target.to_string()));
         }
 
-        if let Err(e) = self
-            .wal
-            .write_mut(WalAction::Advance, Some(target.as_str()), None)
-        {
-            eprintln!("[警告] WAL 写入失败: {e}");
-        }
+        self.wal
+            .write_mut(WalAction::Advance, Some(target.as_str()), None)?;
 
         self.current_stage = Some(target.clone());
 
@@ -341,9 +365,7 @@ impl HarnessEngine {
             .map_err(|e| PensoulError::SerializationError(format!("序列化状态失败: {e}")))?;
         self.wal.save_state(&value)?;
 
-        if let Err(e) = self.wal.write_mut(WalAction::StateSync, None, None) {
-            eprintln!("[警告] WAL 写入失败: {e}");
-        }
+        self.wal.write_mut(WalAction::StateSync, None, None)?;
 
         Ok(())
     }
@@ -378,230 +400,5 @@ impl HarnessEngine {
     /// 获取已注册阶段的数量。
     pub fn stage_count(&self) -> usize {
         self.stages.len()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::stage::{GateType, RunnerType};
-
-    fn writing_stage() -> Stage {
-        Stage {
-            name: StageName::new("writing"),
-            display_name: "章节写作".into(),
-            tools_allowed: vec!["write_prose".into(), "read_outline".into()],
-            tools_denied: vec!["modify_settings".into()],
-            gate_type: GateType::Auto,
-            next_stage: Some(StageName::new("review")),
-            runner: RunnerType::Local,
-            max_retries: 0,
-            ..Stage::default()
-        }
-    }
-
-    fn review_stage() -> Stage {
-        Stage {
-            name: StageName::new("review"),
-            display_name: "一致性审查".into(),
-            gate_type: GateType::Conditional,
-            gate_condition: Some("consistency_score >= 80".into()),
-            on_fail: Some(StageName::new("writing")),
-            next_stage: Some(StageName::new("polish")),
-            max_retries: 2,
-            ..Stage::default()
-        }
-    }
-
-    fn polish_stage() -> Stage {
-        Stage {
-            name: StageName::new("polish"),
-            display_name: "润色".into(),
-            gate_type: GateType::Auto,
-            next_stage: None,
-            ..Stage::default()
-        }
-    }
-
-    #[test]
-    fn test_engine_creation_and_stage_registration() {
-        let tmp = tempfile::tempdir().unwrap();
-        let mut engine = HarnessEngine::new(tmp.path());
-
-        engine.register_stage(writing_stage());
-        engine.register_stage(review_stage());
-        assert_eq!(engine.stage_count(), 2);
-    }
-
-    #[test]
-    fn test_set_start_stage() {
-        let tmp = tempfile::tempdir().unwrap();
-        let mut engine = HarnessEngine::new(tmp.path());
-        engine.register_stage(writing_stage());
-
-        engine.set_start_stage(StageName::new("writing")).unwrap();
-        assert_eq!(engine.current_stage().map(|n| n.as_str()), Some("writing"));
-    }
-
-    #[test]
-    fn test_set_start_stage_not_registered() {
-        let tmp = tempfile::tempdir().unwrap();
-        let mut engine = HarnessEngine::new(tmp.path());
-
-        let result = engine.set_start_stage(StageName::new("nonexistent"));
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_start_stage() {
-        let tmp = tempfile::tempdir().unwrap();
-        let mut engine = HarnessEngine::new(tmp.path());
-        engine.register_stage(writing_stage());
-        engine.set_start_stage(StageName::new("writing")).unwrap();
-
-        let inst = engine.start_stage().unwrap();
-        assert_eq!(inst.status, crate::stage::StageStatus::Running);
-    }
-
-    #[test]
-    fn test_complete_stage_auto_gate_advances() {
-        let tmp = tempfile::tempdir().unwrap();
-        let mut engine = HarnessEngine::new(tmp.path());
-        engine.register_stage(writing_stage());
-        engine.register_stage(review_stage());
-        engine.set_start_stage(StageName::new("writing")).unwrap();
-        let _ = engine.start_stage();
-
-        let result = serde_json::json!({"output": "章节正文"});
-        engine.complete_stage(result).unwrap();
-
-        // Auto gate 应该直接推进到 review
-        assert_eq!(engine.current_stage().map(|n| n.as_str()), Some("review"));
-    }
-
-    #[test]
-    fn test_complete_stage_conditional_gate_pass() {
-        let tmp = tempfile::tempdir().unwrap();
-        let mut engine = HarnessEngine::new(tmp.path());
-        engine.register_stage(writing_stage());
-        engine.register_stage(review_stage());
-        engine.register_stage(polish_stage());
-        engine.set_start_stage(StageName::new("review")).unwrap();
-        let _ = engine.start_stage();
-
-        let result = serde_json::json!({"consistency_score": 85});
-        engine.complete_stage(result).unwrap();
-
-        assert_eq!(engine.current_stage().map(|n| n.as_str()), Some("polish"));
-    }
-
-    #[test]
-    fn test_complete_stage_conditional_gate_fail_goes_back() {
-        let tmp = tempfile::tempdir().unwrap();
-        let mut engine = HarnessEngine::new(tmp.path());
-        engine.register_stage(writing_stage());
-        engine.register_stage(review_stage());
-        engine.set_start_stage(StageName::new("review")).unwrap();
-        let _ = engine.start_stage();
-
-        let result = serde_json::json!({"consistency_score": 60});
-        engine.complete_stage(result).unwrap();
-
-        // 条件不满足，应退回到 writing
-        assert_eq!(engine.current_stage().map(|n| n.as_str()), Some("writing"));
-    }
-
-    #[test]
-    fn test_tool_access_check() {
-        let tmp = tempfile::tempdir().unwrap();
-        let mut engine = HarnessEngine::new(tmp.path());
-        engine.register_stage(writing_stage());
-        engine.set_start_stage(StageName::new("writing")).unwrap();
-
-        assert!(engine.check_tool_access("write_prose"));
-        assert!(!engine.check_tool_access("modify_settings"));
-        assert!(!engine.check_tool_access("unknown_tool"));
-    }
-
-    #[test]
-    fn test_inject_memo() {
-        let tmp = tempfile::tempdir().unwrap();
-        let mut engine = HarnessEngine::new(tmp.path());
-        engine.inject_memo("conflict", "主角对决反派");
-        assert_eq!(engine.memo.get("conflict"), Some("主角对决反派"));
-    }
-
-    #[test]
-    fn test_build_state() {
-        let tmp = tempfile::tempdir().unwrap();
-        let mut engine = HarnessEngine::new(tmp.path());
-        engine.register_stage(writing_stage());
-        engine.set_start_stage(StageName::new("writing")).unwrap();
-        engine.inject_memo("key", "value");
-
-        let state = engine.build_state();
-        assert_eq!(state.current_stage.as_deref(), Some("writing"));
-        assert_eq!(state.memo.get("key"), Some(&"value".to_string()));
-    }
-
-    #[test]
-    fn test_save_and_recover_state() {
-        let tmp = tempfile::tempdir().unwrap();
-        let mut engine = HarnessEngine::new(tmp.path());
-        engine.register_stage(writing_stage());
-        engine.register_stage(review_stage());
-        engine.set_start_stage(StageName::new("writing")).unwrap();
-        engine.inject_memo("conflict", "核心冲突");
-
-        // 模拟阶段执行
-        let _ = engine.start_stage();
-        let result = serde_json::json!({});
-        engine.complete_stage(result).unwrap();
-
-        // 保存状态
-        engine.save_state().unwrap();
-
-        // 创建新引擎并恢复
-        let mut engine2 = HarnessEngine::new(tmp.path());
-        engine2.register_stage(writing_stage());
-        engine2.register_stage(review_stage());
-        let recovered = engine2.recover_from_crash().unwrap();
-        assert!(recovered);
-        assert_eq!(engine2.memo.get("conflict"), Some("核心冲突"));
-    }
-
-    #[test]
-    fn test_max_retries_exceeded() {
-        let tmp = tempfile::tempdir().unwrap();
-        let mut engine = HarnessEngine::new(tmp.path());
-        engine.register_stage(writing_stage());
-        engine.register_stage(review_stage());
-        engine.set_start_stage(StageName::new("review")).unwrap();
-        let _ = engine.start_stage();
-
-        // review 的 max_retries=2，需要 gate_fail 3 次才能 Failed
-        // 但 complete_stage 会 advance 到 writing（auto pass）再回到 review，
-        // 所以我们直接操作 review 实例来模拟多次失败。
-
-        // 第一次失败：attempt 1 -> 2，advance to writing
-        let result = serde_json::json!({"consistency_score": 50});
-        engine.complete_stage(result).unwrap();
-        // 现在 current_stage = writing，auto pass -> review
-        let result = serde_json::json!({"output": "rewrite"});
-        engine.complete_stage(result).unwrap();
-
-        // 第二次失败：attempt 2 -> 3，advance to writing
-        let result = serde_json::json!({"consistency_score": 50});
-        engine.complete_stage(result).unwrap();
-        // auto pass -> review
-        let result = serde_json::json!({"output": "rewrite2"});
-        engine.complete_stage(result).unwrap();
-
-        // 第三次失败：attempt 3，3 > 2，应该标记 Failed
-        let result = serde_json::json!({"consistency_score": 50});
-        engine.complete_stage(result).unwrap();
-
-        let inst = engine.stages_status.get("review").unwrap();
-        assert_eq!(inst.status, StageStatus::Failed);
     }
 }

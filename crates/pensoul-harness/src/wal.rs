@@ -126,7 +126,10 @@ impl WalManager {
         }
     }
 
-    /// 写入一条 WAL 条目并刷盘。
+    /// 写入一条 WAL 条目并同步落盘。
+    ///
+    /// WAL 的语义是「先写日志，再执行操作」，因此每次写入后必须
+    /// `sync_all` 确保数据真正到达磁盘，否则崩溃时审计轨迹会丢失。
     ///
     /// # 参数
     /// - `action`: 动作类型。
@@ -147,50 +150,35 @@ impl WalManager {
         writeln!(file, "{line}")
             .map_err(|e| PensoulError::IoError(format!("写入 WAL 文件失败: {e}")))?;
 
-        // 刷盘
-        file.flush()
-            .map_err(|e| PensoulError::IoError(format!("刷新 WAL 文件失败: {e}")))?;
+        // 同步到磁盘，保证崩溃后条目不丢
+        file.sync_all()
+            .map_err(|e| PensoulError::IoError(format!("同步 WAL 文件失败: {e}")))?;
 
         Ok(())
     }
 
-    /// 写入一条 WAL 条目并刷盘（可变引用版本，同时追加到内存）。
+    /// 写入一条 WAL 条目并同步落盘（可变引用版本，语义与 `write` 一致）。
     pub fn write_mut(
         &mut self,
         action: WalAction,
         stage: Option<&str>,
         data: Option<&str>,
     ) -> Result<()> {
-        let entry = WalEntry::new(action, stage.map(String::from), data.map(String::from));
+        self.write(action, stage, data)
+    }
 
-        // 追加写入文件
-        let mut file = OpenOptions::new()
+    /// 强制把 WAL 文件同步到磁盘。
+    ///
+    /// 注意：必须以 append 模式打开。历史上这里错误地使用了
+    /// `truncate(true)`，调用即清空整个审计日志，属于严重缺陷。
+    pub fn flush(&self) -> Result<()> {
+        let file = OpenOptions::new()
             .create(true)
             .append(true)
             .open(&self.wal_path)
             .map_err(|e| PensoulError::IoError(format!("打开 WAL 文件失败: {e}")))?;
-
-        let line = serde_json::to_string(&entry)
-            .map_err(|e| PensoulError::SerializationError(format!("序列化 WAL 条目失败: {e}")))?;
-        writeln!(file, "{line}")
-            .map_err(|e| PensoulError::IoError(format!("写入 WAL 文件失败: {e}")))?;
-
-        file.flush()
-            .map_err(|e| PensoulError::IoError(format!("刷新 WAL 文件失败: {e}")))?;
-
-        Ok(())
-    }
-
-    /// 强制刷盘。
-    pub fn flush(&self) -> Result<()> {
-        let file = OpenOptions::new()
-            .create(true)
-            .truncate(true)
-            .write(true)
-            .open(&self.wal_path)
-            .map_err(|e| PensoulError::IoError(format!("打开 WAL 文件失败: {e}")))?;
         file.sync_all()
-            .map_err(|e| PensoulError::IoError(format!("刷新 WAL 文件失败: {e}")))?;
+            .map_err(|e| PensoulError::IoError(format!("同步 WAL 文件失败: {e}")))?;
         Ok(())
     }
 

@@ -145,6 +145,9 @@ mod tests {
             },
             chapters: vec![chapter1, chapter2],
             volumes: Vec::new(),
+            settings: pensoul_core::ProjectSettings::new(),
+            core_concept: pensoul_core::CoreConcept::new(),
+            sprout: pensoul_core::SproutData::new(),
         };
 
         let output = export_to_txt(&ontology).unwrap();

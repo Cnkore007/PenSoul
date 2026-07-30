@@ -38,3 +38,58 @@ impl Default for ProjectSettings {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_new_all_zero() {
+        let s = ProjectSettings::new();
+        assert_eq!(s.target_chapters, 0);
+        assert_eq!(s.target_words, 0);
+        assert_eq!(s.chapter_target_words, 0);
+        assert_eq!(s.target_volumes, 0);
+        assert!(s.genre.is_empty());
+    }
+
+    #[test]
+    fn test_recalc_target_words_multiplies() {
+        let mut s = ProjectSettings::new();
+        s.target_chapters = 100;
+        s.chapter_target_words = 3000;
+        s.recalc_target_words();
+        assert_eq!(s.target_words, 300_000);
+    }
+
+    #[test]
+    fn test_recalc_target_words_zero_chapters() {
+        let mut s = ProjectSettings::new();
+        s.chapter_target_words = 3000;
+        s.recalc_target_words();
+        assert_eq!(s.target_words, 0);
+    }
+
+    #[test]
+    fn test_recalc_target_words_overwrites_stale_value() {
+        let mut s = ProjectSettings::new();
+        s.target_words = 999;
+        s.target_chapters = 10;
+        s.chapter_target_words = 2000;
+        s.recalc_target_words();
+        assert_eq!(s.target_words, 20_000);
+    }
+
+    #[test]
+    fn test_settings_serde_round_trip() {
+        let mut s = ProjectSettings::new();
+        s.target_chapters = 50;
+        s.chapter_target_words = 4000;
+        s.recalc_target_words();
+        s.genre = "玄幻".to_string();
+        let json = serde_json::to_string(&s).unwrap();
+        let back: ProjectSettings = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.target_words, 200_000);
+        assert_eq!(back.genre, "玄幻");
+    }
+}

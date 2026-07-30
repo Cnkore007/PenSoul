@@ -15,7 +15,7 @@ fn main() {
             .unwrap_or_else(|| PathBuf::from("."));
         // exe_dir = target/debug, 向上三级到项目根
         let project_root = exe_dir
-            .parent()   // target
+            .parent() // target
             .and_then(|p| p.parent()) // project_root
             .unwrap_or(&exe_dir);
         project_root.join("data")
@@ -49,6 +49,7 @@ fn main() {
             pensoul_app::commands::chapter::list_chapters,
             pensoul_app::commands::harness::start_harness_stage,
             pensoul_app::commands::harness::complete_harness_stage,
+            pensoul_app::commands::harness::approve_harness_stage,
             pensoul_app::commands::harness::inject_memo,
             pensoul_app::commands::harness::get_harness_status,
             pensoul_app::commands::cda::find_affected_chapters,
@@ -72,9 +73,9 @@ fn main() {
             pensoul_app::commands::settings::load_concept,
             pensoul_app::commands::settings::save_sprout,
             pensoul_app::commands::settings::load_sprout,
-            pensoul_app::commands::settings::save_experts,
-            pensoul_app::commands::settings::load_experts,
-            pensoul_app::commands::settings::scan_nuwa_skills,
+            pensoul_app::commands::experts::save_experts,
+            pensoul_app::commands::experts::load_experts,
+            pensoul_app::commands::experts::scan_nuwa_skills,
             pensoul_app::commands::character::get_characters,
             pensoul_app::commands::character::save_characters,
             pensoul_app::commands::world::get_world,
@@ -89,10 +90,10 @@ fn main() {
             pensoul_app::commands::llm::test_model,
             pensoul_app::commands::llm::load_api_keys,
             pensoul_app::commands::discussion::discuss_concept,
-            pensoul_app::commands::settings::distill_expert,
-            pensoul_app::commands::settings::scan_experts_folder,
-            pensoul_app::commands::settings::get_experts_folder,
-            pensoul_app::commands::settings::delete_expert_skill,
+            pensoul_app::commands::expert_distill::distill_expert,
+            pensoul_app::commands::experts::scan_experts_folder,
+            pensoul_app::commands::experts::get_experts_folder,
+            pensoul_app::commands::experts::delete_expert_skill,
             pensoul_app::commands::harness_exec::execute_harness_step,
         ])
         .run(tauri::generate_context!())

@@ -2508,7 +2508,6 @@ dependencies = [
  "chrono",
  "dirs 5.0.1",
  "parking_lot",
- "pensoul-agent",
  "pensoul-cda",
  "pensoul-concurrency",
  "pensoul-consistency",
@@ -2546,6 +2545,7 @@ name = "pensoul-concurrency"
 version = "0.1.0"
 dependencies = [
  "blake3",
+ "parking_lot",
  "pensoul-core",
  "serde",
  "serde_json",

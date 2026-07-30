@@ -33,3 +33,40 @@ impl Default for CoreConcept {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_new_all_fields_empty() {
+        let c = CoreConcept::new();
+        assert!(c.high_concept.is_empty());
+        assert!(c.premise.is_empty());
+        assert!(c.protagonist_hint.is_empty());
+        assert!(c.tone.is_empty());
+        assert!(c.central_conflict.is_empty());
+        assert!(c.inspiration.is_empty());
+    }
+
+    #[test]
+    fn test_default_matches_new() {
+        let a = CoreConcept::new();
+        let b = CoreConcept::default();
+        assert_eq!(
+            serde_json::to_value(&a).unwrap(),
+            serde_json::to_value(&b).unwrap()
+        );
+    }
+
+    #[test]
+    fn test_concept_serde_round_trip() {
+        let mut c = CoreConcept::new();
+        c.high_concept = "废柴逆袭".to_string();
+        c.central_conflict = "人与天命".to_string();
+        let json = serde_json::to_string(&c).unwrap();
+        let back: CoreConcept = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.high_concept, "废柴逆袭");
+        assert_eq!(back.central_conflict, "人与天命");
+    }
+}

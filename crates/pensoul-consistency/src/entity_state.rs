@@ -58,6 +58,18 @@ impl EntityStateManager {
             .push(state);
     }
 
+    /// 注册或更新状态：同实体的同章节状态被替换，否则追加。
+    ///
+    /// 章节被重复保存时调用方应使用此方法，避免状态列表被重复采样污染。
+    pub fn upsert_state(&mut self, state: EntityState) {
+        let states = self.states.entry(state.entity_id.clone()).or_default();
+        if let Some(existing) = states.iter_mut().find(|s| s.chapter_id == state.chapter_id) {
+            *existing = state;
+        } else {
+            states.push(state);
+        }
+    }
+
     /// 获取实体的所有状态
     pub fn get_state(&self, entity_id: &str) -> Option<&Vec<EntityState>> {
         self.states.get(entity_id)

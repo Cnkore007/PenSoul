@@ -1,5 +1,5 @@
 /// 项目管理命令 — 多项目架构
-use crate::state::{AppState, ProjectInfo, ProjectMeta};
+use crate::state::{AppState, ProjectInfo, ProjectMeta, validate_project_id};
 use pensoul_core::{NovelOntology, ProjectId};
 
 /// 创建新项目
@@ -45,6 +45,7 @@ pub async fn get_project(
     state: tauri::State<'_, AppState>,
     project_id: String,
 ) -> Result<ProjectInfo, String> {
+    validate_project_id(&project_id).map_err(|e| e.to_string())?;
     let project_file = state
         .base_dir
         .join(&project_id)
@@ -84,6 +85,7 @@ pub async fn update_project(
     title: String,
     description: String,
 ) -> Result<(), String> {
+    validate_project_id(&project_id).map_err(|e| e.to_string())?;
     let project_file = state
         .base_dir
         .join(&project_id)
@@ -126,6 +128,7 @@ pub async fn delete_project(
     state: tauri::State<'_, AppState>,
     project_id: String,
 ) -> Result<(), String> {
+    validate_project_id(&project_id).map_err(|e| e.to_string())?;
     // 不允许删除当前活跃项目
     {
         let active = state.active_project_id.read();

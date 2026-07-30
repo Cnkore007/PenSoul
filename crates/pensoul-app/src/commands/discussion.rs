@@ -44,7 +44,10 @@ pub async fn discuss_concept(
     for agent in agents.iter().filter(|a| a.enabled) {
         // 解析该模型的供应商 / API Key / API Base
         let (provider_id, api_key, api_base) = match lh::resolve_provider(
-            &agent.model, &model_to_provider, &provider_api_bases, &api_keys,
+            &agent.model,
+            &model_to_provider,
+            &provider_api_bases,
+            &api_keys,
         ) {
             Ok(v) => v,
             Err(msg) => {
@@ -60,10 +63,19 @@ pub async fn discuss_concept(
 
         // 调用 LLM（自动处理 OpenAI / Anthropic 认证格式）
         let text = match lh::call_llm(
-            &provider_id, &api_key, &api_base, &agent.model,
-            &agent.prompt, &idea_description,
-            0.85, 1024,
-        ).await {
+            &lh::ProviderAuth {
+                provider_id: &provider_id,
+                api_key: &api_key,
+                api_base: &api_base,
+            },
+            &agent.model,
+            &agent.prompt,
+            &idea_description,
+            0.85,
+            1024,
+        )
+        .await
+        {
             Ok(t) => t,
             Err(msg) => {
                 results.push(AgentDiscussionResult {

@@ -197,6 +197,9 @@ mod tests {
                 updated_at: "2026-01-01".to_string(),
             }],
             volumes: Vec::new(),
+            settings: pensoul_core::ProjectSettings::new(),
+            core_concept: pensoul_core::CoreConcept::new(),
+            sprout: pensoul_core::SproutData::new(),
         }
     }
 

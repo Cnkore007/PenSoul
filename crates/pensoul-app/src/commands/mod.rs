@@ -1,10 +1,12 @@
-pub mod discussion;
-pub mod harness_exec;
 pub mod cda;
 pub mod chapter;
 pub mod character;
 pub mod consistency;
+pub mod discussion;
+pub mod expert_distill;
+pub mod experts;
 pub mod harness;
+pub mod harness_exec;
 pub mod http;
 pub mod inspiration;
 pub mod llm;

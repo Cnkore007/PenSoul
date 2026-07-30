@@ -70,3 +70,66 @@ pub enum PensoulError {
 
 /// PenSoul Result 类型别名
 pub type Result<T> = std::result::Result<T, PensoulError>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_display_stage_not_found() {
+        let e = PensoulError::StageNotFound("萌芽阶段".to_string());
+        assert_eq!(e.to_string(), "阶段未注册: 萌芽阶段");
+    }
+
+    #[test]
+    fn test_display_version_conflict_includes_all_fields() {
+        let e = PensoulError::VersionConflict {
+            chapter_id: 7,
+            expected: 3,
+            actual: 5,
+        };
+        let msg = e.to_string();
+        assert!(msg.contains("章节 7"));
+        assert!(msg.contains("期望版本 3"));
+        assert!(msg.contains("实际版本 5"));
+    }
+
+    #[test]
+    fn test_display_wal_checksum_failed() {
+        let e = PensoulError::WalChecksumFailed { index: 42 };
+        assert_eq!(e.to_string(), "WAL 校验失败: 条目 42 checksum 不匹配");
+    }
+
+    #[test]
+    fn test_display_tool_access_denied() {
+        let e = PensoulError::ToolAccessDenied {
+            tool: "write_chapter".to_string(),
+            stage: "审阅".to_string(),
+        };
+        let msg = e.to_string();
+        assert!(msg.contains("write_chapter"));
+        assert!(msg.contains("审阅"));
+    }
+
+    #[test]
+    fn test_display_consistency_violation() {
+        let e = PensoulError::ConsistencyViolation {
+            entity_id: "角色-张三".to_string(),
+            chapter_a: 1,
+            chapter_b: 3,
+            description: "位置突变".to_string(),
+        };
+        let msg = e.to_string();
+        assert!(msg.contains("角色-张三"));
+        assert!(msg.contains("第 1 章"));
+        assert!(msg.contains("第 3 章"));
+        assert!(msg.contains("位置突变"));
+    }
+
+    #[test]
+    fn test_error_clone_preserves_message() {
+        let e = PensoulError::Internal("boom".to_string());
+        let cloned = e.clone();
+        assert_eq!(e.to_string(), cloned.to_string());
+    }
+}

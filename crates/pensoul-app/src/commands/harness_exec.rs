@@ -26,15 +26,19 @@ pub async fn execute_harness_step(
     let api_keys = { state.api_keys.read().clone() };
 
     // 找第一个有 API Key 的供应商
-    let (provider_id, api_key, api_base) = lh::find_any_available_provider(&saved_providers, &api_keys)
-        .ok_or_else(|| "未配置任何 LLM API Key，请在「模型设置」中配置".to_string())?;
+    let (provider_id, api_key, api_base) =
+        lh::find_any_available_provider(&saved_providers, &api_keys)
+            .ok_or_else(|| "未配置任何 LLM API Key，请在「模型设置」中配置".to_string())?;
 
     // 从 models.json 找该供应商的模型；找不到则用默认
     let saved_models = lh::load_models(&state);
-    let model_id = saved_models.iter()
+    let model_id = saved_models
+        .iter()
         .find(|m| {
             m.get("provider_id").and_then(|v| v.as_str()) == Some(&provider_id)
-                && m.get("is_available").and_then(|v| v.as_bool()).unwrap_or(false)
+                && m.get("is_available")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false)
         })
         .and_then(|m| m.get("model_id").and_then(|v| v.as_str()))
         .unwrap_or("gpt-4o")
@@ -47,10 +51,18 @@ pub async fn execute_harness_step(
     );
 
     let output = lh::call_llm(
-        &provider_id, &api_key, &api_base, &model_id,
-        &system_prompt, "请执行当前阶段的任务。",
-        0.7, 2048,
-    ).await?;
+        &lh::ProviderAuth {
+            provider_id: &provider_id,
+            api_key: &api_key,
+            api_base: &api_base,
+        },
+        &model_id,
+        &system_prompt,
+        "请执行当前阶段的任务。",
+        0.7,
+        2048,
+    )
+    .await?;
 
     Ok(HarnessStepResult {
         stage_name: stage_name.clone(),

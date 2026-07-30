@@ -82,6 +82,11 @@ impl HotMemory {
         self.window_chapters(current_chapter).len()
     }
 
+    /// 返回窗口大小配置
+    pub fn window_size(&self) -> usize {
+        self.window_size
+    }
+
     /// 热记忆是否为空
     pub fn is_empty(&self) -> bool {
         self.full_texts.is_empty()

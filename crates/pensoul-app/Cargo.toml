@@ -8,7 +8,6 @@ pensoul-core = { path = "../pensoul-core" }
 pensoul-harness = { path = "../pensoul-harness" }
 pensoul-cda = { path = "../pensoul-cda" }
 pensoul-memory = { path = "../pensoul-memory" }
-pensoul-agent = { path = "../pensoul-agent" }
 pensoul-concurrency = { path = "../pensoul-concurrency" }
 pensoul-plugin = { path = "../pensoul-plugin" }
 pensoul-consistency = { path = "../pensoul-consistency" }

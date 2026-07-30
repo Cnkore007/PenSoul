@@ -1,5 +1,4 @@
 pub mod agents;
-pub mod channel;
 /// PenSoul 智能体通信系统
 ///
 /// 实现双通道通信协议（signal/report）、6 个预置 Agent 定义、通道路由器。
@@ -9,7 +8,6 @@ pub mod protocol;
 pub mod router;
 
 pub use agents::{AgentDefinition, AgentType};
-pub use channel::DualChannel;
 pub use message::{AgentMessage, ChannelType, MessageMetadata, SeverityLevels, SignalPayload};
 pub use protocol::{agent_message_schema, validate_message};
 pub use router::ChannelRouter;
@@ -322,35 +320,6 @@ mod tests {
         router.send(signal_msg).unwrap();
         assert_eq!(*engine_signal_count.lock().unwrap(), 1);
     }
-
-    // ─── DualChannel 测试 ────────────────────────────────────────
-
-    #[test]
-    fn test_dual_channel_basic() {
-        let mut dual = DualChannel::new();
-        let received = Arc::new(Mutex::new(String::new()));
-        let clone = received.clone();
-
-        dual.signal.register("engine", move |msg| {
-            if let Some(signal) = &msg.signal {
-                *clone.lock().unwrap() = format!("signal:pass={}", signal.pass);
-            }
-            Ok(())
-        });
-
-        let msg = AgentMessage::signal(
-            AgentId::new("auditor"),
-            AgentId::new("engine"),
-            SignalPayload::passed(0.9),
-        );
-        dual.send(msg).unwrap();
-
-        assert_eq!(*received.lock().unwrap(), "signal:pass=true");
-        assert_eq!(dual.message_count(), 1);
-        assert_eq!(dual.signal_messages().len(), 1);
-    }
-
-    // ─── 未注册处理器错误测试 ────────────────────────────────────
 
     #[test]
     fn test_unregistered_signal_handler_error() {

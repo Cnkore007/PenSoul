@@ -1,80 +1,58 @@
-/// 记忆系统命令
+//! 记忆系统命令
 use crate::state::AppState;
-use pensoul_memory::estimate_tokens;
+use pensoul_memory::EditingMode;
 
-/// 构建记忆包
+/// 构建记忆包（走统一的 MemoryPipeline，按编辑模式分配预算）
 #[tauri::command]
 pub async fn build_memory_packet(
     state: tauri::State<'_, AppState>,
     chapter_id: String,
+    mode: Option<String>,
 ) -> Result<serde_json::Value, String> {
     let chapter_num: i64 = chapter_id
         .parse()
         .map_err(|_| format!("无效的章节 ID: {}", chapter_id))?;
 
-    let total_budget = 8000;
+    // 按需切换编辑模式（影响预算分配比例）
+    if let Some(mode_str) = mode {
+        let editing_mode = match mode_str.as_str() {
+            "drafting" => EditingMode::Drafting,
+            "revising" => EditingMode::Revising,
+            "reviewing" => EditingMode::Reviewing,
+            other => return Err(format!("未知的编辑模式: {other}")),
+        };
+        state.memory.write().mode = editing_mode;
+    }
 
-    // 构建各层记忆
-    let hot = {
-        let hot_mem = state.hot_memory.read();
-        hot_mem.build(chapter_num, total_budget / 2)
+    let packet = {
+        let memory = state.memory.read();
+        memory.build_packet(chapter_num)
     };
 
-    let warm = {
-        let warm_mem = state.warm_memory.read();
-        warm_mem.build(chapter_num, total_budget / 4)
-    };
-
-    let cold = {
-        let cold_mem = state.cold_memory.read();
-        cold_mem.retrieve(chapter_num, total_budget / 5)
-    };
-
-    let narrative = {
-        let narrative_mem = state.narrative_memory.read();
-        narrative_mem.retrieve(chapter_num, total_budget / 10)
-    };
-
-    // 计算总 token 数
-    let hot_tokens: usize = hot.iter().map(|s| estimate_tokens(s)).sum();
-    let warm_tokens = estimate_tokens(&warm.volume_summary);
-    let cold_tokens: usize = cold.iter().map(|s| estimate_tokens(s)).sum();
-    let narrative_tokens: usize = narrative.iter().map(|d| estimate_tokens(&d.content)).sum();
-
-    let packet = serde_json::json!({
-        "hot": hot,
-        "warm": warm,
-        "cold": cold,
-        "narrative": narrative,
-        "total_tokens": hot_tokens + warm_tokens + cold_tokens + narrative_tokens,
-    });
-
-    Ok(packet)
+    serde_json::to_value(&packet).map_err(|e| e.to_string())
 }
 
-/// 获取热记忆
+/// 获取热记忆概况
 #[tauri::command]
 pub async fn get_hot_memory(
     state: tauri::State<'_, AppState>,
 ) -> Result<serde_json::Value, String> {
-    let hot = state.hot_memory.read();
-    let is_empty = hot.is_empty();
+    let memory = state.memory.read();
 
     Ok(serde_json::json!({
-        "is_empty": is_empty,
-        "window_size": 2,
+        "is_empty": memory.hot.is_empty(),
+        "window_size": memory.hot.window_size(),
     }))
 }
 
-/// 获取温记忆
+/// 获取温记忆概况
 #[tauri::command]
 pub async fn get_warm_memory(
     state: tauri::State<'_, AppState>,
 ) -> Result<serde_json::Value, String> {
-    let warm = state.warm_memory.read();
-    let chapter_count = warm.chapter_count();
+    let memory = state.memory.read();
 
     Ok(serde_json::json!({
-        "chapter_count": chapter_count,
+        "chapter_count": memory.warm.chapter_count(),
     }))
 }

@@ -30,7 +30,7 @@ impl MemoryPipeline {
         Self {
             hot: HotMemory::new(window_size),
             warm: WarmMemory::new(),
-            cold: ColdMemory::new(),
+            cold: ColdMemory::new(window_size as i64),
             narrative: NarrativeMemory::new(),
             archive: ArchiveMemory::new(),
             mode,
@@ -49,7 +49,7 @@ impl MemoryPipeline {
         let summary = self.extract_summary(chapter_id, chapter_text);
 
         // --- 第 2 步：提取角色状态 ---
-        let character_states = self.extract_character_states(chapter_text);
+        let character_states = self.extract_character_states(chapter_id, chapter_text);
 
         // --- 第 3 步：提取关键事件 ---
         let key_events = self.extract_key_events(chapter_text);
@@ -151,7 +151,7 @@ impl MemoryPipeline {
     }
 
     /// 第 2 步：提取角色状态（原型用简单关键词检测）
-    fn extract_character_states(&self, text: &str) -> HashMap<String, String> {
+    fn extract_character_states(&self, chapter_id: i64, text: &str) -> HashMap<String, String> {
         let mut states: HashMap<String, String> = HashMap::new();
 
         // 简单原型：检测 "XX说" / "XX想" / "XX感到" 模式提取角色名
@@ -171,7 +171,7 @@ impl MemoryPipeline {
                     {
                         states
                             .entry(trimmed.to_string())
-                            .or_insert_with(|| "在第0章出现".to_string());
+                            .or_insert_with(|| format!("在第{chapter_id}章出现"));
                     }
                 }
             }
@@ -229,7 +229,8 @@ impl MemoryPipeline {
 
     /// 第 7 步辅助：同步冷记忆 — 将超出热窗口的章节摘要移入冷记忆
     fn sync_cold_memory(&mut self, current_chapter: i64) {
-        let window_size: i64 = 2;
+        // 窗口与热记忆配置保持一致（历史上硬编码为 2，与热窗口脱节）
+        let window_size = self.hot.window_size() as i64;
         let chapter_ids: Vec<i64> = self.warm.chapters().keys().copied().collect();
 
         for id in chapter_ids {

@@ -26,12 +26,11 @@ fn built_in_models() -> Vec<serde_json::Value> {
 /// 从磁盘加载供应商列表，不存在则用内置默认值
 fn load_providers_from_disk(state: &AppState) -> Vec<serde_json::Value> {
     let file = state.config_dir().join("providers.json");
-    if file.exists() {
-        if let Ok(data) = std::fs::read_to_string(&file) {
-            if let Ok(list) = serde_json::from_str::<Vec<serde_json::Value>>(&data) {
-                return list;
-            }
-        }
+    if file.exists()
+        && let Ok(data) = std::fs::read_to_string(&file)
+        && let Ok(list) = serde_json::from_str::<Vec<serde_json::Value>>(&data)
+    {
+        return list;
     }
     // 首次运行：写入内置默认值
     let defaults = built_in_providers();
@@ -50,12 +49,11 @@ fn save_providers_to_disk(state: &AppState, providers: &[serde_json::Value]) -> 
 /// 从磁盘加载模型列表，不存在则用内置默认值
 fn load_models_from_disk(state: &AppState) -> Vec<serde_json::Value> {
     let file = state.config_dir().join("models.json");
-    if file.exists() {
-        if let Ok(data) = std::fs::read_to_string(&file) {
-            if let Ok(list) = serde_json::from_str::<Vec<serde_json::Value>>(&data) {
-                return list;
-            }
-        }
+    if file.exists()
+        && let Ok(data) = std::fs::read_to_string(&file)
+        && let Ok(list) = serde_json::from_str::<Vec<serde_json::Value>>(&data)
+    {
+        return list;
     }
     // 首次运行：写入内置默认值
     let defaults = built_in_models();
