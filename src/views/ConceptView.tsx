@@ -24,7 +24,24 @@ export function ConceptView({ projectData, persistProjectData }: ConceptViewProp
 
   // 加载模型和专家数据
   useEffect(() => {
-    listModels().then(setAvailableModels).catch(() => {});
+    listModels().then(models => {
+      setAvailableModels(models);
+      // 模型加载后，将 Agent 中不存在的模型自动替换为第一个可用模型
+      if (models.length > 0 && persistProjectData) {
+        const validIds = new Set(models.map((m: LlmModel) => m.model_id));
+        const firstModelId = models[0].model_id;
+        persistProjectData(prev => ({
+          ...prev,
+          sprout: {
+            ...prev.sprout,
+            agents: prev.sprout.agents.map(a => ({
+              ...a,
+              model: validIds.has(a.model) ? a.model : firstModelId,
+            })),
+          },
+        }));
+      }
+    }).catch(() => {});
     loadExperts().then(raw => {
       const mapped: Expert[] = raw.map((e: any) => ({
         id: e.id,

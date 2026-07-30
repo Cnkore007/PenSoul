@@ -85,39 +85,52 @@ pub(crate) fn infer_provider_from_model(model: &str) -> Option<&'static str> {
 ///
 /// 查找顺序：
 /// 1. 从 models.json 找模型对应的 provider_id
-/// 2. 从 providers.json 取 api_base
-/// 3. 从 state.api_keys 取 API Key
-/// 4. 都找不到时回退到硬编码推断
+/// 2. 从 providers.json 取 api_base 和 api_key
+/// 3. 从模型名回退推断供应商
+/// 4. 推断供应商没有 API Key 时，遍历所有供应商找任意一个有 Key 的兜底
+/// 5. 全部找不到才报错
 pub(crate) fn resolve_provider(
     model_id: &str,
     model_to_provider: &HashMap<String, String>,
     provider_api_bases: &HashMap<String, String>,
     api_keys: &HashMap<String, String>,
 ) -> Result<(String, String, String), String> {
-    // 从 models.json 查找
-    let provider_id = model_to_provider.get(model_id)
-        .map(|s| s.as_str())
-        .or_else(|| infer_provider_from_model(model_id))
-        .ok_or_else(|| format!("无法确定模型「{}」所属的供应商，请先在「模型设置」中配置", model_id))?;
+    // 优先从 models.json 查找
+    let inferred = model_to_provider.get(model_id).map(|s| s.as_str());
 
-    // 从 providers.json 取 api_base，找不到则硬编码回退
-    let api_base = provider_api_bases.get(provider_id)
-        .cloned()
-        .unwrap_or_else(|| match provider_id {
-            "openai" => "https://api.openai.com/v1".to_string(),
-            "anthropic" => "https://api.anthropic.com".to_string(),
-            "deepseek" => "https://api.deepseek.com".to_string(),
-            "moonshot" => "https://api.moonshot.cn/v1".to_string(),
-            "local" => "http://localhost:11434/v1".to_string(),
-            _ => "https://api.openai.com/v1".to_string(),
-        });
+    // 找不到则从模型名回退推断
+    let provider_id = inferred.or_else(|| infer_provider_from_model(model_id));
 
-    // 从内存取 API Key
-    let api_key = api_keys.get(provider_id)
-        .cloned()
-        .ok_or_else(|| format!("未配置「{}」的 API Key，请在「模型设置」中配置", provider_id))?;
+    if let Some(pid) = provider_id {
+        // 推断出了供应商，尝试取 api_base 和 api_key
+        let api_base = provider_api_bases.get(pid)
+            .cloned()
+            .unwrap_or_else(|| match pid {
+                "openai" => "https://api.openai.com/v1".to_string(),
+                "anthropic" => "https://api.anthropic.com".to_string(),
+                "deepseek" => "https://api.deepseek.com".to_string(),
+                "moonshot" => "https://api.moonshot.cn/v1".to_string(),
+                "local" => "http://localhost:11434/v1".to_string(),
+                _ => "https://api.openai.com/v1".to_string(),
+            });
 
-    Ok((provider_id.to_string(), api_key, api_base))
+        if let Some(key) = api_keys.get(pid) {
+            return Ok((pid.to_string(), key.clone(), api_base));
+        }
+        // 有供应商但没 Key，不立即报错，继续兜底
+    }
+
+    // 兜底：遍历所有在 api_keys 中有 Key 的供应商
+    for (pid, api_key) in api_keys.iter() {
+        if let Some(api_base) = provider_api_bases.get(pid) {
+            return Ok((pid.clone(), api_key.clone(), api_base.clone()));
+        }
+    }
+
+    // 实在找不到，报错
+    Err(format!(
+        "未配置任何可用的 API Key。请先在「模型设置」中添加供应商并配置 API Key。"
+    ))
 }
 
 /// 遍历 providers 找第一个有 API Key 的供应商（用于不需要指定模型的场景）
