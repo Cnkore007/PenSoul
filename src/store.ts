@@ -337,12 +337,16 @@ export async function saveModels(models: LlmModel[]): Promise<void> {
 // ── API Keys ──
 
 export async function loadApiKeys(): Promise<Record<string, string>> {
-  // API keys 由后端安全存储，前端不直接访问
-  return {};
+  // 实际从后端加载已保存的 API Key（用于 InspirationPanel 等前端直调 LLM 的场景）
+  try {
+    return await ipc.loadApiKeys();
+  } catch {
+    return {};
+  }
 }
 
 export async function saveApiKeys(_keys: Record<string, string>): Promise<void> {
-  // 通过 ipc.saveApiKey 逐个保存
+  // 保存通过 ipc.saveApiKey 逐条处理，此函数保留用于兼容
 }
 
 // ── Plugins ──
