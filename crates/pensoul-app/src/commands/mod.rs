@@ -8,12 +8,14 @@ pub mod experts;
 pub mod harness;
 pub mod harness_exec;
 pub mod http;
-pub mod inspiration;
+/// LLM 输出 JSON 的容错修复（供讨论成果等结构化解析使用）
+pub(crate) mod json_fix;
 pub mod llm;
 pub(crate) mod llm_helper;
 pub mod memory;
-pub mod model;
 pub mod optimize;
+pub mod outline;
+pub mod pipeline;
 pub mod plugin;
 /// IPC 命令模块
 pub mod project;

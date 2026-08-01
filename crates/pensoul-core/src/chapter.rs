@@ -6,6 +6,10 @@ use crate::id::{ChapterId, VolumeId};
 pub struct Chapter {
     /// 章节 ID
     pub chapter_id: ChapterId,
+    /// 章节序号（全书第几章，从 1 开始；0 表示未分配，加载时按数组顺序回填）
+    /// 记忆管道/影响图/一致性等顺序语义一律用本字段，不依赖 chapter_id 可解析为数字
+    #[serde(default)]
+    pub chapter_no: i64,
     /// 卷 ID
     pub volume_id: VolumeId,
     /// 章节标题

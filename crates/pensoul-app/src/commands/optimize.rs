@@ -88,7 +88,8 @@ pub async fn optimize_content(
         system,
         &user_prompt,
         0.4,
-        8192,
+        // 优化整页内容输出量大，推理型模型还需 reasoning 预算
+        16384,
     )
     .await?;
 

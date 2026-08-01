@@ -159,8 +159,17 @@ pub async fn upsert_chapter(
             }
             None => {
                 let word_count = content.chars().count() as u32;
+                // 新章节分配序号：现有最大 chapter_no + 1（忽略未分配的 0）
+                let chapter_no = ontology
+                    .chapters
+                    .iter()
+                    .map(|c| c.chapter_no)
+                    .max()
+                    .unwrap_or(0)
+                    + 1;
                 ontology.chapters.push(pensoul_core::Chapter {
                     chapter_id: id.clone(),
+                    chapter_no,
                     volume_id: vid,
                     title,
                     summary,
@@ -272,4 +281,44 @@ pub async fn get_volumes(
         .filter_map(|v| serde_json::to_value(v).ok())
         .collect();
     Ok(volumes)
+}
+
+/// 删除章节（同时从所属卷的章节列表移除）
+#[tauri::command]
+pub async fn delete_chapter(
+    state: tauri::State<'_, AppState>,
+    chapter_id: String,
+) -> Result<(), String> {
+    let id = ChapterId::new(chapter_id);
+    {
+        let mut ontology = state.ontology.write();
+        let before = ontology.chapters.len();
+        ontology.chapters.retain(|ch| ch.chapter_id != id);
+        if ontology.chapters.len() == before {
+            return Err(format!("章节 {} 不存在", id));
+        }
+        for vol in ontology.volumes.iter_mut() {
+            vol.chapter_ids.retain(|cid| cid != &id);
+        }
+    }
+    state.save().map_err(|e| e.to_string())
+}
+
+/// 删除卷（卷下的章节一并删除）
+#[tauri::command]
+pub async fn delete_volume(
+    state: tauri::State<'_, AppState>,
+    volume_id: String,
+) -> Result<(), String> {
+    let vid = VolumeId::new(volume_id);
+    {
+        let mut ontology = state.ontology.write();
+        let before = ontology.volumes.len();
+        ontology.volumes.retain(|v| v.volume_id != vid);
+        if ontology.volumes.len() == before {
+            return Err(format!("卷 {} 不存在", vid));
+        }
+        ontology.chapters.retain(|ch| ch.volume_id != vid);
+    }
+    state.save().map_err(|e| e.to_string())
 }

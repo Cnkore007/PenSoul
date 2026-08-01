@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
-import type { ProjectData, SproutData, AgentDiscussionConfig, LlmModel, Expert, DiscussionTurn, DiscussionSynthesis, DiscussionEvent, Chapter } from "../types";
+import type { ProjectData, SproutData, AgentDiscussionConfig, LlmModel, Expert, DiscussionTurn, DiscussionSynthesis, DiscussionEvent } from "../types";
 import { DEFAULT_DISCUSSION_AGENTS } from "../types";
 import {
   Lightbulb, Target, Bot, MessageSquare,
@@ -8,12 +8,23 @@ import {
   Save, Upload, UserCheck,
 } from "lucide-react";
 import { listen } from "@tauri-apps/api/event";
-import { saveSprout, loadSprout, saveSettings, loadExperts, listModels, discussConcept } from "../ipc";
+import { saveSprout, loadSprout, saveSettings, loadExperts, listModels, discussConcept, getDiscussionState, saveOutlineArcs } from "../ipc";
 import { DiscussionPanel, type SelectedResults } from "../components/DiscussionPanel";
 
 interface ConceptViewProps {
   projectData: ProjectData;
   persistProjectData?: (updater: (prev: ProjectData) => ProjectData) => void;
+}
+
+// 解析 chapter_hint 中的章节范围（「第1-200章」「第1~3章」「第1至5章」等），
+// 返回 [起始章, 结束章]；无法解析或范围无效时返回 null
+function parseChapterRange(hint: string): [number, number] | null {
+  const m = hint.match(/第?\s*(\d+)\s*[-–~至到]\s*(\d+)\s*章?/);
+  if (!m) return null;
+  const a = parseInt(m[1], 10);
+  const b = parseInt(m[2], 10);
+  if (!Number.isFinite(a) || !Number.isFinite(b) || b <= a) return null;
+  return [a, b];
 }
 
 export function ConceptView({ projectData, persistProjectData }: ConceptViewProps) {
@@ -84,7 +95,10 @@ export function ConceptView({ projectData, persistProjectData }: ConceptViewProp
           prompt: a.prompt,
           perspective: a.perspective,
           enabled: a.enabled,
+          expert_id: a.expertId || null,
+          skill_path: a.skillPath || null,
         })),
+        presets_dismissed: sprout.presetsDismissed ?? false,
       });
       await saveSettings({
         target_chapters: settings.targetChapters,
@@ -107,6 +121,7 @@ export function ConceptView({ projectData, persistProjectData }: ConceptViewProp
       persistProjectData(prev => ({
         ...prev,
         sprout: {
+          ...prev.sprout,
           ideaDescription: loaded.idea_description,
           agents: loaded.agents.map((a: any) => ({
             id: a.id,
@@ -115,7 +130,10 @@ export function ConceptView({ projectData, persistProjectData }: ConceptViewProp
             prompt: a.prompt,
             perspective: a.perspective,
             enabled: a.enabled,
+            expertId: a.expert_id || undefined,
+            skillPath: a.skill_path || undefined,
           })),
+          presetsDismissed: loaded.presets_dismissed ?? prev.sprout.presetsDismissed,
         },
       }));
     }
@@ -131,6 +149,27 @@ export function ConceptView({ projectData, persistProjectData }: ConceptViewProp
       sprout: updater(prev.sprout),
     }));
   }, [persistProjectData]);
+
+  // 自愈历史数据：已添加的专家 Agent 若丢失 skillPath（旧版同步丢字段），
+  // 按名字从专家库回填，保证讨论能加载蒸馏技能文件
+  useEffect(() => {
+    if (availableExpertsList.length === 0 || sprout.agents.length === 0) return;
+    const byName = new Map(availableExpertsList.map(e => [e.name, e]));
+    const healable = sprout.agents.filter(
+      a => !a.skillPath && byName.get(a.name)?.skillPath
+    );
+    if (healable.length === 0) return;
+    updateSprout(prev => ({
+      ...prev,
+      agents: prev.agents.map(a => {
+        if (a.skillPath) return a;
+        const ex = byName.get(a.name);
+        return ex?.skillPath
+          ? { ...a, expertId: a.expertId || ex.id, skillPath: ex.skillPath }
+          : a;
+      }),
+    }));
+  }, [availableExpertsList, sprout.agents, updateSprout]);
 
   // 从专家库添加 Agent（预置模式下：预置自动消失，替换为专家 Agent）
   const addExpertAsAgent = useCallback((expert: Expert) => {
@@ -238,6 +277,68 @@ export function ConceptView({ projectData, persistProjectData }: ConceptViewProp
     return () => { if (unlistenRef.current) unlistenRef.current(); };
   }, []);
 
+  // 讨论事件统一处理（实时与重放共用）：进度展示 + 已完成发言落入 turns
+  // "__discussion__" 是后端在结果持久化后发射的终态标记，不作为发言展示
+  const applyDiscussionEvent = useCallback((e: DiscussionEvent) => {
+    if (e.agent_id === "__discussion__") return;
+    setLiveEvents(prev => ({ ...prev, [`${e.agent_id}-${e.round}`]: e }));
+    if (e.status === "done" && (e.round === 1 || e.round === 2)) {
+      setTurns(prev => {
+        // 事件可能重复，按 agent+round 去重
+        if (prev.some(t => t.agent_id === e.agent_id && t.round === e.round)) return prev;
+        return [...prev, {
+          agent_id: e.agent_id,
+          agent_name: e.agent_name,
+          perspective: "",
+          round: e.round,
+          content: e.content,
+        }];
+      });
+    }
+  }, []);
+
+  // 拉取后端持久化的讨论结果（后台讨论完成后调用）
+  const fetchPersistedDiscussion = useCallback(async () => {
+    try {
+      const loaded = await loadSprout();
+      const rec = loaded?.last_discussion;
+      if (!rec) return;
+      setTurns(rec.turns ?? []);
+      setSynthesis(rec.synthesis ?? null);
+      setDiscussing(false);
+      updateSprout(prev => ({
+        ...prev,
+        lastDiscussion: { turns: rec.turns ?? [], synthesis: rec.synthesis },
+      }));
+    } catch { /* 拉取失败时下次进入页面再恢复 */ }
+  }, [updateSprout]);
+
+  // 重连后台讨论：进入页面时若讨论仍在进行（中途切走过），
+  // 重放缓冲事件恢复进度，并订阅终态事件接管结果
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const st = await getDiscussionState().catch(() => null);
+      if (!st || cancelled || !st.running) return;
+      setDiscussing(true);
+      (st.events ?? []).forEach(applyDiscussionEvent);
+      const unlisten = await listen<DiscussionEvent>("discussion-event", (evt) => {
+        const e = evt.payload;
+        if (e.agent_id === "__discussion__" && e.status === "finished") {
+          fetchPersistedDiscussion();
+          return;
+        }
+        applyDiscussionEvent(e);
+      });
+      unlistenRef.current = unlisten;
+      if (cancelled) { unlisten(); return; }
+      // 订阅间隙讨论可能已结束：复查一次，避免错过终态
+      const st2 = await getDiscussionState().catch(() => null);
+      if (st2 && !st2.running) fetchPersistedDiscussion();
+    })();
+    return () => { cancelled = true; };
+  }, [applyDiscussionEvent, fetchPersistedDiscussion]);
+
   // 创作设定上下文（随讨论传给每个 Agent：章节、字数、卷数、类型）
   const settingsContext = useMemo(() => {
     const parts: string[] = [];
@@ -264,23 +365,9 @@ export function ConceptView({ projectData, persistProjectData }: ConceptViewProp
         return;
       }
 
-      // 订阅实时讨论进度事件
+      // 订阅实时讨论进度事件（终态由 invoke 返回接管，这里只跟进度）
       const unlisten = await listen<DiscussionEvent>("discussion-event", (evt) => {
-        const e = evt.payload;
-        setLiveEvents(prev => ({ ...prev, [`${e.agent_id}-${e.round}`]: e }));
-        if (e.status === "done" && (e.round === 1 || e.round === 2)) {
-          setTurns(prev => {
-            // 事件可能重复，按 agent+round 去重
-            if (prev.some(t => t.agent_id === e.agent_id && t.round === e.round)) return prev;
-            return [...prev, {
-              agent_id: e.agent_id,
-              agent_name: e.agent_name,
-              perspective: "",
-              round: e.round,
-              content: e.content,
-            }];
-          });
-        }
+        applyDiscussionEvent(evt.payload);
       });
       unlistenRef.current = unlisten;
 
@@ -313,7 +400,7 @@ export function ConceptView({ projectData, persistProjectData }: ConceptViewProp
       setDiscussionError("讨论出错: " + (e?.message || String(e)));
       setDiscussing(false);
     }
-  }, [agents, sprout.ideaDescription, settingsContext, updateSprout]);
+  }, [agents, sprout.ideaDescription, settingsContext, updateSprout, applyDiscussionEvent]);
 
   // 确认生成：把勾选的成果写入世界观与人物志（按名称去重）
   const handleConfirmGenerate = useCallback((selected: SelectedResults) => {
@@ -347,41 +434,34 @@ export function ConceptView({ projectData, persistProjectData }: ConceptViewProp
             .map(r => ({ from: r.from, to: r.to, relation_type: r.relation_type, strength: r.strength })),
         }));
 
-      // 情节脉络 → 大纲：作为章节追加到第一卷（按章节标题去重），没有卷则自动建「第一卷」
-      const existingChapterTitles = new Set(prev.volumes.flatMap(v => v.chapters.map(c => c.title)));
-      const newBeats = (selected.outline_beats ?? []).filter(b => b.title.trim() && !existingChapterTitles.has(b.title));
-      let volumes = prev.volumes;
+      // 情节脉络 → 大纲规划层：生成脉络节点（不是章节！）。
+      // 节点带章节范围，后续在大纲页「展开细纲」才生成逐章可写章节。
+      const existingArcTitles = new Set(prev.outlineArcs.map(a => a.title));
+      const newBeats = (selected.outline_beats ?? []).filter(b => b.title.trim() && !existingArcTitles.has(b.title.trim()));
+      let newArcs: import("../types").OutlineArc[] = [];
       if (newBeats.length > 0) {
-        // 讨论成果是大纲层的章节梗概，正文留空待作者在笔耕中创作
-        const toChapter = (b: (typeof newBeats)[number], i: number, volId: string): Chapter => {
-          const hint = (b.chapter_hint ?? "").trim();
+        // 范围分配：优先解析 chapter_hint（第N-M章）；没有范围的节点把剩余章数均分
+        let cursor = prev.outlineArcs.reduce((m, a) => Math.max(m, a.chapter_end), 0);
+        const totalTarget = prev.settings.targetChapters;
+        const remaining = totalTarget > cursor ? totalTarget - cursor : 0;
+        const evenSpan = Math.max(1, Math.ceil((remaining > 0 ? remaining : newBeats.length * 10) / newBeats.length));
+        newArcs = newBeats.map((b, i) => {
+          const range = parseChapterRange(b.chapter_hint ?? "");
+          const start = range?.[0] ?? cursor + 1;
+          const end = range?.[1] ?? Math.max(start, cursor + evenSpan);
+          cursor = Math.max(cursor, end);
           return {
-            chapter_id: `ch-${now}-${i}`,
-            volume_id: volId,
+            arc_id: `arc-${now}-${i}`,
             title: b.title.trim(),
-            summary: hint ? `【${hint}】\n${b.description}` : b.description,
-            content: "",
-            word_count: 0,
-            version: 1,
-            status: "Draft",
+            description: b.description ?? "",
+            chapter_start: start,
+            chapter_end: end,
+            expanded_until: 0,
           };
-        };
-        if (volumes.length === 0) {
-          const volId = `vol-${now}`;
-          volumes = [{
-            volume_id: volId,
-            title: "第一卷",
-            chapter_count: newBeats.length,
-            chapters: newBeats.map((b, i) => toChapter(b, i, volId)),
-            expanded: true,
-          }];
-        } else {
-          const firstId = volumes[0].volume_id;
-          const added = newBeats.map((b, i) => toChapter(b, i, firstId));
-          volumes = volumes.map((v, vi) => vi === 0
-            ? { ...v, chapters: [...v.chapters, ...added], chapter_count: v.chapters.length + added.length }
-            : v);
-        }
+        });
+        // 脉络节点独立持久化（不走 saveProjectData 全量保存）
+        saveOutlineArcs([...prev.outlineArcs, ...newArcs])
+          .catch(e => console.error("脉络节点保存失败:", e));
       }
 
       return {
@@ -392,7 +472,7 @@ export function ConceptView({ projectData, persistProjectData }: ConceptViewProp
           setting_rules: [...prev.world.setting_rules, ...newRules],
         },
         characters: [...prev.characters, ...newCharacters],
-        volumes,
+        outlineArcs: [...prev.outlineArcs, ...newArcs],
       };
     });
     setGenerated(true);

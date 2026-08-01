@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { Sidebar } from "./components/Sidebar";
 import { StatusBar } from "./components/StatusBar";
 import { WritingView } from "./views/WritingView";
@@ -16,7 +16,7 @@ import { ConceptView } from "./views/ConceptView";
 import { ExpertLibraryView } from "./views/ExpertLibraryView";
 import { ProjectDashboard } from "./views/ProjectDashboard";
 import type { ViewType, ProjectMeta, ProjectData } from "./types";
-import { loadProjectData, saveProjectData } from "./store";
+import { loadProjectData, refreshProjectData, saveProjectData } from "./store";
 import { getHarnessStatus } from "./ipc";
 import "./tokens.css";
 import "./App.css";
@@ -126,6 +126,28 @@ function App() {
     return () => { cancelled = true; };
   }, [currentProject]);
 
+  // 轻量刷新项目数据（不调 open_project，避免重建引擎打断管线）。
+  // 后台任务（造化工坊写作落库、讨论结果持久化、细纲展开建章）会直接改后端本体，
+  // 前端 projectData 是内存副本，需要主动刷新才能看到。
+  const refreshNow = useCallback(async () => {
+    if (!currentProject) return;
+    try {
+      // 等上一页面触发的保存在途完成，避免读到保存前的旧数据
+      await pendingSaveRef.current?.catch(() => {});
+      const data = await refreshProjectData(currentProject.project_id);
+      setProjectData(data);
+    } catch (e) {
+      console.error("刷新项目数据失败:", e);
+    }
+  }, [currentProject]);
+
+  // 项目内页面切换时自动刷新一次（全局页面无项目上下文，跳过）
+  useEffect(() => {
+    if (!currentProject) return;
+    if (["projects", "llm-settings", "plugins", "experts"].includes(currentView)) return;
+    refreshNow();
+  }, [currentView, currentProject, refreshNow]);
+
   // 进入项目空间，默认跳转到 dashboard（项目概览）
   const handleSelectProject = useCallback((project: ProjectMeta) => {
     setCurrentProject(project);
@@ -149,24 +171,29 @@ function App() {
     }
   }, [currentProject]);
 
-  const handleSelectChapter = useCallback((chapterId: string) => {
-    setCurrentChapterId(chapterId);
-    setCurrentView("writing");
-  }, []);
-
   const handleWordCountChange = useCallback((count: number) => {
     setWordCount(count);
   }, []);
+
+  // 保存失败提醒只弹一次，避免连续输入时反复打扰
+  const saveErrorShownRef = useRef(false);
+  // 记录在途保存：页面切换刷新前先等它完成，避免读到保存前的旧数据
+  const pendingSaveRef = useRef<Promise<void> | null>(null);
 
   // 保存项目数据 — 先更新本地状态，再异步持久化到后端
   const persistProjectData = useCallback((updater: (prev: ProjectData) => ProjectData) => {
     setProjectData(prev => {
       if (!prev) return prev;
       const updated = updater(prev);
-      // 异步保存到后端，不阻塞 UI
-      saveProjectData(updated).catch(err => {
+      // 异步保存到后端，不阻塞 UI；记录 Promise 供切换页面前 await
+      const p = saveProjectData(updated).catch(err => {
         console.error("保存项目数据失败:", err);
+        if (!saveErrorShownRef.current) {
+          saveErrorShownRef.current = true;
+          alert("部分数据保存失败，重启后可能丢失：\n" + (err?.message ?? err));
+        }
       });
+      pendingSaveRef.current = p;
       return updated;
     });
   }, []);
@@ -197,7 +224,7 @@ function App() {
       case "dashboard":
         return <ProjectDashboard project={currentProject} projectData={projectData} onNavigate={setCurrentView} persistProjectData={persistProjectData} />;
       case "outline":
-        return <OutlineView projectData={projectData} persistProjectData={persistProjectData} onSelectChapter={handleSelectChapter} currentChapterId={currentChapterId} />;
+        return <OutlineView projectData={projectData} persistProjectData={persistProjectData} onRefresh={refreshNow} />;
       case "writing":
         return <WritingView projectData={projectData} persistProjectData={persistProjectData} chapterId={currentChapterId} onWordCountChange={handleWordCountChange} />;
       case "character":

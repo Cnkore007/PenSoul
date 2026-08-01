@@ -7,12 +7,17 @@
 //!   （共识总结 + 地点/时间线/设定规则/人物及人物关系），供前端确认后写入世界观与人物志
 //!
 //! 来自专家库的 Agent 会加载其 SKILL.md 技能文件作为讨论的系统提示词。
-//! 每个 Agent 的进度通过 `discussion-event` 事件实时推送给前端。
+//! 每个 Agent 的进度通过 `discussion-event` 事件实时推送给前端；
+//! 事件同时写入控制面缓冲、结果持久化到 `sprout.last_discussion`，
+//! 前端切换页面后可通过 `get_discussion_state` 重连恢复。
 use crate::state::AppState;
+use pensoul_core::{AgentTurn, DiscussionRecord, DiscussionSynthesis};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::Emitter;
 
+use super::json_fix;
 use super::llm_helper as lh;
 
 #[derive(Debug, Deserialize)]
@@ -39,85 +44,39 @@ pub struct DiscussionEvent {
     pub content: String,
 }
 
-/// 一轮发言记录
-#[derive(Debug, Clone, Serialize)]
-pub struct AgentTurn {
-    pub agent_id: String,
-    pub agent_name: String,
-    pub perspective: String,
-    pub round: u8,
-    pub content: String,
+/// 讨论事件缓冲上限（环形：满了丢最旧）
+const DISCUSSION_EVENT_CAP: usize = 100;
+
+/// 讨论控制面（挂 AppState）：运行旗标 + 事件缓冲，支持页面切换后重连
+pub struct DiscussionControl {
+    /// 是否有讨论正在进行（防重入）
+    pub running: AtomicBool,
+    /// 事件环形缓冲：前端重连后重放恢复进度
+    pub events: parking_lot::RwLock<Vec<DiscussionEvent>>,
 }
 
-/// 讨论成果中的地点/设定规则条目
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct NamedDesc {
-    pub name: String,
-    #[serde(default)]
-    pub description: String,
+impl DiscussionControl {
+    pub fn new() -> Self {
+        Self {
+            running: AtomicBool::new(false),
+            events: parking_lot::RwLock::new(Vec::new()),
+        }
+    }
+
+    /// 事件入缓冲（发射前调用）
+    fn record(&self, ev: &DiscussionEvent) {
+        let mut buf = self.events.write();
+        if buf.len() >= DISCUSSION_EVENT_CAP {
+            buf.remove(0);
+        }
+        buf.push(ev.clone());
+    }
 }
 
-/// 讨论成果中的时间线条目
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct TimelineItem {
-    pub story_time: String,
-    #[serde(default)]
-    pub description: String,
-}
-
-/// 讨论成果中的人物关系
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct RelationItem {
-    pub from: String,
-    pub to: String,
-    pub relation_type: String,
-    #[serde(default = "default_strength")]
-    pub strength: f32,
-}
-
-fn default_strength() -> f32 {
-    0.5
-}
-
-/// 讨论成果中的人物条目
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct CharacterItem {
-    pub name: String,
-    #[serde(default)]
-    pub personality_traits: Vec<(String, f32)>,
-    #[serde(default)]
-    pub current_mood: String,
-    #[serde(default)]
-    pub description: String,
-    #[serde(default)]
-    pub relationships: Vec<RelationItem>,
-}
-
-/// 讨论成果中的情节节点（确认后写入大纲）
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct OutlineBeat {
-    pub title: String,
-    #[serde(default)]
-    pub description: String,
-    #[serde(default)]
-    pub chapter_hint: String,
-}
-
-/// 结构化讨论成果
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct DiscussionSynthesis {
-    #[serde(default)]
-    pub summary: String,
-    #[serde(default)]
-    pub locations: Vec<NamedDesc>,
-    #[serde(default)]
-    pub timeline_events: Vec<TimelineItem>,
-    #[serde(default)]
-    pub setting_rules: Vec<NamedDesc>,
-    #[serde(default)]
-    pub characters: Vec<CharacterItem>,
-    #[serde(default)]
-    pub outline_beats: Vec<OutlineBeat>,
+impl Default for DiscussionControl {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 /// 讨论完整输出
@@ -128,6 +87,10 @@ pub struct DiscussionOutput {
 }
 
 /// 概念讨论 — 两轮交锋 + 结构化成果，进度实时推送
+///
+/// 防重入 + 结果持久化：同一时刻只允许一场讨论；完成后把发言与成果
+/// 写入 `sprout.last_discussion` 并落盘——即使前端中途切走页面，
+/// 讨论在后台继续，结果也不会丢失（前端重连走 `get_discussion_state`）。
 #[tauri::command]
 pub async fn discuss_concept(
     app_handle: tauri::AppHandle,
@@ -136,10 +99,71 @@ pub async fn discuss_concept(
     settings_context: String,
     agents: Vec<AgentConfig>,
 ) -> Result<DiscussionOutput, String> {
-    lh::ensure_api_keys_loaded(&state);
+    if state.discussion.running.swap(true, Ordering::SeqCst) {
+        return Err("已有讨论正在进行，请等待当前讨论完成".to_string());
+    }
+    // 新一场讨论：清空事件缓冲（供前端重连重放）
+    state.discussion.events.write().clear();
 
-    let saved_providers = lh::load_providers(&state);
-    let saved_models = lh::load_models(&state);
+    let output = discuss_inner(
+        &app_handle,
+        &state,
+        idea_description,
+        settings_context,
+        agents,
+    )
+    .await;
+
+    // 无论成败都释放运行旗标；成功时把结果持久化到萌芽数据
+    state.discussion.running.store(false, Ordering::SeqCst);
+    if let Ok(out) = &output {
+        {
+            let mut onto = state.ontology.write();
+            onto.sprout.last_discussion = Some(DiscussionRecord {
+                turns: out.turns.clone(),
+                synthesis: out.synthesis.clone(),
+            });
+        }
+        if let Err(e) = state.save() {
+            eprintln!("讨论结果落盘失败: {e}");
+        }
+        // 终态事件：在持久化之后发射，前端收到后可立即安全拉取结果
+        emit_discussion(
+            &app_handle,
+            &state,
+            "__discussion__",
+            "讨论",
+            0,
+            "finished",
+            "",
+        );
+    }
+    output
+}
+
+/// 讨论状态查询：运行旗标 + 事件缓冲（前端切换页面后重连恢复进度用）
+#[tauri::command]
+pub async fn get_discussion_state(
+    state: tauri::State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    Ok(serde_json::json!({
+        "running": state.discussion.running.load(Ordering::SeqCst),
+        "events": state.discussion.events.read().clone(),
+    }))
+}
+
+/// 讨论主流程（两轮交锋 + 成果提炼）
+async fn discuss_inner(
+    app_handle: &tauri::AppHandle,
+    state: &AppState,
+    idea_description: String,
+    settings_context: String,
+    agents: Vec<AgentConfig>,
+) -> Result<DiscussionOutput, String> {
+    lh::ensure_api_keys_loaded(state);
+
+    let saved_providers = lh::load_providers(state);
+    let saved_models = lh::load_models(state);
     let model_to_provider = lh::build_model_to_provider(&saved_models);
     let provider_api_bases = lh::build_provider_api_bases(&saved_providers);
     let api_keys: HashMap<String, String> = { state.api_keys.read().clone() };
@@ -153,7 +177,7 @@ pub async fn discuss_concept(
 
     // ── 第 1 轮：立论（构思 + 创作设定 + 各自的技能）──
     for agent in &enabled {
-        emit_discussion(&app_handle, &agent.id, &agent.name, 1, "running", "");
+        emit_discussion(app_handle, state, &agent.id, &agent.name, 1, "running", "");
         let user_prompt = format!(
             "【故事构思】\n{idea_description}\n\n\
              【创作设定】\n{settings_context}\n\n\
@@ -169,7 +193,7 @@ pub async fn discuss_concept(
             &system,
             &user_prompt,
             0.85,
-            2048,
+            8192,
             &model_to_provider,
             &provider_api_bases,
             &api_keys,
@@ -177,7 +201,7 @@ pub async fn discuss_concept(
         .await
         {
             Ok(text) => {
-                emit_discussion(&app_handle, &agent.id, &agent.name, 1, "done", &text);
+                emit_discussion(app_handle, state, &agent.id, &agent.name, 1, "done", &text);
                 turns.push(AgentTurn {
                     agent_id: agent.id.clone(),
                     agent_name: agent.name.clone(),
@@ -187,7 +211,7 @@ pub async fn discuss_concept(
                 });
             }
             Err(msg) => {
-                emit_discussion(&app_handle, &agent.id, &agent.name, 1, "error", &msg);
+                emit_discussion(app_handle, state, &agent.id, &agent.name, 1, "error", &msg);
             }
         }
     }
@@ -200,7 +224,7 @@ pub async fn discuss_concept(
             let Some(own) = round1.iter().find(|t| t.agent_id == agent.id) else {
                 continue;
             };
-            emit_discussion(&app_handle, &agent.id, &agent.name, 2, "running", "");
+            emit_discussion(app_handle, state, &agent.id, &agent.name, 2, "running", "");
 
             // 其他 Agent 的第 1 轮完整发言（不截断，充分理解后再回应）
             let others: String = round1
@@ -229,7 +253,7 @@ pub async fn discuss_concept(
                 &system,
                 &user_prompt,
                 0.85,
-                2048,
+                8192,
                 &model_to_provider,
                 &provider_api_bases,
                 &api_keys,
@@ -237,7 +261,7 @@ pub async fn discuss_concept(
             .await
             {
                 Ok(text) => {
-                    emit_discussion(&app_handle, &agent.id, &agent.name, 2, "done", &text);
+                    emit_discussion(app_handle, state, &agent.id, &agent.name, 2, "done", &text);
                     turns.push(AgentTurn {
                         agent_id: agent.id.clone(),
                         agent_name: agent.name.clone(),
@@ -247,16 +271,17 @@ pub async fn discuss_concept(
                     });
                 }
                 Err(msg) => {
-                    emit_discussion(&app_handle, &agent.id, &agent.name, 2, "error", &msg);
+                    emit_discussion(app_handle, state, &agent.id, &agent.name, 2, "error", &msg);
                 }
             }
         }
     }
 
     // ── 第 3 轮：成果提炼（完整讨论记录 → 丰富的结构化 JSON）──
-    emit_discussion(&app_handle, "synthesis", "成果提炼", 3, "running", "");
+    emit_discussion(app_handle, state, "synthesis", "成果提炼", 3, "running", "");
     let synthesis = synthesize(
-        &app_handle,
+        app_handle,
+        state,
         &enabled,
         &idea_description,
         &settings_context,
@@ -344,6 +369,7 @@ async fn call_with_system(
 #[allow(clippy::too_many_arguments)]
 async fn synthesize(
     app_handle: &tauri::AppHandle,
+    state: &AppState,
     enabled: &[&AgentConfig],
     idea_description: &str,
     settings_context: &str,
@@ -393,7 +419,7 @@ async fn synthesize(
     );
 
     let fallback = |msg: &str| {
-        emit_discussion(app_handle, "synthesis", "成果提炼", 3, "error", msg);
+        emit_discussion(app_handle, state, "synthesis", "成果提炼", 3, "error", msg);
         DiscussionSynthesis {
             summary: format!("⚠️ 成果提炼失败: {msg}"),
             ..Default::default()
@@ -405,7 +431,9 @@ async fn synthesize(
         system,
         &user_prompt,
         0.3,
-        8192,
+        // 提炼产出要求丰富（多类设定各 100-500 字），
+        // 推理型模型还要先烧 reasoning tokens，预算给足
+        16384,
         model_to_provider,
         provider_api_bases,
         api_keys,
@@ -416,21 +444,30 @@ async fn synthesize(
         Err(msg) => return fallback(&msg),
     };
 
-    let Some(json_str) = extract_between(&text, "===SYNTHESIS_BEGIN===", "===SYNTHESIS_END===")
-    else {
-        return fallback("LLM 输出缺少成果标记");
-    };
-    let json_str = json_str
+    // 标记缺失（常见于输出被截断只剩 BEGIN 没有 END）时直接用全文，
+    // 交给修复器截取最外层 JSON 结构，尽量不浪费这次提炼结果
+    let json_str = extract_between(&text, "===SYNTHESIS_BEGIN===", "===SYNTHESIS_END===")
+        .unwrap_or(&text)
         .trim()
         .trim_start_matches("```json")
         .trim_start_matches("```")
         .trim_end_matches("```")
         .trim();
 
-    match serde_json::from_str::<DiscussionSynthesis>(json_str) {
+    // 先严格解析；失败则按 serde 报错位置驱动式修复（漏逗号、尾逗号、
+    // 注释、字符串内裸换行、截断未闭合等）再解析，仍失败才判定提炼失败
+    let parsed = serde_json::from_str::<DiscussionSynthesis>(json_str).or_else(|strict_err| {
+        json_fix::repair_to_value(json_str)
+            .ok()
+            .and_then(|v| serde_json::from_value::<DiscussionSynthesis>(v).ok())
+            .ok_or(strict_err)
+    });
+
+    match parsed {
         Ok(mut s) => {
             emit_discussion(
                 app_handle,
+                state,
                 "synthesis",
                 "成果提炼",
                 3,
@@ -456,23 +493,24 @@ fn extract_between<'a>(text: &'a str, begin: &str, end: &str) -> Option<&'a str>
     Some(&text[b..e])
 }
 
-/// 推送讨论进度事件
+/// 推送讨论进度事件：先入控制面缓冲（供页面重连重放），再推送给前端
+#[allow(clippy::too_many_arguments)]
 fn emit_discussion(
     app_handle: &tauri::AppHandle,
+    state: &AppState,
     agent_id: &str,
     agent_name: &str,
     round: u8,
     status: &str,
     content: &str,
 ) {
-    let _ = app_handle.emit(
-        "discussion-event",
-        DiscussionEvent {
-            agent_id: agent_id.to_string(),
-            agent_name: agent_name.to_string(),
-            round,
-            status: status.to_string(),
-            content: content.to_string(),
-        },
-    );
+    let ev = DiscussionEvent {
+        agent_id: agent_id.to_string(),
+        agent_name: agent_name.to_string(),
+        round,
+        status: status.to_string(),
+        content: content.to_string(),
+    };
+    state.discussion.record(&ev);
+    let _ = app_handle.emit("discussion-event", ev);
 }

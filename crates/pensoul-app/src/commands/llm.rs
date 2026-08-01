@@ -150,24 +150,3 @@ pub async fn load_api_keys(
     let keys = state.api_keys.read();
     Ok(keys.clone())
 }
-
-/// 测试模型连通性（从已保存的模型列表查找）
-#[tauri::command]
-pub async fn test_model(
-    state: tauri::State<'_, AppState>,
-    model_id: String,
-) -> Result<bool, String> {
-    let api_keys = state.api_keys.read();
-    let models = load_models_from_disk(&state);
-    let model = models
-        .iter()
-        .find(|m| m.get("model_id").and_then(|v| v.as_str()) == Some(&model_id));
-
-    match model {
-        Some(m) => {
-            let provider_id = m.get("provider_id").and_then(|v| v.as_str()).unwrap_or("");
-            Ok(api_keys.contains_key(provider_id))
-        }
-        None => Err(format!("模型 {} 不存在", model_id)),
-    }
-}

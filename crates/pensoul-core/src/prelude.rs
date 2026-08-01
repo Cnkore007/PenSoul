@@ -10,6 +10,8 @@ pub use crate::id::*;
 pub use crate::narrative::*;
 pub use crate::ontology::NovelOntology;
 pub use crate::settings::ProjectSettings;
-pub use crate::sprout::AgentDiscussionConfig;
-pub use crate::sprout::SproutData;
+pub use crate::sprout::{
+    AgentDiscussionConfig, AgentTurn, CharacterItem, DiscussionRecord, DiscussionSynthesis,
+    NamedDesc, OutlineBeat, RelationItem, SproutData, TimelineItem,
+};
 pub use crate::world::*;

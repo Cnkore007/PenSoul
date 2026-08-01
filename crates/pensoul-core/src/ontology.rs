@@ -31,6 +31,10 @@ pub struct NovelOntology {
     pub core_concept: crate::concept::CoreConcept,
     /// 萌芽数据
     pub sprout: crate::sprout::SproutData,
+    /// 情节脉络（大纲规划层）：每个节点覆盖一个章节范围，
+    /// 展开细纲后生成真正的章节；旧项目 JSON 无此字段，默认为空
+    #[serde(default)]
+    pub outline_arcs: Vec<crate::narrative::OutlineArc>,
 }
 
 impl NovelOntology {
@@ -85,12 +89,35 @@ impl NovelOntology {
             settings: crate::settings::ProjectSettings::new(),
             core_concept: crate::concept::CoreConcept::new(),
             sprout: crate::sprout::SproutData::new(),
+            outline_arcs: Vec::new(),
         }
     }
 
     /// 根据 ID 获取章节
     pub fn get_chapter(&self, chapter_id: &ChapterId) -> Option<&Chapter> {
         self.chapters.iter().find(|ch| ch.chapter_id == *chapter_id)
+    }
+
+    /// 回填章节序号：`chapter_no == 0` 的章节按数组顺序，
+    /// 从现有最大序号 +1 起依次分配；已有序号保持不变。
+    /// 返回是否有章节被回填（调用方据此决定是否立即落盘）。
+    pub fn backfill_chapter_numbers(&mut self) -> bool {
+        let mut next = self
+            .chapters
+            .iter()
+            .map(|c| c.chapter_no)
+            .max()
+            .unwrap_or(0)
+            + 1;
+        let mut changed = false;
+        for ch in &mut self.chapters {
+            if ch.chapter_no == 0 {
+                ch.chapter_no = next;
+                next += 1;
+                changed = true;
+            }
+        }
+        changed
     }
 
     /// 根据 ID 获取角色
@@ -111,6 +138,58 @@ impl NovelOntology {
             })
             .collect()
     }
+
+    /// 迁移历史「伪章节」：早期版本把讨论产出的情节脉络节点（梗概以
+    /// 【第N-M章】开头）直接建成章节，导致一个 200 章的故事段被当成
+    /// 一章来写。这里把这类章节还原为情节脉络节点并移除章节实体
+    /// （其正文是整段压缩产物，不是有效章节内容，一并丢弃）。
+    /// 返回是否有迁移发生（调用方据此决定是否立即落盘）。
+    pub fn migrate_arc_chapters(&mut self) -> bool {
+        let mut migrated = false;
+        let mut keep: Vec<Chapter> = Vec::with_capacity(self.chapters.len());
+        for ch in std::mem::take(&mut self.chapters) {
+            match parse_arc_marker(&ch.summary) {
+                Some((start, end, desc)) if end > start => {
+                    self.outline_arcs.push(crate::narrative::OutlineArc {
+                        arc_id: format!("arc-migrated-{}", ch.chapter_id.as_str()),
+                        title: ch.title.clone(),
+                        description: desc,
+                        chapter_start: start,
+                        chapter_end: end,
+                        expanded_until: 0,
+                    });
+                    migrated = true;
+                }
+                _ => keep.push(ch),
+            }
+        }
+        if migrated {
+            // 有章节被迁出时才需要同步卷的章节列表
+            let alive: std::collections::HashSet<&str> =
+                keep.iter().map(|c| c.chapter_id.as_str()).collect();
+            for vol in self.volumes.iter_mut() {
+                vol.chapter_ids.retain(|cid| alive.contains(cid.as_str()));
+            }
+        }
+        // 无论是否迁移都要把章节写回（take 出来遍历后必须归还）
+        self.chapters = keep;
+        migrated
+    }
+}
+
+/// 解析梗概开头的脉络标记「【第N-M章】」，返回 (起始章, 结束章, 剩余描述)。
+/// 手写解析避免引入 regex 依赖；兼容 -、–、~、至 四种分隔符。
+fn parse_arc_marker(summary: &str) -> Option<(i64, i64, String)> {
+    let body = summary.strip_prefix('【')?;
+    let body = body.strip_prefix('第')?;
+    let dash = body.find(['-', '–', '~', '至'])?;
+    let start: i64 = body[..dash].trim().parse().ok()?;
+    let rest = &body[dash..];
+    let rest = rest.strip_prefix(['-', '–', '~', '至'])?;
+    let close = rest.find("章】")?;
+    let end: i64 = rest[..close].trim().parse().ok()?;
+    let desc = rest[close + "章】".len()..].trim().to_string();
+    Some((start, end, desc))
 }
 
 #[cfg(test)]
@@ -125,6 +204,7 @@ mod tests {
     fn make_chapter(chapter_id: &str) -> Chapter {
         Chapter {
             chapter_id: ChapterId::new(chapter_id),
+            chapter_no: 1,
             volume_id: VolumeId::new("vol-1"),
             title: format!("第{chapter_id}章"),
             summary: String::new(),
@@ -271,5 +351,117 @@ mod tests {
         assert_eq!(back.chapters.len(), 1);
         assert_eq!(back.characters.characters.len(), 1);
         assert_eq!(back.narrative.foreshadows.len(), 1);
+    }
+
+    #[test]
+    fn test_backfill_all_zero_assigns_in_array_order() {
+        let mut onto = NovelOntology::new(ProjectId::new("proj-1"), String::new());
+        for id in ["ch-a", "ch-b", "ch-c"] {
+            let mut ch = make_chapter(id);
+            ch.chapter_no = 0;
+            onto.chapters.push(ch);
+        }
+
+        assert!(onto.backfill_chapter_numbers());
+        let nos: Vec<i64> = onto.chapters.iter().map(|c| c.chapter_no).collect();
+        assert_eq!(nos, vec![1, 2, 3]);
+        // 幂等：再次回填不再有变化
+        assert!(!onto.backfill_chapter_numbers());
+    }
+
+    #[test]
+    fn test_backfill_keeps_existing_and_continues_from_max() {
+        let mut onto = NovelOntology::new(ProjectId::new("proj-1"), String::new());
+        let mut c1 = make_chapter("ch-a");
+        c1.chapter_no = 0;
+        let mut c2 = make_chapter("ch-b");
+        c2.chapter_no = 5;
+        let mut c3 = make_chapter("ch-c");
+        c3.chapter_no = 0;
+        onto.chapters.extend([c1, c2, c3]);
+
+        assert!(onto.backfill_chapter_numbers());
+        let nos: Vec<i64> = onto.chapters.iter().map(|c| c.chapter_no).collect();
+        assert_eq!(nos, vec![6, 5, 7]);
+    }
+
+    #[test]
+    fn test_chapter_serde_default_chapter_no() {
+        // 旧版项目 JSON 没有 chapter_no 字段，反序列化应为 0（待回填）
+        let json = r#"{
+            "chapter_id": "ch-x",
+            "volume_id": "vol-1",
+            "title": "旧章节",
+            "content": "",
+            "word_count": 0,
+            "version": 1,
+            "status": "Draft",
+            "consistency_score": 1.0,
+            "created_at": "",
+            "updated_at": ""
+        }"#;
+        let ch: Chapter = serde_json::from_str(json).unwrap();
+        assert_eq!(ch.chapter_no, 0);
+    }
+
+    #[test]
+    fn test_migrate_arc_chapters_converts_pseudo_chapters() {
+        let mut onto = NovelOntology::new(ProjectId::new("proj-1"), String::new());
+        // 伪章节：讨论导入的脉络节点（梗概以【第N-M章】开头，还带了压缩正文）
+        let mut pseudo = make_chapter("ch-pseudo");
+        pseudo.title = "枯井边的勘验".to_string();
+        pseudo.summary = "【第1-200章】\n主角在临渊城醒来并面对第一具尸体".to_string();
+        pseudo.content = "被压缩的整段内容……".to_string();
+        // 正常章节：梗概不含脉络标记
+        let mut normal = make_chapter("ch-normal");
+        normal.summary = "主角在井边发现尸体".to_string();
+        onto.chapters.extend([pseudo, normal]);
+        onto.volumes.push(crate::chapter::Volume {
+            volume_id: VolumeId::new("vol-1"),
+            title: "第一卷".to_string(),
+            chapter_ids: vec![ChapterId::new("ch-pseudo"), ChapterId::new("ch-normal")],
+            summary: String::new(),
+        });
+
+        assert!(onto.migrate_arc_chapters());
+        // 伪章节变成脉络节点，正常章节保留
+        assert_eq!(onto.outline_arcs.len(), 1);
+        let arc = &onto.outline_arcs[0];
+        assert_eq!(arc.title, "枯井边的勘验");
+        assert_eq!(arc.chapter_start, 1);
+        assert_eq!(arc.chapter_end, 200);
+        assert_eq!(arc.expanded_until, 0);
+        assert_eq!(arc.description, "主角在临渊城醒来并面对第一具尸体");
+        assert_eq!(onto.chapters.len(), 1);
+        assert_eq!(onto.chapters[0].chapter_id.as_str(), "ch-normal");
+        // 卷的章节列表同步剔除被迁移章节
+        assert_eq!(onto.volumes[0].chapter_ids.len(), 1);
+        // 幂等：再次迁移无变化
+        assert!(!onto.migrate_arc_chapters());
+    }
+
+    #[test]
+    fn test_migrate_arc_chapters_ignores_ordinary_summaries() {
+        let mut onto = NovelOntology::new(ProjectId::new("proj-1"), String::new());
+        let mut ch = make_chapter("ch-a");
+        ch.summary = "【关键证据】井边的脚印".to_string();
+        onto.chapters.push(ch);
+        assert!(!onto.migrate_arc_chapters());
+        assert!(onto.outline_arcs.is_empty());
+        assert_eq!(onto.chapters.len(), 1);
+    }
+
+    #[test]
+    fn test_parse_arc_marker_variants() {
+        assert_eq!(
+            super::parse_arc_marker("【第1-200章】描述"),
+            Some((1, 200, "描述".to_string()))
+        );
+        assert_eq!(
+            super::parse_arc_marker("【第401–600章】"),
+            Some((401, 600, String::new()))
+        );
+        assert_eq!(super::parse_arc_marker("普通梗概"), None);
+        assert_eq!(super::parse_arc_marker("【第1章】单章"), None);
     }
 }

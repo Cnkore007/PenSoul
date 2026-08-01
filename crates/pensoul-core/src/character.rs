@@ -191,7 +191,8 @@ pub struct Relationship {
     pub relation_type: String,
     /// 关系强度
     pub strength: f32,
-    /// 关系历史
+    /// 关系历史（缺省为空，兼容只携带当前关系的外部数据）
+    #[serde(default)]
     pub history: Vec<RelationshipChange>,
 }
 

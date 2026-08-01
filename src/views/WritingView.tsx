@@ -19,12 +19,21 @@ export function WritingView({ projectData, persistProjectData, chapterId, onWord
   const [expandedVolumes, setExpandedVolumes] = useState<Record<string, boolean>>({});
   const [showNav, setShowNav] = useState(true);
 
+  // 笔耕只显示已开始细写（有正文）的章节；只有梗概的章节留在大纲页，
+  // 待工作流细写出正文后才会出现在这里
+  const writingVolumes = useMemo(
+    () => projectData.volumes
+      .map(v => ({ ...v, chapters: v.chapters.filter(c => c.word_count > 0) }))
+      .filter(v => v.chapters.length > 0),
+    [projectData.volumes]
+  );
+
   // 展开所有卷
   useEffect(() => {
     const expanded: Record<string, boolean> = {};
-    projectData.volumes.forEach(v => { expanded[v.volume_id] = true; });
+    writingVolumes.forEach(v => { expanded[v.volume_id] = true; });
     setExpandedVolumes(expanded);
-  }, [projectData.volumes]);
+  }, [writingVolumes]);
 
   // 从 prop 同步外部选中
   useEffect(() => {
@@ -70,10 +79,10 @@ export function WritingView({ projectData, persistProjectData, chapterId, onWord
     setExpandedVolumes(prev => ({ ...prev, [volId]: !prev[volId] }));
   }
 
-  // 统计
+  // 统计（只统计写作中的章节）
   const totalChapters = useMemo(
-    () => projectData.volumes.reduce((s, v) => s + v.chapters.length, 0),
-    [projectData.volumes]
+    () => writingVolumes.reduce((s, v) => s + v.chapters.length, 0),
+    [writingVolumes]
   );
 
   return (
@@ -85,14 +94,14 @@ export function WritingView({ projectData, persistProjectData, chapterId, onWord
             <span style={{ fontFamily: "var(--font-brush)", fontSize: "var(--text-sm)", letterSpacing: "1px" }}>章节导航</span>
           </div>
           <div className="writing-nav-list">
-            {projectData.volumes.map(volume => (
+            {writingVolumes.map(volume => (
               <div key={volume.volume_id} className="writing-nav-volume">
                 <div
                   className="writing-nav-vol-header"
                   onClick={() => toggleVolume(volume.volume_id)}
                 >
                   {expandedVolumes[volume.volume_id] ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-                  <span className="writing-nav-vol-title">{volume.title}</span>
+                  <span className="writing-nav-vol-title">{volume.volume_id === "_default" ? "未分卷" : volume.title}</span>
                   <span className="writing-nav-vol-count">{volume.chapters.length} 章</span>
                 </div>
                 {expandedVolumes[volume.volume_id] && volume.chapters.map(ch => (
@@ -116,8 +125,8 @@ export function WritingView({ projectData, persistProjectData, chapterId, onWord
         <div className="writing-nav" style={{ justifyContent: "center", alignItems: "center", display: "flex" }}>
           <div style={{ textAlign: "center", color: "var(--color-ink-faint)", fontSize: "var(--text-sm)" }}>
             <FileText size={24} strokeWidth={1} style={{ marginBottom: 8, opacity: 0.4 }} />
-            <div>暂无章节</div>
-            <div style={{ fontSize: "var(--text-xs)", marginTop: 4 }}>请先在「大纲」中创建卷和章节</div>
+            <div>暂无写作中的章节</div>
+            <div style={{ fontSize: "var(--text-xs)", marginTop: 4 }}>章节经工作流细写后会出现在这里</div>
           </div>
         </div>
       )}
@@ -160,7 +169,7 @@ export function WritingView({ projectData, persistProjectData, chapterId, onWord
               <div className="empty-state-sub">
                 {totalChapters > 0
                   ? "从左侧导航选择一个章节"
-                  : "请先从「大纲」中创建卷和章节"}
+                  : "章节由工作流细写后，在此打磨正文"}
               </div>
             </div>
           )}

@@ -3,15 +3,23 @@ use crate::state::AppState;
 use pensoul_memory::EditingMode;
 
 /// 构建记忆包（走统一的 MemoryPipeline，按编辑模式分配预算）
+///
+/// chapter_id 为本体的字符串主键（如 `ch-<ts>-<rand>`），
+/// 内部通过本体查出章节序号（chapter_no）再构建记忆包。
 #[tauri::command]
 pub async fn build_memory_packet(
     state: tauri::State<'_, AppState>,
     chapter_id: String,
     mode: Option<String>,
 ) -> Result<serde_json::Value, String> {
-    let chapter_num: i64 = chapter_id
-        .parse()
-        .map_err(|_| format!("无效的章节 ID: {}", chapter_id))?;
+    let chapter_num = {
+        let ontology = state.ontology.read();
+        ontology
+            .get_chapter(&pensoul_core::ChapterId::new(&chapter_id))
+            .map(|ch| ch.chapter_no)
+            .filter(|n| *n > 0)
+            .ok_or_else(|| format!("章节不存在或未分配序号: {}", chapter_id))?
+    };
 
     // 按需切换编辑模式（影响预算分配比例）
     if let Some(mode_str) = mode {

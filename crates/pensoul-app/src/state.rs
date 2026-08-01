@@ -10,7 +10,6 @@ use pensoul_concurrency::ConcurrencyController;
 use pensoul_consistency::IncrementalChecker;
 use pensoul_core::{NovelOntology, ProjectId};
 use pensoul_harness::HarnessEngine;
-use pensoul_llm::ModelRouter;
 use pensoul_memory::{EditingMode, MemoryPipeline};
 use pensoul_plugin::PluginRegistry;
 
@@ -86,12 +85,14 @@ pub struct AppState {
     pub memory: Arc<RwLock<MemoryPipeline>>,
     /// 并发控制器
     pub concurrency: Arc<RwLock<ConcurrencyController>>,
-    /// 模型路由器
-    pub model_router: Arc<RwLock<ModelRouter>>,
     /// 插件注册中心
     pub plugin_registry: Arc<RwLock<PluginRegistry>>,
     /// 一致性检查器
     pub consistency_checker: Arc<RwLock<IncrementalChecker>>,
+    /// 连写管线控制面（运行/暂停/停止旗标 + 事件缓冲 + 模型选择）
+    pub pipeline: Arc<crate::pipeline::PipelineControl>,
+    /// 概念讨论控制面（运行旗标 + 事件缓冲，支持页面切换后重连）
+    pub discussion: Arc<crate::commands::discussion::DiscussionControl>,
 }
 
 impl AppState {
@@ -111,9 +112,10 @@ impl AppState {
             impact_graph: Arc::new(RwLock::new(ImpactGraph::new())),
             memory: Arc::new(RwLock::new(new_memory_pipeline())),
             concurrency: Arc::new(RwLock::new(ConcurrencyController::new())),
-            model_router: Arc::new(RwLock::new(ModelRouter::new())),
             plugin_registry: Arc::new(RwLock::new(PluginRegistry::new())),
             consistency_checker: Arc::new(RwLock::new(IncrementalChecker::new())),
+            pipeline: Arc::new(crate::pipeline::PipelineControl::new()),
+            discussion: Arc::new(crate::commands::discussion::DiscussionControl::new()),
         }
     }
 
@@ -123,13 +125,17 @@ impl AppState {
         let project_dir = base_dir.join(project_id);
         let project_file = project_dir.join("pensoul-project.json");
 
-        let ontology = if project_file.exists() {
+        let mut ontology = if project_file.exists() {
             let data = std::fs::read_to_string(&project_file)?;
             serde_json::from_str(&data)?
         } else {
             let pid = ProjectId::new(project_id.to_string());
             NovelOntology::new(pid, String::new())
         };
+        // 旧项目章节没有 chapter_no，按数组顺序回填，保证记忆/影响图索引可用
+        let backfilled = ontology.backfill_chapter_numbers();
+        // 历史「伪章节」（脉络节点误建为章节）还原为情节脉络
+        let migrated = ontology.migrate_arc_chapters();
 
         let state = Self {
             base_dir,
@@ -140,11 +146,16 @@ impl AppState {
             impact_graph: Arc::new(RwLock::new(ImpactGraph::new())),
             memory: Arc::new(RwLock::new(new_memory_pipeline())),
             concurrency: Arc::new(RwLock::new(ConcurrencyController::new())),
-            model_router: Arc::new(RwLock::new(ModelRouter::new())),
             plugin_registry: Arc::new(RwLock::new(PluginRegistry::new())),
             consistency_checker: Arc::new(RwLock::new(IncrementalChecker::new())),
+            pipeline: Arc::new(crate::pipeline::PipelineControl::new()),
+            discussion: Arc::new(crate::commands::discussion::DiscussionControl::new()),
         };
         crate::integration::rebuild_derived_state(&state);
+        // 回填/迁移过的数据立即落盘，避免下次启动重复处理
+        if backfilled || migrated {
+            state.save()?;
+        }
         Ok(state)
     }
 
@@ -268,12 +279,16 @@ impl AppState {
         let project_dir = self.base_dir.join(project_id);
         let project_file = project_dir.join("pensoul-project.json");
 
-        let ontology: NovelOntology = if project_file.exists() {
+        let mut ontology: NovelOntology = if project_file.exists() {
             let data = std::fs::read_to_string(&project_file)?;
             serde_json::from_str(&data)?
         } else {
             return Err(anyhow!("项目文件不存在: {}", project_file.display()));
         };
+        // 旧项目章节没有 chapter_no，按数组顺序回填
+        let backfilled = ontology.backfill_chapter_numbers();
+        // 历史「伪章节」（脉络节点误建为章节）还原为情节脉络
+        let migrated = ontology.migrate_arc_chapters();
 
         // 更新活跃项目 ID
         {
@@ -303,6 +318,11 @@ impl AppState {
 
         // 从本体全量重建派生状态（记忆/影响图/一致性状态/并发版本）
         crate::integration::rebuild_derived_state(self);
+
+        // 回填/迁移过的数据立即落盘
+        if backfilled || migrated {
+            self.save()?;
+        }
 
         Ok(())
     }

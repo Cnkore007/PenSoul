@@ -45,6 +45,10 @@ pub async fn load_concept(
 }
 
 /// 保存萌芽数据到后端
+///
+/// 讨论结果（last_discussion）由讨论命令在后台持久化；前端常规保存
+/// 可能携带过期的 None（例如讨论在后台完成时用户正在别的页面编辑），
+/// 此时保留后端已有的讨论结果，避免被旧副本覆盖。
 #[tauri::command]
 pub async fn save_sprout(
     state: tauri::State<'_, AppState>,
@@ -52,6 +56,10 @@ pub async fn save_sprout(
 ) -> Result<(), String> {
     {
         let mut ontology = state.ontology.write();
+        let mut sprout = sprout;
+        if sprout.last_discussion.is_none() {
+            sprout.last_discussion = ontology.sprout.last_discussion.clone();
+        }
         ontology.sprout = sprout;
     }
     state.save().map_err(|e| e.to_string())

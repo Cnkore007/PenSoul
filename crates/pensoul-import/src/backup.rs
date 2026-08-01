@@ -186,6 +186,7 @@ mod tests {
             },
             chapters: vec![pensoul_core::Chapter {
                 chapter_id: ChapterId::new("ch1"),
+                chapter_no: 1,
                 volume_id: VolumeId::new("vol1"),
                 title: "标题一".to_string(),
                 summary: String::new(),
@@ -201,6 +202,7 @@ mod tests {
             settings: pensoul_core::ProjectSettings::new(),
             core_concept: pensoul_core::CoreConcept::new(),
             sprout: pensoul_core::SproutData::new(),
+            outline_arcs: Vec::new(),
         }
     }
 

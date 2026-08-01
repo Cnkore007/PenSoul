@@ -26,6 +26,7 @@ fn test_chapter_all_status_variants_round_trip() {
     for (i, status) in statuses.into_iter().enumerate() {
         let ch = Chapter {
             chapter_id: ChapterId::from_i64(i as i64 + 1),
+            chapter_no: i as i64 + 1,
             volume_id: VolumeId::new("vol-1"),
             title: "标题".to_string(),
             summary: String::new(),

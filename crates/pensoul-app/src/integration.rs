@@ -10,6 +10,10 @@
 //! - `on_chapter_saved`：章节保存成功后，增量更新派生状态。
 //!
 //! 派生状态全部可以由本体重算，因此不单独持久化，避免双写不一致。
+//!
+//! 顺序语义一律使用 `Chapter.chapter_no`（加载时已回填），
+//! 不再依赖 `chapter_id` 可解析为数字——前端生成的 `ch-<ts>-<rand>`
+//! 字符串 ID 也能正常进入记忆/影响图/一致性。
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
@@ -27,9 +31,9 @@ pub fn rebuild_derived_state(state: &AppState) {
     {
         let mut memory = state.memory.write();
         for chapter in chapters_in_order(&ontology) {
-            if let Some(num) = chapter.chapter_id.as_i64() {
+            if chapter.chapter_no > 0 {
                 // 记忆管道的提取是原型级启发式，失败不阻断主流程
-                let _ = memory.update(num, &chapter.content);
+                let _ = memory.update(chapter.chapter_no, &chapter.content);
             }
         }
     }
@@ -65,16 +69,12 @@ pub fn rebuild_derived_state(state: &AppState) {
 ///
 /// 注意调用方必须已完成本体写入，本函数读取的是最新本体。
 pub fn on_chapter_saved(state: &AppState, chapter_id: &ChapterId) {
-    let Some(num) = chapter_id.as_i64() else {
-        // 非数字章节 ID 无法进入按章节索引的派生状态，跳过
-        return;
-    };
-
-    let (content, version) = {
+    let (num, content, version) = {
         let ontology = state.ontology.read();
         match ontology.get_chapter(chapter_id) {
-            Some(ch) => (ch.content.clone(), ch.version),
-            None => return,
+            // 未分配序号的章节不进入按章节索引的派生状态
+            Some(ch) if ch.chapter_no > 0 => (ch.chapter_no, ch.content.clone(), ch.version),
+            _ => return,
         }
     };
 
@@ -94,7 +94,7 @@ pub fn on_chapter_saved(state: &AppState, chapter_id: &ChapterId) {
     {
         let ontology = state.ontology.read();
         let mut checker = state.consistency_checker.write();
-        for entity_state in entity_states_for_chapter(&ontology, chapter_id, num, version) {
+        for entity_state in entity_states_for_chapter(&ontology, chapter_id, version) {
             checker.upsert_state(entity_state);
         }
     }
@@ -119,10 +119,8 @@ pub fn build_impact_graph(ontology: &NovelOntology) -> ImpactGraph {
 
     // 章节节点
     for chapter in &ontology.chapters {
-        let Some(num) = chapter.chapter_id.as_i64() else {
-            continue;
-        };
-        if num < 0 || num > u32::MAX as i64 {
+        let num = chapter.chapter_no;
+        if num <= 0 || num > u32::MAX as i64 {
             continue;
         }
         let node = ImpactNode::new(
@@ -155,9 +153,7 @@ pub fn build_impact_graph(ontology: &NovelOntology) -> ImpactGraph {
 
     // 伏笔节点：所在章节 = 埋设章节
     for foreshadow in &ontology.narrative.foreshadows {
-        let planted = foreshadow
-            .planted_chapter
-            .as_i64()
+        let planted = chapter_no_of(ontology, &foreshadow.planted_chapter)
             .filter(|n| *n >= 0 && *n <= u32::MAX as i64)
             .map(|n| n as u32)
             .unwrap_or(1);
@@ -223,13 +219,12 @@ fn collect_entity_states(ontology: &NovelOntology) -> Vec<EntityState> {
     let mut states = Vec::new();
 
     for chapter in &ontology.chapters {
-        let Some(num) = chapter.chapter_id.as_i64() else {
+        if chapter.chapter_no <= 0 {
             continue;
-        };
+        }
         states.extend(entity_states_for_chapter(
             ontology,
             &chapter.chapter_id,
-            num,
             chapter.version,
         ));
     }
@@ -241,7 +236,6 @@ fn collect_entity_states(ontology: &NovelOntology) -> Vec<EntityState> {
 fn entity_states_for_chapter(
     ontology: &NovelOntology,
     chapter_id: &ChapterId,
-    chapter_num: i64,
     version: i32,
 ) -> Vec<EntityState> {
     let mut states = Vec::new();
@@ -285,11 +279,11 @@ fn entity_states_for_chapter(
                 "expected_resolve_chapter": foreshadow
                     .expected_resolve_chapter
                     .as_ref()
-                    .and_then(|c| c.as_i64()),
+                    .and_then(|c| chapter_no_of(ontology, c)),
                 "actual_resolve_chapter": foreshadow
                     .actual_resolve_chapter
                     .as_ref()
-                    .and_then(|c| c.as_i64()),
+                    .and_then(|c| chapter_no_of(ontology, c)),
                 "related_characters": foreshadow
                     .related_characters
                     .iter()
@@ -300,17 +294,30 @@ fn entity_states_for_chapter(
         });
     }
 
-    let _ = chapter_num;
     states
 }
 
 // ── 内部辅助 ────────────────────────────────────────────────────────────
 
-/// 按数字章节 ID 升序返回章节引用；非数字 ID 的章节排在最后。
+/// 按章节序号升序返回章节引用；未分配序号（chapter_no <= 0）的章节排在最后。
 fn chapters_in_order(ontology: &NovelOntology) -> Vec<&pensoul_core::Chapter> {
     let mut chapters: Vec<&pensoul_core::Chapter> = ontology.chapters.iter().collect();
-    chapters.sort_by_key(|ch| ch.chapter_id.as_i64().unwrap_or(i64::MAX));
+    chapters.sort_by_key(|ch| {
+        if ch.chapter_no > 0 {
+            ch.chapter_no
+        } else {
+            i64::MAX
+        }
+    });
     chapters
+}
+
+/// 由章节 ID 查章节序号；章节不存在或未分配序号时返回 None。
+fn chapter_no_of(ontology: &NovelOntology, chapter_id: &ChapterId) -> Option<i64> {
+    ontology
+        .get_chapter(chapter_id)
+        .map(|ch| ch.chapter_no)
+        .filter(|n| *n > 0)
 }
 
 /// 查找角色首次出现的章节号（u32），未出现返回 None。
@@ -318,9 +325,13 @@ fn first_appearance_chapter(ontology: &NovelOntology, name: &str) -> Option<u32>
     chapters_in_order(ontology)
         .iter()
         .filter(|ch| ch.content.contains(name))
-        .filter_map(|ch| ch.chapter_id.as_i64())
-        .filter(|n| *n >= 0 && *n <= u32::MAX as i64)
-        .map(|n| n as u32)
+        .filter_map(|ch| {
+            if ch.chapter_no > 0 && ch.chapter_no <= u32::MAX as i64 {
+                Some(ch.chapter_no as u32)
+            } else {
+                None
+            }
+        })
         .next()
 }
 
@@ -334,10 +345,62 @@ fn short_hash(content: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use pensoul_core::{Chapter, ChapterStatus, ProjectId, VolumeId};
+
+    fn make_chapter(id: &str, chapter_no: i64, content: &str) -> Chapter {
+        Chapter {
+            chapter_id: ChapterId::new(id),
+            chapter_no,
+            volume_id: VolumeId::new("vol-1"),
+            title: format!("第{id}章"),
+            summary: String::new(),
+            content: content.to_string(),
+            word_count: content.chars().count() as u32,
+            version: 1,
+            status: ChapterStatus::Draft,
+            consistency_score: 1.0,
+            created_at: String::new(),
+            updated_at: String::new(),
+        }
+    }
 
     #[test]
     fn test_short_hash_stable() {
         assert_eq!(short_hash("abc"), short_hash("abc"));
         assert_ne!(short_hash("abc"), short_hash("abd"));
+    }
+
+    #[test]
+    fn test_chapters_in_order_sorts_by_chapter_no_zero_last() {
+        let mut onto = NovelOntology::new(ProjectId::new("p"), String::new());
+        // 故意乱序放入：序号 3、未分配、序号 1
+        onto.chapters.push(make_chapter("ch-c", 3, ""));
+        onto.chapters.push(make_chapter("ch-x", 0, ""));
+        onto.chapters.push(make_chapter("ch-a", 1, ""));
+
+        let ordered = chapters_in_order(&onto);
+        let ids: Vec<&str> = ordered.iter().map(|c| c.chapter_id.as_str()).collect();
+        assert_eq!(ids, vec!["ch-a", "ch-c", "ch-x"]);
+    }
+
+    #[test]
+    fn test_chapter_no_of_resolves_string_id() {
+        let mut onto = NovelOntology::new(ProjectId::new("p"), String::new());
+        onto.chapters.push(make_chapter("ch-123-abc", 2, ""));
+
+        assert_eq!(chapter_no_of(&onto, &ChapterId::new("ch-123-abc")), Some(2));
+        assert_eq!(chapter_no_of(&onto, &ChapterId::new("missing")), None);
+    }
+
+    #[test]
+    fn test_first_appearance_uses_chapter_no_not_id() {
+        let mut onto = NovelOntology::new(ProjectId::new("p"), String::new());
+        // 字符串 ID 的章节也能被正确索引
+        onto.chapters
+            .push(make_chapter("ch-ts-1", 1, "路人甲路过。"));
+        onto.chapters.push(make_chapter("ch-ts-2", 2, "林晚登场。"));
+
+        assert_eq!(first_appearance_chapter(&onto, "林晚"), Some(2));
+        assert_eq!(first_appearance_chapter(&onto, "不存在"), None);
     }
 }

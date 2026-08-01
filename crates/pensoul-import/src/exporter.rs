@@ -66,6 +66,7 @@ mod tests {
     fn create_test_chapter(id: &str, title: &str, content: &str) -> Chapter {
         Chapter {
             chapter_id: ChapterId::new(id),
+            chapter_no: 1,
             volume_id: VolumeId::new("vol1"),
             title: title.to_string(),
             summary: String::new(),
@@ -149,6 +150,7 @@ mod tests {
             settings: pensoul_core::ProjectSettings::new(),
             core_concept: pensoul_core::CoreConcept::new(),
             sprout: pensoul_core::SproutData::new(),
+            outline_arcs: Vec::new(),
         };
 
         let output = export_to_txt(&ontology).unwrap();

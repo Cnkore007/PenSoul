@@ -60,7 +60,8 @@ pub async fn execute_harness_step(
         &system_prompt,
         "请执行当前阶段的任务。",
         0.7,
-        2048,
+        // 推理型模型 reasoning 会占用大量预算，2048 极易耗尽
+        8192,
     )
     .await?;
 

@@ -28,6 +28,7 @@ use std::collections::HashMap;
 fn make_chapter(chapter_id: &str, title: &str) -> Chapter {
     Chapter {
         chapter_id: ChapterId::new(chapter_id),
+        chapter_no: 1,
         volume_id: VolumeId::new("vol_1"),
         title: title.to_string(),
         summary: String::new(),

@@ -5,7 +5,7 @@ import {
   ChevronDown, ChevronRight,
 } from "lucide-react";
 import type { LlmProvider, LlmModel } from "../types";
-import { listProviders, listModels, saveProviders, saveModels, saveApiKey, loadApiKeys, setModelPreference, httpRequest } from "../ipc";
+import { listProviders, listModels, saveProviders, saveModels, saveApiKey, loadApiKeys, httpRequest } from "../ipc";
 
 interface ProviderForm {
   provider_id: string;
@@ -294,13 +294,8 @@ export default function LlmSettingsView() {
   const handleToggle = async (modelId: string, enabled: boolean) => {
     const newModels = models.map(m => m.model_id === modelId ? { ...m, is_available: enabled } : m);
     setModels(newModels);
-    // 保存到后端磁盘
+    // 启用状态持久化到 models.json（全局唯一数据源，所有功能共享）
     saveModels(newModels).catch(e => console.error("保存模型列表失败:", e));
-    try {
-      await setModelPreference(modelId, enabled);
-    } catch (e) {
-      console.error("切换模型状态失败:", e);
-    }
   };
 
   // 获取供应商对应的模型列表

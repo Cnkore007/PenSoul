@@ -70,8 +70,9 @@ function toBackendConcept(c: any) {
 }
 
 // 后端 SproutData (snake_case) → 前端 (camelCase)
+// 全字段透传：expert_id / skill_path / presets_dismissed / last_discussion 一个都不能丢
 function transformSprout(raw: any) {
-  if (!raw) return { ideaDescription: '', agents: [] };
+  if (!raw) return { ideaDescription: '', agents: [], lastDiscussion: undefined };
   return {
     ideaDescription: raw.idea_description ?? raw.ideaDescription ?? '',
     agents: (raw.agents ?? []).map((a: any) => ({
@@ -81,11 +82,22 @@ function transformSprout(raw: any) {
       prompt: a.prompt ?? '',
       perspective: a.perspective ?? '',
       enabled: a.enabled ?? true,
+      expertId: a.expert_id ?? undefined,
+      skillPath: a.skill_path ?? undefined,
     })),
+    presetsDismissed: raw.presets_dismissed ?? false,
+    // 最近一次讨论结果（发言 + 成果），切换页面/重启后恢复
+    lastDiscussion: raw.last_discussion
+      ? {
+          turns: raw.last_discussion.turns ?? [],
+          synthesis: raw.last_discussion.synthesis ?? null,
+        }
+      : undefined,
   };
 }
 
 // 前端 (camelCase) → 后端 SproutData (snake_case)
+// last_discussion 为 undefined 时发 null，后端会保留已有讨论结果（见 save_sprout）
 function toBackendSprout(s: any) {
   return {
     idea_description: s.ideaDescription ?? '',
@@ -96,7 +108,13 @@ function toBackendSprout(s: any) {
       prompt: a.prompt ?? '',
       perspective: a.perspective ?? '',
       enabled: a.enabled ?? true,
+      expert_id: a.expertId ?? null,
+      skill_path: a.skillPath ?? null,
     })),
+    presets_dismissed: s.presetsDismissed ?? false,
+    last_discussion: s.lastDiscussion
+      ? { turns: s.lastDiscussion.turns ?? [], synthesis: s.lastDiscussion.synthesis ?? null }
+      : null,
   };
 }
 
@@ -144,7 +162,16 @@ function toBackendCharacters(chars: any[]) {
       growth_curve: [],
       knowledge_base: { known_facts: [], knowledge_sources: [], decay_model: { half_life_chapters: 10, min_reliability: 0.1 } },
     })),
-    relationships: (chars ?? []).flatMap((ch: any) => ch.relationships ?? []),
+    relationships: (chars ?? []).flatMap((ch: any) =>
+      (ch.relationships ?? []).map((r: any) => ({
+        from: r.from ?? "",
+        to: r.to ?? "",
+        relation_type: r.relation_type ?? "",
+        // LLM 产物可能把强度给成字符串或中文描述，统一钳到数字
+        strength: Number.isFinite(Number(r.strength)) ? Number(r.strength) : 0.5,
+        history: [],
+      }))
+    ),
   };
 }
 
@@ -199,12 +226,10 @@ function toBackendWorld(world: any): any {
   };
 }
 
-export async function loadProjectData(projectId: string): Promise<ProjectData> {
+// 从后端拉取项目全量数据并组装成前端 ProjectData（不含 open_project 切换）
+async function fetchProjectData(projectId: string): Promise<ProjectData> {
   try {
-    // 先确保项目已打开
-    await ipc.openProject(projectId);
-
-    const [chapters, characters, world, settings, concept, sprout, volumesMeta] = await Promise.all([
+    const [chapters, characters, world, settings, concept, sprout, volumesMeta, outlineArcs] = await Promise.all([
       ipc.listChapters(),
       ipc.getCharacters(),
       ipc.getWorld(),
@@ -212,6 +237,7 @@ export async function loadProjectData(projectId: string): Promise<ProjectData> {
       ipc.loadConcept(),
       ipc.loadSprout(),
       ipc.getVolumes(),
+      ipc.listOutlineArcs().catch(() => []), // 老版本后端无此命令时降级为空
     ]);
 
     // 卷元数据（标题以持久化的卷列表为准）
@@ -229,6 +255,7 @@ export async function loadProjectData(projectId: string): Promise<ProjectData> {
 
     const mapChapter = (ch: any, volId: string) => ({
       chapter_id: ch.chapter_id,
+      chapter_no: ch.chapter_no ?? 0,
       volume_id: ch.volume_id || volId,
       title: ch.title,
       summary: ch.summary || "",
@@ -262,6 +289,7 @@ export async function loadProjectData(projectId: string): Promise<ProjectData> {
       concept: transformConcept(concept),
       sprout: transformSprout(sprout),
       settings: transformSettings(settings),
+      outlineArcs: outlineArcs ?? [],
     };
   } catch (e) {
     console.error("加载项目数据失败:", e);
@@ -291,24 +319,43 @@ export async function loadProjectData(projectId: string): Promise<ProjectData> {
         genre: '',
         targetVolumes: 0,
       },
+      outlineArcs: [],
     };
   }
 }
 
-export async function saveProjectData(data: ProjectData): Promise<void> {
-  try {
-    // 保存各部分数据到后端（先转换为后端 snake_case 格式）
-    await Promise.all([
-      ipc.saveCharacters(toBackendCharacters(data.characters)),
-      ipc.saveWorld(toBackendWorld(data.world)),
-      ipc.saveSettings(toBackendSettings(data.settings)),
-      ipc.saveConcept(toBackendConcept(data.concept)),
-      ipc.saveSprout(toBackendSprout(data.sprout)),
-    ]);
+// 首次打开项目：先切换后端活跃项目（重建引擎），再拉取全量数据
+export async function loadProjectData(projectId: string): Promise<ProjectData> {
+  await ipc.openProject(projectId);
+  return fetchProjectData(projectId);
+}
 
-    // 保存每个章节（upsert：新建章节也能落盘，梗概随章节一起持久化）
-    for (const vol of data.volumes) {
-      for (const ch of vol.chapters) {
+// 页面切换时的轻量刷新：只重新拉取数据，不调 open_project——
+// open_project 会整体重建 Harness 引擎与派生状态，写作管线/讨论运行中调用会断现场
+export async function refreshProjectData(projectId: string): Promise<ProjectData> {
+  return fetchProjectData(projectId);
+}
+
+export async function saveProjectData(data: ProjectData): Promise<void> {
+  // 各环节独立容错：单点失败不再中断其余保存；错误汇总后抛出，
+  // 让调用方有机会告知用户（此前静默 catch 导致章节/人物"假保存"）
+  const errors: string[] = [];
+  const names = ["人物", "世界观", "创作设定", "核心概念", "灵魂萌芽"];
+  const results = await Promise.allSettled([
+    ipc.saveCharacters(toBackendCharacters(data.characters)),
+    ipc.saveWorld(toBackendWorld(data.world)),
+    ipc.saveSettings(toBackendSettings(data.settings)),
+    ipc.saveConcept(toBackendConcept(data.concept)),
+    ipc.saveSprout(toBackendSprout(data.sprout)),
+  ]);
+  results.forEach((r, i) => {
+    if (r.status === "rejected") errors.push(`${names[i]}保存失败: ${r.reason}`);
+  });
+
+  // 保存每个章节（upsert：新建章节也能落盘，梗概随章节一起持久化）
+  for (const vol of data.volumes) {
+    for (const ch of vol.chapters) {
+      try {
         await ipc.upsertChapter(
           ch.chapter_id,
           ch.volume_id || vol.volume_id,
@@ -317,14 +364,22 @@ export async function saveProjectData(data: ProjectData): Promise<void> {
           ch.summary ?? "",
           ch.status,
         );
+      } catch (e) {
+        errors.push(`章节「${ch.title}」保存失败: ${e}`);
       }
     }
+  }
+  try {
     // 保存卷元数据（标题）
     await ipc.saveVolumes(data.volumes.map(v => ({ volume_id: v.volume_id, title: v.title })));
-
     await ipc.saveProject();
   } catch (e) {
-    console.error("保存项目数据失败:", e);
+    errors.push(`项目落盘失败: ${e}`);
+  }
+
+  if (errors.length > 0) {
+    console.error("保存项目数据失败:", errors);
+    throw new Error(errors.join("\n"));
   }
 }
 

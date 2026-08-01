@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { DiscussionOutput } from "./types";
+import type { DiscussionOutput, PipelineState } from "./types";
 
 // ── 项目管理 ──
 
@@ -64,6 +64,33 @@ export async function saveVolumes(volumes: Array<{ volume_id: string; title: str
 
 export async function getVolumes(): Promise<any[]> {
   return await invoke<any[]>("get_volumes");
+}
+
+// ── 情节脉络（大纲规划层） ──
+
+export async function listOutlineArcs(): Promise<import("./types").OutlineArc[]> {
+  return await invoke<import("./types").OutlineArc[]>("list_outline_arcs");
+}
+
+export async function saveOutlineArcs(arcs: import("./types").OutlineArc[]): Promise<void> {
+  await invoke("save_outline_arcs", { arcs });
+}
+
+// 展开脉络节点的下一批细纲（默认每批 20 章），返回生成范围与完成状态
+export async function expandOutlineArc(
+  arcId: string,
+  modelId: string | null,
+  batch?: number
+): Promise<{ created: number; from: number; to: number; arc_done: boolean }> {
+  return await invoke("expand_outline_arc", { arcId, model: modelId, batch: batch ?? null });
+}
+
+export async function deleteChapter(chapterId: string): Promise<void> {
+  await invoke("delete_chapter", { chapterId });
+}
+
+export async function deleteVolume(volumeId: string): Promise<void> {
+  await invoke("delete_volume", { volumeId });
 }
 
 // ── 角色 ──
@@ -166,18 +193,6 @@ export async function loadApiKeys(): Promise<Record<string, string>> {
   return await invoke<Record<string, string>>("load_api_keys");
 }
 
-export async function testModel(modelId: string): Promise<boolean> {
-  return await invoke<boolean>("test_model", { modelId });
-}
-
-export async function setModelPreference(modelId: string, enabled: boolean): Promise<void> {
-  await invoke("set_model_preference", { modelId, enabled });
-}
-
-export async function routeModel(taskType: string): Promise<any> {
-  return await invoke<any>("route_model", { taskType });
-}
-
 // ── 概念讨论（真实 LLM 调用，两轮交锋 + 结构化成果） ──
 
 export interface DiscussAgent {
@@ -192,6 +207,11 @@ export interface DiscussAgent {
 
 export async function discussConcept(ideaDescription: string, settingsContext: string, agents: DiscussAgent[]): Promise<DiscussionOutput> {
   return await invoke<DiscussionOutput>("discuss_concept", { ideaDescription, settingsContext, agents });
+}
+
+// 讨论状态查询（运行旗标 + 事件缓冲），切换页面后重连恢复进度用
+export async function getDiscussionState(): Promise<import("./types").DiscussionState> {
+  return await invoke<import("./types").DiscussionState>("get_discussion_state");
 }
 
 // ── 页面内容优化（世界观/人物志） ──
@@ -210,6 +230,33 @@ export interface HarnessStepResult {
 
 export async function executeHarnessStep(stageName: string, projectContext: string, stagePrompt: string): Promise<HarnessStepResult> {
   return await invoke<HarnessStepResult>("execute_harness_step", { stageName, projectContext, stagePrompt });
+}
+
+// ── 连写管线（造化工坊，引擎驱动的自动连写） ──
+// 进度通过 Tauri 事件 "harness-event" 实时推送
+
+export async function runChapterPipeline(
+  chapterIds: string[] | null,
+  writingModel: string | null,
+  reviewModel: string | null
+): Promise<{ completed: number; failed: string[]; stopped: boolean; total: number }> {
+  return await invoke("run_chapter_pipeline", { chapterIds, writingModel, reviewModel });
+}
+
+export async function pausePipeline(): Promise<void> {
+  await invoke("pause_pipeline");
+}
+
+export async function resumePipeline(): Promise<void> {
+  await invoke("resume_pipeline");
+}
+
+export async function stopPipeline(): Promise<void> {
+  await invoke("stop_pipeline");
+}
+
+export async function getPipelineState(): Promise<PipelineState> {
+  return await invoke<PipelineState>("get_pipeline_state");
 }
 
 // ── 插件/工作流 ──

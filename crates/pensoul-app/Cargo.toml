@@ -12,7 +12,6 @@ pensoul-concurrency = { path = "../pensoul-concurrency" }
 pensoul-plugin = { path = "../pensoul-plugin" }
 pensoul-consistency = { path = "../pensoul-consistency" }
 pensoul-import = { path = "../pensoul-import" }
-pensoul-llm = { path = "../pensoul-llm" }
 tauri = { version = "2", features = [] }
 tauri-plugin-shell = "2"
 serde = { version = "1", features = ["derive"] }
@@ -25,7 +24,8 @@ uuid = { version = "1", features = ["v4"] }
 dirs = "5"
 chrono = "0.4"
 tauri-plugin-http = "2.5.9"
-reqwest = { version = "0.13.4", features = ["json"] }
+reqwest = { version = "0.13.4", features = ["json", "stream"] }
+futures-util = "0.3"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

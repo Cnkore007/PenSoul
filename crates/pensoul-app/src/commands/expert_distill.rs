@@ -107,9 +107,18 @@ pub async fn distill_expert(
          5. 创作决策：重大创作决策的背景与逻辑、言行一致/不一致案例\n\
          6. 思维演变：创作观的思想转折点（不是生平年表）\n\n\
          硬性要求：发现矛盾时保留矛盾，不要调和；信息不足的维度直接标注「信息不足」。\n\
+         直接以「## 维度 1」开头输出报告：不要标题、不要前言、不要执行方式说明、\n\
+         不要置信度图例，置信度标注融入每条要点末尾即可。\n\
          用中文输出。",
     );
-    let research = lh::call_llm(&auth, model_id, &methodology, &research_prompt, 0.7, 4096).await?;
+    // 调研输出量大（六维度各 3-8 条），推理型模型还要先烧 reasoning 预算
+    let research =
+        lh::call_llm(&auth, model_id, &methodology, &research_prompt, 0.7, 16384).await?;
+    // 兜底清理：剥掉模型可能附加的执行说明/图例等前言，报告从第一个维度标题开始
+    let research = match research.find("## 维度") {
+        Some(idx) => research[idx..].to_string(),
+        None => research,
+    };
     emit_phase(&app_handle, "人物调研", "done", "调研完成", &research).ok();
 
     // ── Phase 2: 技能构建（按产物模板生成 SKILL.md）──
@@ -160,11 +169,16 @@ pub async fn distill_expert(
            不复述生平）/ ## 创作讨论工作流 / ## 核心心智模型（### 模型N: 名称）/ ## 创作决策启发式 /\n\
            ## 表达 DNA / ## 价值观与反模式 / ## 诚实边界",
     );
-    let raw_output = lh::call_llm(&auth, model_id, &methodology, &build_prompt, 0.7, 8192).await?;
+    // K3 默认 reasoning_effort=max，思考先烧掉一半以上预算，
+    // 直接给足 32768，避免 SKILL.md 写到一半被截断丢标记
+    let raw_output = lh::call_llm(&auth, model_id, &methodology, &build_prompt, 0.7, 32768).await?;
 
     // 提取标记之间的 SKILL.md 内容，并强制校正 frontmatter 的 name 为目录名（防 LLM 译成英文）
-    let skill_md_raw = extract_skill_md(&raw_output)
-        .ok_or_else(|| "LLM 输出中未找到 SKILL.md 内容标记，请重试".to_string())?;
+    let skill_md_raw = extract_skill_md(&raw_output).ok_or_else(|| {
+        let total = raw_output.chars().count();
+        let tail: String = raw_output.chars().skip(total.saturating_sub(150)).collect();
+        format!("LLM 输出中未找到 SKILL.md 内容标记（输出 {total} 字符，结尾：…{tail}），请重试")
+    })?;
     let skill_md = normalize_frontmatter_name(&skill_md_raw, &dir_name);
 
     // 解析产物，提取专家卡片字段

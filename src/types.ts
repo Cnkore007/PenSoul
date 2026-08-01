@@ -1,5 +1,6 @@
 export interface Chapter {
   chapter_id: string;
+  chapter_no?: number; // 章节序号（后端 backfill 后必有）
   volume_id?: string;
   title: string;
   summary?: string; // 章节梗概（大纲层信息，非正文）
@@ -119,6 +120,16 @@ export interface PluginStage {
   max_retries: number;
 }
 
+// 情节脉络节点 —— 大纲规划层（覆盖一个章节范围的剧情规划，展开细纲后才生成可写章节）
+export interface OutlineArc {
+  arc_id: string;
+  title: string;
+  description: string;
+  chapter_start: number; // 覆盖起始章号（含，从 1 开始）
+  chapter_end: number;   // 覆盖结束章号（含）
+  expanded_until: number; // 已展开细纲到第几章（0 = 未展开）
+}
+
 // 项目工作空间数据 — 每个项目独立存储
 export interface ProjectData {
   project_id: string;
@@ -132,6 +143,8 @@ export interface ProjectData {
   // 萌芽数据 — 想法描述 + Agent 讨论配置
   sprout: SproutData;
   settings: ProjectSettings;
+  // 情节脉络（大纲规划层）；只读视图，增删改走专用 IPC，不随 saveProjectData 全量保存
+  outlineArcs: OutlineArc[];
 }
 
 export interface VolumeWithChapters extends Volume {
@@ -336,3 +349,45 @@ export type ViewType =
   | 'plugins'
   | 'workflow'
   | 'dashboard';
+
+// ── 连写管线（造化工坊） ──
+
+// 管线实时事件（后端 harness-event 推送）
+export interface PipelineEvent {
+  seq?: number; // 后端单调序号（快照与实时事件去重用）
+  chapter_id: string;
+  chapter_title: string;
+  stage: string;
+  kind:
+    | 'chapter_start'
+    | 'stage_start'
+    | 'llm_output'
+    | 'review_report'
+    | 'gate'
+    | 'effect'
+    | 'chapter_done'
+    | 'chapter_failed'
+    | 'paused'
+    | 'resumed'
+    | 'pipeline_done';
+  status: string;
+  content: string;
+  score?: number;
+  attempt: number;
+}
+
+// 管线状态快照（含事件缓冲与模型选择，页面切换后恢复现场用）
+export interface PipelineState {
+  running: boolean;
+  paused: boolean;
+  current_chapter: string | null;
+  events?: PipelineEvent[];
+  writing_model?: string | null;
+  review_model?: string | null;
+}
+
+// 讨论状态快照（后端 DiscussionControl，页面重连用）
+export interface DiscussionState {
+  running: boolean;
+  events?: DiscussionEvent[];
+}

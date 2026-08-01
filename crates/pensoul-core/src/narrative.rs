@@ -96,3 +96,28 @@ pub struct EmotionalArc {
     /// 数据点 (章节, 情感强度)
     pub data_points: Vec<(i64, f32)>,
 }
+
+/// 情节脉络节点 —— 大纲规划层
+///
+/// 一个节点覆盖一个章节范围（如「第1-200章」），描述该故事段的
+/// 整体剧情规划。它不是章节本身：通过「展开细纲」按范围逐批生成
+/// 真正的逐章梗概（章节实体），造化工坊再按章节梗概写作正文。
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct OutlineArc {
+    /// 节点 ID
+    pub arc_id: String,
+    /// 节点标题（如「枯井边的勘验」）
+    pub title: String,
+    /// 该故事段的剧情规划
+    #[serde(default)]
+    pub description: String,
+    /// 覆盖的起始章号（含，从 1 开始）
+    #[serde(default)]
+    pub chapter_start: i64,
+    /// 覆盖的结束章号（含）
+    #[serde(default)]
+    pub chapter_end: i64,
+    /// 已展开细纲到第几章（0 表示尚未展开；>= chapter_end 表示全部展开）
+    #[serde(default)]
+    pub expanded_until: i64,
+}
