@@ -77,12 +77,19 @@ export async function saveOutlineArcs(arcs: import("./types").OutlineArc[]): Pro
 }
 
 // 展开脉络节点的下一批细纲（默认每批 20 章），返回生成范围与完成状态
+// skillCards：工作流为细纲展开环节绑定的技法卡 SKILL.md 路径（可空）
 export async function expandOutlineArc(
   arcId: string,
   modelId: string | null,
-  batch?: number
+  batch?: number,
+  skillCards?: string[] | null
 ): Promise<{ created: number; from: number; to: number; arc_done: boolean }> {
-  return await invoke("expand_outline_arc", { arcId, model: modelId, batch: batch ?? null });
+  return await invoke("expand_outline_arc", {
+    arcId,
+    model: modelId,
+    batch: batch ?? null,
+    skillCards: skillCards ?? null,
+  });
 }
 
 export async function deleteChapter(chapterId: string): Promise<void> {
@@ -238,9 +245,17 @@ export async function executeHarnessStep(stageName: string, projectContext: stri
 export async function runChapterPipeline(
   chapterIds: string[] | null,
   writingModel: string | null,
-  reviewModel: string | null
+  reviewModel: string | null,
+  writingCards?: string[] | null,
+  reviewCards?: string[] | null
 ): Promise<{ completed: number; failed: string[]; stopped: boolean; total: number }> {
-  return await invoke("run_chapter_pipeline", { chapterIds, writingModel, reviewModel });
+  return await invoke("run_chapter_pipeline", {
+    chapterIds,
+    writingModel,
+    reviewModel,
+    writingCards: writingCards ?? null,
+    reviewCards: reviewCards ?? null,
+  });
 }
 
 export async function pausePipeline(): Promise<void> {
@@ -302,10 +317,79 @@ export async function getExpertsFolder(): Promise<string> {
   return await invoke<string>("get_experts_folder");
 }
 
-// 女娲蒸馏：调用 LLM 对名人进行蒸馏，返回专家结果
-// 通过 Tauri 事件 "distill-phase" 接收实时进度
-export async function distillExpert(persona: string): Promise<any> {
-  return await invoke<any>("distill_expert", { persona });
+// 专家蒸馏：调用 LLM 对名人进行蒸馏，返回专家结果
+// 通过 Tauri 事件 "distill-phase" 接收实时进度；model 为空时后端自动选模型
+export async function distillExpert(persona: string, model?: string | null): Promise<any> {
+  return await invoke<any>("distill_expert", { persona, model: model ?? null });
+}
+
+// ── 书籍蒸馏 · 写作技能卡 ──
+// 进度通过 Tauri 事件 "book-distill-phase" 实时推送
+
+// 蒸馏一本书为写作技能卡组（dimensions 为空 = 全 5 维；filePath 上传书籍文件优先，sampleText 手动样章次之）
+export async function distillBook(
+  title: string,
+  author: string | null,
+  filePath: string | null,
+  sampleText: string | null,
+  dimensions: string[] | null,
+  model: string | null
+): Promise<import("./types").BookPackage> {
+  return await invoke<import("./types").BookPackage>("distill_book", {
+    title,
+    author,
+    filePath,
+    sampleText,
+    dimensions,
+    model,
+  });
+}
+
+// 列出 WritingCard/ 下全部技能包
+export async function listBookPackages(): Promise<import("./types").BookPackage[]> {
+  return await invoke<import("./types").BookPackage[]>("list_book_packages");
+}
+
+// 删除整个技能包目录（不可逆）
+export async function deleteBookPackage(packageDir: string): Promise<void> {
+  return await invoke("delete_book_package", { package: packageDir });
+}
+
+// ── 工作流技能配置（环节 → 模型 + 技法卡绑定，随项目持久化） ──
+
+export async function saveWorkflowSkills(config: import("./types").WorkflowSkillConfig | null): Promise<void> {
+  await invoke("save_workflow_skills", { config });
+}
+
+export async function loadWorkflowSkills(): Promise<import("./types").WorkflowSkillConfig | null> {
+  return await invoke<import("./types").WorkflowSkillConfig | null>("load_workflow_skills");
+}
+
+// ── 全局工作流模板（作品库层面，data/workflows/templates.json） ──
+
+// 列出全部模板（后端每次重新加载磁盘，跨页面/进程一致）
+export async function listWorkflowTemplates(): Promise<import("./types").WorkflowTemplate[]> {
+  return await invoke<import("./types").WorkflowTemplate[]>("list_workflow_templates");
+}
+
+// 整体保存模板列表（内置模板保护：缺失自动补回、builtin 标志不可篡改）
+export async function saveWorkflowTemplates(templates: import("./types").WorkflowTemplate[]): Promise<void> {
+  await invoke("save_workflow_templates", { templates });
+}
+
+// 恢复内置模板（用户自定义模板保留）
+export async function resetWorkflowTemplates(): Promise<import("./types").WorkflowTemplate[]> {
+  return await invoke<import("./types").WorkflowTemplate[]>("reset_workflow_templates");
+}
+
+// ── 项目工作流引用（模板 ID + 版本 + 项目覆盖，随项目文件持久化） ──
+
+export async function saveWorkflowRef(config: import("./types").WorkflowRef | null): Promise<void> {
+  await invoke("save_workflow_ref", { config: config ?? null });
+}
+
+export async function loadWorkflowRef(): Promise<import("./types").WorkflowRef | null> {
+  return await invoke<import("./types").WorkflowRef | null>("load_workflow_ref");
 }
 
 

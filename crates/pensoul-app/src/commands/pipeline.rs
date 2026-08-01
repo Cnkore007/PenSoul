@@ -10,6 +10,7 @@ use std::sync::atomic::Ordering;
 ///
 /// - `chapter_ids`：指定章节（缺省 = 所有「有梗概且正文为空」的章节，按序号升序）
 /// - `writing_model` / `review_model`：缺省自动选第一个可用模型；审查模型尽量与写作不同
+/// - `writing_cards` / `review_cards`：工作流为写作/审查环节绑定的技法卡 SKILL.md 路径（可空）
 #[tauri::command]
 pub async fn run_chapter_pipeline(
     app_handle: tauri::AppHandle,
@@ -17,6 +18,8 @@ pub async fn run_chapter_pipeline(
     chapter_ids: Option<Vec<String>>,
     writing_model: Option<String>,
     review_model: Option<String>,
+    writing_cards: Option<Vec<String>>,
+    review_cards: Option<Vec<String>>,
 ) -> Result<serde_json::Value, String> {
     pipeline::run_pipeline(
         app_handle,
@@ -24,6 +27,8 @@ pub async fn run_chapter_pipeline(
         chapter_ids,
         writing_model,
         review_model,
+        writing_cards,
+        review_cards,
     )
     .await
 }

@@ -22,8 +22,9 @@ impl GateEvaluator {
     /// - **Manual**: 仅当引擎收到带外人工批准（`manual_approved = true`）时放行。
     ///   注意：绝不读取 `result` 中的字段来判断人工意图——阶段产出由 AI 生成，
     ///   AI 可以通过写入 `human_approved: true` 自我批准，使人工门控失效。
-    /// - **Conditional**: 优先读取 `result.score`，若 >= 80 则通过；
-    ///   否则尝试解析 `stage.gate_condition` 表达式。
+    /// - **Conditional**: 若配置了 `stage.gate_condition` 表达式（如 `score >= 85`），
+    ///   优先按表达式判定（工作流模板可用它自定义审查阈值）；
+    ///   否则读取 `result.score`，>= 80 则通过；两者皆无则拦截。
     ///
     /// # 错误
     /// 当条件表达式无法解析时返回 `GateConditionFailed`。
@@ -50,7 +51,22 @@ impl GateEvaluator {
             }),
 
             GateType::Conditional => {
-                // 优先从 result.score 获取分数
+                // 优先尝试 gate_condition 表达式（模板自定义阈值走这里）
+                if let Some(ref condition) = stage.gate_condition {
+                    let passed = Self::evaluate_condition(condition, result)?;
+                    let score = result.get("score").and_then(|v| v.as_f64());
+                    return Ok(GateResult {
+                        passed,
+                        score,
+                        reason: if passed {
+                            format!("条件表达式通过: {condition}")
+                        } else {
+                            format!("条件表达式未满足: {condition}")
+                        },
+                    });
+                }
+
+                // 无表达式时回退到默认阈值 80
                 if let Some(score) = result.get("score").and_then(|v| v.as_f64()) {
                     let passed = score >= 80.0;
                     return Ok(GateResult {
@@ -60,20 +76,6 @@ impl GateEvaluator {
                             format!("条件放行：分数 {score} >= 80")
                         } else {
                             format!("条件拦截：分数 {score} < 80")
-                        },
-                    });
-                }
-
-                // 尝试解析 gate_condition 表达式
-                if let Some(ref condition) = stage.gate_condition {
-                    let passed = Self::evaluate_condition(condition, result)?;
-                    return Ok(GateResult {
-                        passed,
-                        score: None,
-                        reason: if passed {
-                            format!("条件表达式通过: {condition}")
-                        } else {
-                            format!("条件表达式未满足: {condition}")
                         },
                     });
                 }
@@ -231,6 +233,21 @@ mod tests {
         let result = serde_json::json!({"consistency_score": 70});
         let gr = GateEvaluator::evaluate(&stage, &result, false).unwrap();
         assert!(!gr.passed);
+    }
+
+    #[test]
+    fn test_conditional_gate_template_threshold_via_condition() {
+        // 工作流模板自定义审查阈值：score >= 85 才放行（高于默认 80）
+        let stage = make_stage(GateType::Conditional, Some("score >= 85"));
+        let low = serde_json::json!({"score": 82.0});
+        let low_gr = GateEvaluator::evaluate(&stage, &low, false).unwrap();
+        assert!(!low_gr.passed);
+        assert_eq!(low_gr.score, Some(82.0));
+
+        let high = serde_json::json!({"score": 90.0});
+        let high_gr = GateEvaluator::evaluate(&stage, &high, false).unwrap();
+        assert!(high_gr.passed);
+        assert_eq!(high_gr.score, Some(90.0));
     }
 
     #[test]

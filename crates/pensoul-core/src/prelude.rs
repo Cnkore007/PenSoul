@@ -14,4 +14,5 @@ pub use crate::sprout::{
     AgentDiscussionConfig, AgentTurn, CharacterItem, DiscussionRecord, DiscussionSynthesis,
     NamedDesc, OutlineBeat, RelationItem, SproutData, TimelineItem,
 };
+pub use crate::workflow::*;
 pub use crate::world::*;

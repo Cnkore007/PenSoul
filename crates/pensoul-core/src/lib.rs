@@ -10,6 +10,7 @@ pub mod ontology;
 pub mod prelude;
 pub mod settings;
 pub mod sprout;
+pub mod workflow;
 pub mod world;
 
 pub use prelude::*;

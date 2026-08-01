@@ -5,6 +5,7 @@
 //! 解析器负责把 LLM 文本产出拆成「信号（给引擎判门控）」
 //! 与「报告（给用户看）」双通道。
 use pensoul_core::StageName;
+use pensoul_core::workflow::WorkflowTemplate;
 use pensoul_harness::{GateType, RunnerType, Stage};
 
 /// 写作阶段
@@ -14,9 +15,12 @@ pub const STAGE_REVIEW: &str = "chapter_review";
 /// 回灌阶段
 pub const STAGE_INJECTION: &str = "state_injection";
 
-/// 三阶段模板：写作(auto) → 审查(conditional, 异模型) → 回灌(auto)
-pub fn pipeline_stages() -> Vec<Stage> {
-    vec![
+/// 三阶段模板：写作(auto) → 审查(conditional, 异模型) → 回灌(auto)。
+///
+/// 传入全局工作流模板时可覆盖阶段显示名/手册/门控/重试/审查阈值；
+/// 模板缺省（None）时使用默认值。
+pub fn pipeline_stages(template: Option<&WorkflowTemplate>) -> Vec<Stage> {
+    let mut stages = vec![
         Stage {
             name: StageName::new(STAGE_WRITING),
             display_name: "章节写作".to_string(),
@@ -67,7 +71,37 @@ pub fn pipeline_stages() -> Vec<Stage> {
             runner: RunnerType::Local,
             ..Default::default()
         },
-    ]
+    ];
+
+    if let Some(tpl) = template {
+        for st in &mut stages {
+            let Some(def) = tpl.find_stage(st.name.as_str()) else {
+                continue;
+            };
+            if !def.display_name.trim().is_empty() {
+                st.display_name = def.display_name.clone();
+            }
+            if !def.prompt_hint.trim().is_empty() {
+                st.manual = def.prompt_hint.clone();
+            }
+            st.gate_type = match def.gate.as_str() {
+                "manual" => GateType::Manual,
+                "conditional" => GateType::Conditional,
+                _ => GateType::Auto,
+            };
+            st.max_retries = def.max_retries;
+            if let Some(on_fail) = def.on_fail.as_deref() {
+                if !on_fail.is_empty() {
+                    st.on_fail = Some(StageName::new(on_fail));
+                }
+            }
+            // 条件门控：用模板阈值生成门控表达式（引擎优先按表达式判定）
+            if def.gate == "conditional" {
+                st.gate_condition = Some(format!("score >= {}", tpl.review_pass_score));
+            }
+        }
+    }
+    stages
 }
 
 // ── 输出解析 ────────────────────────────────────────────────────────────
@@ -184,7 +218,7 @@ mod tests {
 
     #[test]
     fn test_pipeline_stages_topology() {
-        let stages = pipeline_stages();
+        let stages = pipeline_stages(None);
         assert_eq!(stages.len(), 3);
         assert_eq!(stages[0].name.as_str(), STAGE_WRITING);
         assert_eq!(stages[0].gate_type, GateType::Auto);

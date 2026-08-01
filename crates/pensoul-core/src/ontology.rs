@@ -35,6 +35,15 @@ pub struct NovelOntology {
     /// 展开细纲后生成真正的章节；旧项目 JSON 无此字段，默认为空
     #[serde(default)]
     pub outline_arcs: Vec<crate::narrative::OutlineArc>,
+    /// 工作流技能配置（环节 → 模型 + 技法卡绑定）。
+    /// 结构由前端定义，后端透明存储随项目文件持久化；旧项目 JSON 无此字段，默认为 null
+    #[serde(default)]
+    pub workflow_skills: serde_json::Value,
+    /// 项目工作流引用（模板 ID + 版本 + 项目级覆盖）。
+    /// 结构由前端定义（见 crate::workflow::WorkflowRef），后端透明存储；
+    /// 旧项目 JSON 无此字段，默认为 null
+    #[serde(default)]
+    pub workflow_ref: serde_json::Value,
 }
 
 impl NovelOntology {
@@ -90,6 +99,8 @@ impl NovelOntology {
             core_concept: crate::concept::CoreConcept::new(),
             sprout: crate::sprout::SproutData::new(),
             outline_arcs: Vec::new(),
+            workflow_skills: serde_json::Value::Null,
+            workflow_ref: serde_json::Value::Null,
         }
     }
 

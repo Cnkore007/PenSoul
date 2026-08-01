@@ -17,8 +17,9 @@ interface SidebarProps {
 // 全局导航 — 无项目上下文
 const globalNav = [
   { id: "projects" as ViewType, label: "作品库", icon: <FolderOpen size={18} />, group: "works" as const },
+  { id: "workflow-library" as ViewType, label: "工作流", icon: <Workflow size={18} />, group: "works" as const },
   { id: "llm-settings" as ViewType, label: "模型设置", icon: <Settings size={18} />, group: "system" as const },
-  { id: "plugins" as ViewType, label: "工作流库", icon: <Puzzle size={18} />, group: "system" as const },
+  { id: "plugins" as ViewType, label: "插件", icon: <Puzzle size={18} />, group: "system" as const },
   { id: "experts" as ViewType, label: "专家库", icon: <Lightbulb size={18} />, group: "system" as const },
 ];
 

@@ -1,7 +1,7 @@
 //! 全局应用状态 — 支持多项目管理
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use parking_lot::RwLock;
 
@@ -12,6 +12,7 @@ use pensoul_core::{NovelOntology, ProjectId};
 use pensoul_harness::HarnessEngine;
 use pensoul_memory::{EditingMode, MemoryPipeline};
 use pensoul_plugin::PluginRegistry;
+use pensoul_core::workflow::{WorkflowTemplate, builtin_workflow_templates};
 
 use anyhow::{Result, anyhow};
 
@@ -87,6 +88,11 @@ pub struct AppState {
     pub concurrency: Arc<RwLock<ConcurrencyController>>,
     /// 插件注册中心
     pub plugin_registry: Arc<RwLock<PluginRegistry>>,
+    /// 全局工作流模板库（作品库层面定义，项目通过引用 + 覆盖使用）
+    pub workflow_templates: Arc<RwLock<Vec<WorkflowTemplate>>>,
+    /// 项目文件保存锁：前端并发保存（人物/世界观/设定/概念/萌芽/工作流引用）
+    /// 会同时触发 `save()`，原子写的临时文件必须串行，否则 rename 竞态报 os error 2
+    save_lock: Arc<Mutex<()>>,
     /// 一致性检查器
     pub consistency_checker: Arc<RwLock<IncrementalChecker>>,
     /// 连写管线控制面（运行/暂停/停止旗标 + 事件缓冲 + 模型选择）
@@ -100,6 +106,7 @@ impl AppState {
     pub fn new(base_dir: PathBuf) -> Self {
         let project_id = ProjectId::new(uuid::Uuid::new_v4().to_string());
         let ontology = NovelOntology::new(project_id, String::new());
+        let workflow_templates = load_workflow_templates_from_disk(&base_dir);
 
         Self {
             harness: Arc::new(RwLock::new(HarnessEngine::new(&scratch_harness_dir(
@@ -113,6 +120,8 @@ impl AppState {
             memory: Arc::new(RwLock::new(new_memory_pipeline())),
             concurrency: Arc::new(RwLock::new(ConcurrencyController::new())),
             plugin_registry: Arc::new(RwLock::new(PluginRegistry::new())),
+            workflow_templates: Arc::new(RwLock::new(workflow_templates)),
+            save_lock: Arc::new(Mutex::new(())),
             consistency_checker: Arc::new(RwLock::new(IncrementalChecker::new())),
             pipeline: Arc::new(crate::pipeline::PipelineControl::new()),
             discussion: Arc::new(crate::commands::discussion::DiscussionControl::new()),
@@ -138,7 +147,7 @@ impl AppState {
         let migrated = ontology.migrate_arc_chapters();
 
         let state = Self {
-            base_dir,
+            base_dir: base_dir.clone(),
             active_project_id: Arc::new(RwLock::new(Some(project_id.to_string()))),
             api_keys: Arc::new(RwLock::new(HashMap::new())),
             ontology: Arc::new(RwLock::new(ontology)),
@@ -147,6 +156,10 @@ impl AppState {
             memory: Arc::new(RwLock::new(new_memory_pipeline())),
             concurrency: Arc::new(RwLock::new(ConcurrencyController::new())),
             plugin_registry: Arc::new(RwLock::new(PluginRegistry::new())),
+            workflow_templates: Arc::new(RwLock::new(load_workflow_templates_from_disk(
+                &base_dir,
+            ))),
+            save_lock: Arc::new(Mutex::new(())),
             consistency_checker: Arc::new(RwLock::new(IncrementalChecker::new())),
             pipeline: Arc::new(crate::pipeline::PipelineControl::new()),
             discussion: Arc::new(crate::commands::discussion::DiscussionControl::new()),
@@ -173,9 +186,34 @@ impl AppState {
         self.base_dir.join("_config")
     }
 
+    /// 全局工作流模板文件路径（`data/workflows/templates.json`，跨项目共享）
+    pub fn workflow_templates_file(&self) -> PathBuf {
+        self.base_dir.join("workflows").join("templates.json")
+    }
+
+    /// 重新从磁盘加载全局工作流模板（模板库页面前端刷新时调用）
+    pub fn reload_workflow_templates(&self) {
+        let list = load_workflow_templates_from_disk(&self.base_dir);
+        *self.workflow_templates.write() = list;
+    }
+
+    /// 保存全局工作流模板到磁盘（原子写入）
+    pub fn save_workflow_templates(&self, templates: &[WorkflowTemplate]) -> Result<()> {
+        let _guard = self.save_lock.lock().unwrap_or_else(|e| e.into_inner());
+        let file = self.workflow_templates_file();
+        std::fs::create_dir_all(
+            file.parent()
+                .ok_or_else(|| anyhow!("工作流模板目录路径无效"))?,
+        )?;
+        let data = serde_json::to_string_pretty(templates)?;
+        atomic_write(&file, data.as_bytes())
+    }
+
     /// 保存当前活跃项目到磁盘（原子写入：临时文件 + rename，
     /// 避免写入中途崩溃导致项目文件损坏）。
     pub fn save(&self) -> Result<()> {
+        // 串行化落盘：并发保存共用同一原子写，必须排队，避免 tmp 文件互相踩踏
+        let _guard = self.save_lock.lock().unwrap_or_else(|e| e.into_inner());
         let project_dir = self.active_project_dir();
         std::fs::create_dir_all(&project_dir)?;
 
@@ -345,9 +383,42 @@ fn scratch_harness_dir(base_dir: &Path) -> PathBuf {
     base_dir.join("_config").join("harness_scratch")
 }
 
+/// 从磁盘加载全局工作流模板；文件缺失或为空时用内置模板播种。
+fn load_workflow_templates_from_disk(base_dir: &Path) -> Vec<WorkflowTemplate> {
+    let file = base_dir.join("workflows").join("templates.json");
+    if file.exists() {
+        if let Ok(data) = std::fs::read_to_string(&file) {
+            if let Ok(list) = serde_json::from_str::<Vec<WorkflowTemplate>>(&data)
+                && !list.is_empty()
+            {
+                return list;
+            }
+        }
+    }
+    // 首次启动（或文件损坏）：用内置模板播种并落盘
+    let builtins = builtin_workflow_templates();
+    if let Some(parent) = file.parent()
+        && let Ok(()) = std::fs::create_dir_all(parent)
+        && let Ok(data) = serde_json::to_string_pretty(&builtins)
+    {
+        let _ = atomic_write(&file, data.as_bytes());
+    }
+    builtins
+}
+
 /// 原子写入：先写临时文件，再 rename 覆盖目标。
 fn atomic_write(target: &Path, contents: &[u8]) -> Result<()> {
-    let tmp = target.with_extension("tmp");
+    // 唯一临时文件名（进程号 + 纳秒时间戳）：并发原子写即使不走统一锁也不会互相覆盖
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let pid = std::process::id();
+    let name = target
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("file");
+    let tmp = target.with_file_name(format!("{name}.{pid}.{nanos}.tmp"));
     std::fs::write(&tmp, contents)?;
     std::fs::rename(&tmp, target)?;
     Ok(())

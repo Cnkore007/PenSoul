@@ -1,3 +1,6 @@
+pub mod book_distill;
+/// 书籍文件解析（txt/md/epub/pdf → 纯文本抽样，书籍蒸馏的全文输入）
+pub(crate) mod book_file;
 pub mod cda;
 pub mod chapter;
 pub mod character;
@@ -22,3 +25,4 @@ pub mod project;
 pub mod settings;
 pub mod style;
 pub mod world;
+pub mod workflow_templates;

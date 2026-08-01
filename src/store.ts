@@ -1,6 +1,7 @@
 // IPC 持久化层 — 通过 Tauri IPC 与后端通信
 import type { ProjectMeta, ProjectData, LlmProvider, LlmModel, PluginConfig, Expert } from "./types";
 import * as ipc from "./ipc";
+import { computeEffectiveSkills } from "./workflow";
 
 // ── Projects ──
 
@@ -229,7 +230,7 @@ function toBackendWorld(world: any): any {
 // 从后端拉取项目全量数据并组装成前端 ProjectData（不含 open_project 切换）
 async function fetchProjectData(projectId: string): Promise<ProjectData> {
   try {
-    const [chapters, characters, world, settings, concept, sprout, volumesMeta, outlineArcs] = await Promise.all([
+    const [chapters, characters, world, settings, concept, sprout, volumesMeta, outlineArcs, workflowRef, workflowTemplates] = await Promise.all([
       ipc.listChapters(),
       ipc.getCharacters(),
       ipc.getWorld(),
@@ -238,6 +239,8 @@ async function fetchProjectData(projectId: string): Promise<ProjectData> {
       ipc.loadSprout(),
       ipc.getVolumes(),
       ipc.listOutlineArcs().catch(() => []), // 老版本后端无此命令时降级为空
+      ipc.loadWorkflowRef().catch(() => null), // 未配置过/老版本后端时为 null
+      ipc.listWorkflowTemplates().catch(() => []), // 全局模板（用于合并项目有效配置）
     ]);
 
     // 卷元数据（标题以持久化的卷列表为准）
@@ -279,12 +282,24 @@ async function fetchProjectData(projectId: string): Promise<ProjectData> {
     ];
     const volumes = orderedVolIds.map(volId => toVolume(volId, volumeMap.get(volId)!));
 
+    // 项目工作流引用：旧项目可能没有 workflow_ref，只有遗留 workflow_skills，
+    // 此时把遗留配置当作项目覆盖（模板未选，绑定照常生效）
+    let ref = (workflowRef as any) ?? null;
+    if (!ref) {
+      const legacy = await ipc.loadWorkflowSkills().catch(() => null);
+      if (legacy && typeof legacy === "object" && (legacy as any).outline_expand) {
+        ref = { template_id: null, template_version: null, overrides: legacy };
+      }
+    }
+
     return {
       project_id: projectId,
       volumes,
       characters: transformCharacters(characters),
       world: transformWorldData(world),
-      workflow_id: null,
+      workflowRef: ref,
+      // 派生有效配置：项目覆盖 → 模板绑定 合并（大纲展开/造化工坊直接消费）
+      workflowSkills: computeEffectiveSkills(workflowTemplates as any[], ref),
       style: null,
       concept: transformConcept(concept),
       sprout: transformSprout(sprout),
@@ -298,7 +313,7 @@ async function fetchProjectData(projectId: string): Promise<ProjectData> {
       volumes: [],
       characters: [],
       world: { locations: [], timeline_events: [], setting_rules: [] },
-      workflow_id: null,
+      workflowRef: null,
       style: null,
       concept: {
         highConcept: '',
@@ -340,13 +355,14 @@ export async function saveProjectData(data: ProjectData): Promise<void> {
   // 各环节独立容错：单点失败不再中断其余保存；错误汇总后抛出，
   // 让调用方有机会告知用户（此前静默 catch 导致章节/人物"假保存"）
   const errors: string[] = [];
-  const names = ["人物", "世界观", "创作设定", "核心概念", "灵魂萌芽"];
+  const names = ["人物", "世界观", "创作设定", "核心概念", "灵魂萌芽", "工作流引用"];
   const results = await Promise.allSettled([
     ipc.saveCharacters(toBackendCharacters(data.characters)),
     ipc.saveWorld(toBackendWorld(data.world)),
     ipc.saveSettings(toBackendSettings(data.settings)),
     ipc.saveConcept(toBackendConcept(data.concept)),
     ipc.saveSprout(toBackendSprout(data.sprout)),
+    ipc.saveWorkflowRef(data.workflowRef ?? null),
   ]);
   results.forEach((r, i) => {
     if (r.status === "rejected") errors.push(`${names[i]}保存失败: ${r.reason}`);

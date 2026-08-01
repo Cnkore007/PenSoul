@@ -34,8 +34,14 @@ pub(super) async fn execute_stage(
             let memo_ctx = state.harness.read().memo.to_context_string();
             let packet = state.memory.read().build_packet(chapter.chapter_no);
             let onto = state.ontology.read().clone();
-            let prompt =
-                context::build_writing_prompt(&onto, &memo_ctx, &chapter, &packet, prev_issues);
+            let prompt = context::build_writing_prompt(
+                &onto,
+                &memo_ctx,
+                &chapter,
+                &packet,
+                prev_issues,
+                &ctx.writing_cards,
+            );
             let raw = call_interruptible(state, ctx, &ctx.writing_model, &prompt, 0.85).await?;
             let content = stages::parse_writing_output(&raw);
             let word_count = content.chars().count();
@@ -85,7 +91,7 @@ pub(super) async fn execute_stage(
                 .unwrap_or("")
                 .to_string();
             let onto = state.ontology.read().clone();
-            let prompt = context::build_review_prompt(&onto, &chapter, &recent);
+            let prompt = context::build_review_prompt(&onto, &chapter, &recent, &ctx.review_cards);
             let raw = call_interruptible(state, ctx, &ctx.review_model, &prompt, 0.3).await?;
             let (signal, report) = stages::parse_review_output(&raw)?;
             emit(

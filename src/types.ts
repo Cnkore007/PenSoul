@@ -130,13 +130,86 @@ export interface OutlineArc {
   expanded_until: number; // 已展开细纲到第几章（0 = 未展开）
 }
 
+// ── 书籍蒸馏 · 写作技能卡 ──
+
+// 单张技能卡（WritingCard/<书名>-book/<维度>/SKILL.md）
+export interface BookCardInfo {
+  dimension: string; // style / structure / character / tension / genre
+  dimension_label: string;
+  name: string;
+  description: string;
+  skill_path: string;
+  applicable_stages: string[]; // outline_expand / chapter_writing / review
+}
+
+// 技能包（一次蒸馏的产物）
+export interface BookPackage {
+  package: string; // 目录名 <书名>-book
+  title: string;
+  author: string;
+  created_at: string;
+  cards: BookCardInfo[];
+}
+
+// 工作流单个环节的技能绑定：模型 + 技法卡路径列表（每维度最多一张，前端约束）
+export interface StageSkillConfig {
+  model: string | null;
+  cards: string[];
+}
+
+// 工作流技能配置：三个可绑卡的执行环节
+export interface WorkflowSkillConfig {
+  outline_expand: StageSkillConfig; // 细纲展开
+  chapter_writing: StageSkillConfig; // 章节写作
+  review: StageSkillConfig; // 一致性审查
+}
+
+// 模板中的一个执行环节（stage 与后端管线三阶段 key 一致）
+export interface WorkflowStageDef {
+  stage: string; // chapter_writing / chapter_review / state_injection
+  display_name: string;
+  prompt_hint: string; // 阶段工作手册
+  gate: 'auto' | 'manual' | 'conditional';
+  on_fail: string | null; // 门控失败时的回退阶段
+  max_retries: number;
+  enabled: boolean;
+}
+
+// 全局工作流模板（作品库层面资产，可被多个项目引用）
+export interface WorkflowTemplate {
+  template_id: string;
+  name: string;
+  version: string;
+  genre: string; // 网文 / 传统 / 科幻 / 通用…
+  description: string;
+  builtin: boolean; // 内置模板：不可删除
+  enabled: boolean; // 停用后不进入项目选择列表
+  review_pass_score: number; // 审查放行阈值（0-100）
+  stages: WorkflowStageDef[];
+  // 模板级环节绑定：{ outline_expand: {model, cards}, chapter_writing: {...}, review: {...} }
+  bindings: Record<string, StageSkillConfig> | Record<string, unknown>;
+}
+
+// 项目对工作流模板的引用 + 项目级覆盖
+// 项目内只保存「引用了哪个模板 + 差异覆盖」，模板本体留在作品库
+export interface WorkflowRef {
+  template_id: string | null;
+  template_version: string | null;
+  // 项目级覆盖：{ outline_expand: {model, cards}, chapter_writing: {...}, review: {...} }
+  overrides: Record<string, StageSkillConfig>;
+}
+
 // 项目工作空间数据 — 每个项目独立存储
 export interface ProjectData {
   project_id: string;
   volumes: VolumeWithChapters[];
   characters: CharacterData[];
   world: WorldData;
-  workflow_id: string | null; // 关联的工作流 plugin_id
+  // 项目工作流引用：模板 ID + 版本 + 项目覆盖（undefined = 从未配置）
+  workflowRef?: WorkflowRef | null;
+  // 派生字段：按「项目覆盖 → 模板绑定」合并后的各环节有效配置。
+  // 由 workflowRef + 全局模板计算而来，不单独持久化（保存时只写 workflowRef）
+  workflowSkills?: WorkflowSkillConfig;
   style: StyleMetrics | null;
   // 核心概念 / 高概念种子
   concept: CoreConceptData;
@@ -348,6 +421,7 @@ export type ViewType =
   | 'llm-settings'
   | 'plugins'
   | 'workflow'
+  | 'workflow-library'
   | 'dashboard';
 
 // ── 连写管线（造化工坊） ──

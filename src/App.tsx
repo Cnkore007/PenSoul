@@ -12,6 +12,7 @@ import { ProjectManager } from "./views/ProjectManager";
 import LlmSettingsView from "./views/LlmSettingsView";
 import { PluginView } from "./views/PluginView";
 import { WorkflowView } from "./views/WorkflowView";
+import { WorkflowLibraryView } from "./views/WorkflowLibraryView";
 import { ConceptView } from "./views/ConceptView";
 import { ExpertLibraryView } from "./views/ExpertLibraryView";
 import { ProjectDashboard } from "./views/ProjectDashboard";
@@ -144,7 +145,7 @@ function App() {
   // 项目内页面切换时自动刷新一次（全局页面无项目上下文，跳过）
   useEffect(() => {
     if (!currentProject) return;
-    if (["projects", "llm-settings", "plugins", "experts"].includes(currentView)) return;
+    if (["projects", "llm-settings", "plugins", "experts", "workflow-library"].includes(currentView)) return;
     refreshNow();
   }, [currentView, currentProject, refreshNow]);
 
@@ -211,6 +212,9 @@ function App() {
     }
     if (currentView === "experts") {
       return <ExpertLibraryView />;
+    }
+    if (currentView === "workflow-library") {
+      return <WorkflowLibraryView />;
     }
 
     // 项目空间页面 — 需要项目上下文

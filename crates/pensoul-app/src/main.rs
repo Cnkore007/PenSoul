@@ -45,6 +45,7 @@ fn main() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_dialog::init())
         .manage(state)
         .invoke_handler(tauri::generate_handler![
             pensoul_app::commands::project::create_project,
@@ -84,6 +85,8 @@ fn main() {
             pensoul_app::commands::settings::load_concept,
             pensoul_app::commands::settings::save_sprout,
             pensoul_app::commands::settings::load_sprout,
+            pensoul_app::commands::settings::save_workflow_skills,
+            pensoul_app::commands::settings::load_workflow_skills,
             pensoul_app::commands::experts::save_experts,
             pensoul_app::commands::experts::load_experts,
             pensoul_app::commands::experts::scan_nuwa_skills,
@@ -114,6 +117,14 @@ fn main() {
             pensoul_app::commands::outline::list_outline_arcs,
             pensoul_app::commands::outline::save_outline_arcs,
             pensoul_app::commands::outline::expand_outline_arc,
+            pensoul_app::commands::book_distill::distill_book,
+            pensoul_app::commands::book_distill::list_book_packages,
+            pensoul_app::commands::book_distill::delete_book_package,
+            pensoul_app::commands::workflow_templates::list_workflow_templates,
+            pensoul_app::commands::workflow_templates::save_workflow_templates,
+            pensoul_app::commands::workflow_templates::reset_workflow_templates,
+            pensoul_app::commands::workflow_templates::save_workflow_ref,
+            pensoul_app::commands::workflow_templates::load_workflow_ref,
         ])
         .run(tauri::generate_context!())
         .expect("启动 Tauri 应用失败");

@@ -4,6 +4,7 @@ use std::sync::atomic::Ordering;
 use tauri::AppHandle;
 use tokio::time::{Duration, sleep};
 
+use pensoul_core::workflow::{WorkflowRef, WorkflowTemplate};
 use pensoul_core::{Chapter, ChapterStatus, StageName};
 use pensoul_harness::{StageInstance, StageStatus};
 
@@ -19,11 +20,114 @@ const MAX_STAGE_ITERATIONS: usize = 12;
 /// LLM 执行失败（网络/解析）在单个阶段内的最大重试次数
 const MAX_EXEC_RETRIES: u32 = 2;
 
-/// 解析写作/审查模型：指定优先，否则取第一个有 API Key 的可用模型
+/// 解析项目引用的全局工作流模板（未配置/解析失败返回 None）。
+fn resolve_project_workflow(state: &AppState) -> Option<WorkflowTemplate> {
+    let ref_json = {
+        let onto = state.ontology.read();
+        onto.workflow_ref.clone()
+    };
+    let wf_ref: WorkflowRef = serde_json::from_value(ref_json).ok()?;
+    let template_id = wf_ref.template_id?;
+    let templates = state.workflow_templates.read();
+    templates
+        .iter()
+        .find(|t| t.template_id == template_id)
+        .cloned()
+}
+
+/// 解析某环节的技法卡：显式参数 > 项目覆盖 > 模板绑定 > 空
+fn resolve_stage_cards(
+    state: &AppState,
+    template: Option<&WorkflowTemplate>,
+    explicit: Option<&Vec<String>>,
+    stage: &str,
+) -> Vec<String> {
+    if let Some(cards) = explicit
+        && !cards.is_empty()
+    {
+        return cards.clone();
+    }
+    let ref_json = {
+        let onto = state.ontology.read();
+        onto.workflow_ref.clone()
+    };
+    if let Ok(wf_ref) = serde_json::from_value::<WorkflowRef>(ref_json) {
+        let overridden = wf_ref
+            .overrides
+            .get(stage)
+            .and_then(|v| v.get("cards"))
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                    .collect::<Vec<_>>()
+            });
+        if let Some(cards) = overridden
+            && !cards.is_empty()
+        {
+            return cards;
+        }
+    }
+    if let Some(tpl) = template {
+        return tpl
+            .stage_bindings(stage)
+            .get("cards")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+    }
+    Vec::new()
+}
+
+/// 解析某环节的模型：显式参数 > 项目覆盖 > 模板绑定 > None
+fn resolve_stage_model(
+    state: &AppState,
+    template: Option<&WorkflowTemplate>,
+    explicit: Option<&str>,
+    stage: &str,
+) -> Option<String> {
+    if let Some(m) = explicit.filter(|m| !m.trim().is_empty()) {
+        return Some(m.to_string());
+    }
+    let ref_json = {
+        let onto = state.ontology.read();
+        onto.workflow_ref.clone()
+    };
+    if let Ok(wf_ref) = serde_json::from_value::<WorkflowRef>(ref_json) {
+        if let Some(m) = wf_ref
+            .overrides
+            .get(stage)
+            .and_then(|v| v.get("model"))
+            .and_then(|v| v.as_str())
+            .filter(|m| !m.trim().is_empty())
+        {
+            return Some(m.to_string());
+        }
+    }
+    if let Some(tpl) = template {
+        if let Some(m) = tpl
+            .stage_bindings(stage)
+            .get("model")
+            .and_then(|v| v.as_str())
+            .filter(|m| !m.trim().is_empty())
+        {
+            return Some(m.to_string());
+        }
+    }
+    None
+}
+
+/// 解析写作/审查模型：显式参数 > 项目覆盖/模板绑定 > 第一个可用模型。
+/// 审查模型尽量与写作不同（学生不自己判卷），没有第二个就复用同一个。
 fn resolve_models(
     state: &AppState,
     writing_model: Option<String>,
     review_model: Option<String>,
+    template: Option<&WorkflowTemplate>,
 ) -> Result<(String, String), String> {
     let providers = lh::load_providers(state);
     let models = lh::load_models(state);
@@ -52,14 +156,13 @@ fn resolve_models(
         available.push(fallback.to_string());
     }
 
-    let writing = match writing_model.filter(|m| !m.trim().is_empty()) {
+    let writing = match resolve_stage_model(state, template, writing_model.as_deref(), STAGE_WRITING) {
         Some(m) => m,
         None => available.first().cloned().ok_or_else(|| {
             "未配置可用模型。请先在「模型设置」添加模型并配置 API Key。".to_string()
         })?,
     };
-    // 审查模型尽量与写作不同（学生不自己判卷），没有第二个就复用同一个
-    let review = match review_model.filter(|m| !m.trim().is_empty()) {
+    let review = match resolve_stage_model(state, template, review_model.as_deref(), STAGE_REVIEW) {
         Some(m) => m,
         None => available
             .iter()
@@ -92,12 +195,15 @@ fn select_chapters(state: &AppState, chapter_ids: Option<Vec<String>>) -> Vec<Ch
 }
 
 /// 管线主流程（async 长跑，事件通过 harness-event 实时推送）
+/// `writing_cards` / `review_cards`：工作流为写作/审查环节绑定的技法卡 SKILL.md 路径
 pub async fn run_pipeline(
     app_handle: AppHandle,
     state: AppState,
     chapter_ids: Option<Vec<String>>,
     writing_model: Option<String>,
     review_model: Option<String>,
+    writing_cards: Option<Vec<String>>,
+    review_cards: Option<Vec<String>>,
 ) -> Result<serde_json::Value, String> {
     // 防重入：已有管线在跑直接报错
     if state.pipeline.running.swap(true, Ordering::SeqCst) {
@@ -112,6 +218,8 @@ pub async fn run_pipeline(
         chapter_ids,
         writing_model,
         review_model,
+        writing_cards,
+        review_cards,
     )
     .await;
 
@@ -127,17 +235,46 @@ async fn run_pipeline_inner(
     chapter_ids: Option<Vec<String>>,
     writing_model: Option<String>,
     review_model: Option<String>,
+    writing_cards: Option<Vec<String>>,
+    review_cards: Option<Vec<String>>,
 ) -> Result<serde_json::Value, String> {
     lh::ensure_api_keys_loaded(state);
-    let (writing, review) = resolve_models(state, writing_model, review_model)?;
+    let template = resolve_project_workflow(state);
+    let (writing, review) = resolve_models(
+        state,
+        writing_model,
+        review_model,
+        template.as_ref(),
+    )?;
     // 新一轮运行：清空事件缓冲，记录实际使用的模型（供页面恢复）
     state.pipeline.begin_run(&writing, &review);
+    // 技法卡：显式参数（造化工坊页面）优先，否则按项目引用模板 + 覆盖解析
+    let resolved_writing_cards = resolve_stage_cards(
+        state,
+        template.as_ref(),
+        writing_cards.as_ref(),
+        STAGE_WRITING,
+    );
+    let resolved_review_cards = resolve_stage_cards(
+        state,
+        template.as_ref(),
+        review_cards.as_ref(),
+        STAGE_REVIEW,
+    );
     let ctx = ModelCtx {
         m2p: lh::build_model_to_provider(&lh::load_models(state)),
         bases: lh::build_provider_api_bases(&lh::load_providers(state)),
         keys: state.api_keys.read().clone(),
         writing_model: writing.clone(),
         review_model: review.clone(),
+        writing_cards: crate::commands::book_distill::load_writing_cards(
+            state,
+            &resolved_writing_cards,
+        ),
+        review_cards: crate::commands::book_distill::load_writing_cards(
+            state,
+            &resolved_review_cards,
+        ),
     };
 
     let chapters = select_chapters(state, chapter_ids);
@@ -152,7 +289,7 @@ async fn run_pipeline_inner(
     {
         let onto = state.ontology.read();
         let mut engine = state.harness.write();
-        for stage in stages::pipeline_stages() {
+        for stage in stages::pipeline_stages(template.as_ref()) {
             engine.register_stage(stage);
         }
         let settings_memo = serde_json::json!({
@@ -181,6 +318,8 @@ async fn run_pipeline_inner(
     let mut completed = 0usize;
     let mut failed_titles: Vec<String> = Vec::new();
     let mut stopped = false;
+    // 审查放行阈值：模板可自定义（默认 80）
+    let review_pass_score = template.as_ref().map(|t| t.review_pass_score).unwrap_or(80.0);
 
     for (idx, chapter) in chapters.iter().enumerate() {
         if state.pipeline.stop.load(Ordering::SeqCst) {
@@ -369,7 +508,11 @@ async fn run_pipeline_inner(
                     attempt,
                 },
             );
-            if stage_str == STAGE_REVIEW && gate_score.map(|s| s >= 80.0).unwrap_or(false) {
+            if stage_str == STAGE_REVIEW
+                && gate_score
+                    .map(|s| s >= review_pass_score)
+                    .unwrap_or(false)
+            {
                 set_chapter_status(state, &chapter.chapter_id, ChapterStatus::Reviewed);
             }
             if injection_done {

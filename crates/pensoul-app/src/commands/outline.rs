@@ -10,6 +10,7 @@
 //! 让作者在每个故事段内按自己的节奏推进，而不是一次吞下几百章。
 use crate::state::AppState;
 use pensoul_core::{Chapter, ChapterId, ChapterStatus, OutlineArc, VolumeId};
+use pensoul_core::workflow::WorkflowRef;
 use serde::Deserialize;
 
 use super::json_fix;
@@ -60,12 +61,14 @@ struct BeatPlan {
 
 /// 展开脉络节点的下一批细纲：调 LLM 把该故事段的剧情规划
 /// 拆成逐章梗概，生成真正的章节实体（正文留空，等待造化工坊写作）
+/// `skill_cards`：工作流为细纲展开环节绑定的技法卡路径（可空，注入 system prompt）
 #[tauri::command]
 pub async fn expand_outline_arc(
     state: tauri::State<'_, AppState>,
     arc_id: String,
     model: Option<String>,
     batch: Option<i64>,
+    skill_cards: Option<Vec<String>>,
 ) -> Result<ExpandResult, String> {
     lh::ensure_api_keys_loaded(&state);
 
@@ -128,8 +131,22 @@ pub async fn expand_outline_arc(
 
     let model_id = resolve_expand_model(&state, model)?;
     let count = to - from + 1;
-    let system = "你是小说大纲规划师。你的任务是把一段剧情脉络拆解为逐章细纲，输出严格 JSON。\
-        不评论、不解释，只输出 JSON 数组。";
+    let mut system = "你是小说大纲规划师。你的任务是把一段剧情脉络拆解为逐章细纲，输出严格 JSON。\
+        不评论、不解释，只输出 JSON 数组。"
+        .to_string();
+    // 工作流为细纲展开绑定的技法卡（结构/人物/张力/类型维度），注入为方法手册。
+    // 显式参数优先，缺省时按「项目覆盖 → 模板绑定」解析（与造化工坊同一套规则）
+    let cards_block = super::book_distill::load_writing_cards(
+        &state,
+        &resolve_expand_cards(&state, skill_cards),
+    );
+    if !cards_block.is_empty() {
+        system.push_str(&format!(
+            "\n\n【写作技法卡】\n\
+            以下是本书选定工作流绑定的写作技法卡，是你拆解细纲的方法手册：\n\
+            篇章布局遵循其「I · 技法骨架」与「E · 执行步骤」，节奏与结构遵守其「B · 边界」。\n\n{cards_block}"
+        ));
+    }
     let user = format!(
         "【核心概念】\n{concept_brief}\n\n\
          【创作设定】\n{settings_brief}\n\n\
@@ -171,7 +188,7 @@ pub async fn expand_outline_arc(
             api_base: &api_base,
         },
         &model_id,
-        system,
+        &system,
         &user,
         0.6,
         // 每章梗概约 150 字，20 章约 4000 字正文；推理型模型还要预留思考预算
@@ -280,9 +297,13 @@ pub async fn expand_outline_arc(
     })
 }
 
-/// 解析展开模型：指定优先，否则取第一个「供应商有 Key」的可用模型
+/// 解析展开模型：指定优先，其次项目覆盖/模板绑定的 outline_expand 模型，
+/// 最后取第一个「供应商有 Key」的可用模型
 fn resolve_expand_model(state: &AppState, model: Option<String>) -> Result<String, String> {
     if let Some(m) = model.filter(|m| !m.trim().is_empty()) {
+        return Ok(m);
+    }
+    if let Some(m) = resolve_bound_expand_model(state) {
         return Ok(m);
     }
     let models = lh::load_models(state);
@@ -295,6 +316,90 @@ fn resolve_expand_model(state: &AppState, model: Option<String>) -> Result<Strin
             keys.contains_key(provider_id).then_some(model_id)
         })
         .ok_or_else(|| "未配置可用模型。请先在「模型设置」添加模型并配置 API Key。".to_string())
+}
+
+/// 从项目工作流引用解析细纲展开的技法卡：显式参数 > 项目覆盖 > 模板绑定 > 空
+fn resolve_expand_cards(state: &AppState, skill_cards: Option<Vec<String>>) -> Vec<String> {
+    if let Some(cards) = skill_cards
+        && !cards.is_empty()
+    {
+        return cards;
+    }
+    let ref_json = {
+        let onto = state.ontology.read();
+        onto.workflow_ref.clone()
+    };
+    let Ok(wf_ref) = serde_json::from_value::<WorkflowRef>(ref_json) else {
+        return Vec::new();
+    };
+    if let Some(cards) = wf_ref
+        .overrides
+        .get("outline_expand")
+        .and_then(|v| v.get("cards"))
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect::<Vec<_>>()
+        })
+        && !cards.is_empty()
+    {
+        return cards;
+    }
+    let Some(template_id) = wf_ref.template_id else {
+        return Vec::new();
+    };
+    let templates = state.workflow_templates.read();
+    let Some(bindings) = templates
+        .iter()
+        .find(|t| t.template_id == template_id)
+        .map(|t| t.stage_bindings("outline_expand"))
+    else {
+        return Vec::new();
+    };
+    bindings
+        .get("cards")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default()
+}
+
+/// 从项目工作流引用解析细纲展开的绑定模型（覆盖 > 模板绑定）
+fn resolve_bound_expand_model(state: &AppState) -> Option<String> {
+    let ref_json = {
+        let onto = state.ontology.read();
+        onto.workflow_ref.clone()
+    };
+    let Ok(wf_ref) = serde_json::from_value::<WorkflowRef>(ref_json) else {
+        return None;
+    };
+    if let Some(m) = wf_ref
+        .overrides
+        .get("outline_expand")
+        .and_then(|v| v.get("model"))
+        .and_then(|v| v.as_str())
+        .filter(|m| !m.trim().is_empty())
+    {
+        return Some(m.to_string());
+    }
+    let template_id = wf_ref.template_id?;
+    let templates = state.workflow_templates.read();
+    let Some(bindings) = templates
+        .iter()
+        .find(|t| t.template_id == template_id)
+        .map(|t| t.stage_bindings("outline_expand"))
+    else {
+        return None;
+    };
+    bindings
+        .get("model")
+        .and_then(|v| v.as_str())
+        .filter(|m| !m.trim().is_empty())
+        .map(|m| m.to_string())
 }
 
 /// 解析 LLM 产出的细纲 JSON 数组（先严格解析，失败则走容错修复）

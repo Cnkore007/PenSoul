@@ -1,15 +1,13 @@
+import { useState, useEffect } from "react";
 import {
   ListTree, PenLine, Users, Globe, Workflow,
-  ShieldCheck, Palette, Calendar,
+  ShieldCheck, Palette,
+  Calendar,
   Sparkles, Play, Check, Settings,
   ChevronRight, Lightbulb,
 } from "lucide-react";
-import type { ProjectData, ProjectMeta, ViewType } from "../types";
-
-const workflowMeta: Record<string, { name: string; stageCount: number }> = {
-  "standard-novel": { name: "标准小说工作流", stageCount: 5 },
-  "quick-novel": { name: "快速创作工作流", stageCount: 3 },
-};
+import type { ProjectData, ProjectMeta, ViewType, WorkflowTemplate } from "../types";
+import { listWorkflowTemplates } from "../ipc";
 
 interface ProjectDashboardProps {
   project: ProjectMeta;
@@ -19,6 +17,11 @@ interface ProjectDashboardProps {
 }
 
 export function ProjectDashboard({ project, projectData, onNavigate }: ProjectDashboardProps) {
+  const [templates, setTemplates] = useState<WorkflowTemplate[]>([]);
+  useEffect(() => {
+    listWorkflowTemplates().then(setTemplates).catch(() => {});
+  }, []);
+
   const totalChapters = projectData.volumes?.reduce((s, v) => s + v.chapters.length, 0) ?? 0;
   const totalWords = projectData.volumes?.reduce(
     (s, v) => s + v.chapters.reduce((s2, c) => s2 + c.word_count, 0), 0
@@ -31,8 +34,11 @@ export function ProjectDashboard({ project, projectData, onNavigate }: ProjectDa
     (s, v) => s + v.chapters.filter(c => c.status === "Polished" || c.status === "Published").length, 0
   ) ?? 0;
 
-  const workflowId = projectData.workflow_id;
-  const wfMeta = workflowId ? workflowMeta[workflowId] : null;
+  const workflowId = projectData.workflowRef?.template_id ?? null;
+  const workflowTemplate = templates.find(t => t.template_id === workflowId);
+  const wfMeta = workflowTemplate
+    ? { name: workflowTemplate.name, stageCount: workflowTemplate.stages.filter(s => s.enabled).length }
+    : null;
   const hasOutline = totalChapters > 0;
   const hasWorkflow = !!workflowId;
 

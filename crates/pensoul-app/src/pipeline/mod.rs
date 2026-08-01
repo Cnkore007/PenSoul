@@ -159,6 +159,10 @@ pub(crate) struct ModelCtx {
     pub keys: HashMap<String, String>,
     pub writing_model: String,
     pub review_model: String,
+    /// 写作阶段绑定的技法卡注入块（工作流配置，可为空）
+    pub writing_cards: String,
+    /// 审查阶段绑定的技法卡注入块（可为空）
+    pub review_cards: String,
 }
 
 impl ModelCtx {

@@ -113,12 +113,14 @@ fn memory_digest(packet: &MemoryPacket) -> String {
 }
 
 /// 写作阶段 prompt。`prev_issues` 非空表示本次是审查退回后的重写。
+/// `cards` 为工作流绑定的写作技法卡注入块（load_writing_cards 拼接结果），可为空。
 pub fn build_writing_prompt(
     onto: &NovelOntology,
     memo_ctx: &str,
     chapter: &Chapter,
     packet: &MemoryPacket,
     prev_issues: &[String],
+    cards: &str,
 ) -> StagePrompt {
     let target_words = if onto.settings.chapter_target_words > 0 {
         onto.settings.chapter_target_words
@@ -126,10 +128,17 @@ pub fn build_writing_prompt(
         3000
     };
 
-    let system = "你是一位长篇小说作家，正在为一部连载小说撰写章节正文。\n\
+    let mut system = "你是一位长篇小说作家，正在为一部连载小说撰写章节正文。\n\
         铁律：只输出章节正文本身——不输出章节标题、不输出大纲复述、不输出任何解释或元信息；\n\
         文风贴合给定题材与基调，严格承接前文情节与人物状态，不得与世界观设定矛盾。"
         .to_string();
+    if !cards.is_empty() {
+        system.push_str(&format!(
+            "\n\n【写作技法卡】\n\
+            以下是本书选定工作流绑定的写作技法卡，是你撰写正文的方法手册：\n\
+            执行其「E · 执行步骤」，遵守其「B · 边界」，文风向其「I · 技法骨架」靠拢。\n\n{cards}"
+        ));
+    }
 
     let concept = &onto.core_concept;
     let mut user = String::new();
@@ -186,12 +195,14 @@ pub fn build_writing_prompt(
 }
 
 /// 审查阶段 prompt（异模型判卷：本章正文 + 设定/人物/前章纪要对照）
+/// `cards` 为审查环节绑定的技法卡（通常是文风卡），审查时对照其边界检查文风偏离。
 pub fn build_review_prompt(
     onto: &NovelOntology,
     chapter: &Chapter,
     recent_briefs: &str,
+    cards: &str,
 ) -> StagePrompt {
-    let system = "你是一位极其严谨的网文编辑，负责章节一致性审查。\n\
+    let mut system = "你是一位极其严谨的网文编辑，负责章节一致性审查。\n\
         逐项核对：① 与世界观设定是否矛盾；② 人物性格/状态/位置是否连贯；\n\
         ③ 与前文情节（含前章纪要）是否矛盾；④ 时间线是否合理；⑤ 文笔是否基本通顺。\n\
         输出必须严格使用如下双通道格式，不得输出任何其他内容：\n\
@@ -203,6 +214,13 @@ pub fn build_review_prompt(
         ===REPORT_END===\n\
         评分参考：90+ 优秀可直接通过；80-89 基本合格；低于 80 存在必须修正的硬伤。"
         .to_string();
+    if !cards.is_empty() {
+        system.push_str(&format!(
+            "\n\n【文风技法卡】\n\
+            本书工作流绑定了以下技法卡。除上述一致性核对外，还须对照技法卡的\n\
+            「I · 技法骨架」与「B · 边界」检查文风是否严重偏离；偏离计入 issues 并扣分。\n\n{cards}"
+        ));
+    }
 
     let mut user = String::new();
     if !recent_briefs.is_empty() {
@@ -294,22 +312,55 @@ mod tests {
                 pensoul_memory::EditingMode::Drafting,
             ),
         };
-        let prompt = build_writing_prompt(&onto, "memo: 测试", &chapter, &packet, &[]);
+        let prompt = build_writing_prompt(&onto, "memo: 测试", &chapter, &packet, &[], "");
         assert!(prompt.user.contains("测试高概念"));
         assert!(prompt.user.contains("本章梗概内容"));
         assert!(prompt.user.contains("前一章的正文节选"));
         assert!(prompt.user.contains("第 3 章"));
         assert_eq!(prompt.max_tokens, 16384); // 2000*2+8192=12192 → 夹到下限 16384
         // 重写时携带 issues
-        let retry = build_writing_prompt(&onto, "", &chapter, &packet, &["时间线矛盾".to_string()]);
+        let retry = build_writing_prompt(
+            &onto,
+            "",
+            &chapter,
+            &packet,
+            &["时间线矛盾".to_string()],
+            "",
+        );
         assert!(retry.user.contains("时间线矛盾"));
+    }
+
+    #[test]
+    fn test_writing_prompt_injects_cards() {
+        let onto = NovelOntology::new(ProjectId::new("p"), String::new());
+        let chapter = make_chapter(1, "梗概", "");
+        let packet = MemoryPacket {
+            hot: vec![],
+            warm: Default::default(),
+            cold: vec![],
+            narrative: vec![],
+            total_tokens: 0,
+            budget_used: pensoul_memory::packet::get_budget_ratio(
+                pensoul_memory::EditingMode::Drafting,
+            ),
+        };
+        let prompt = build_writing_prompt(
+            &onto,
+            "",
+            &chapter,
+            &packet,
+            &[],
+            "── 技能卡「x/style」──\n卡内容",
+        );
+        assert!(prompt.system.contains("写作技法卡"));
+        assert!(prompt.system.contains("卡内容"));
     }
 
     #[test]
     fn test_review_prompt_has_dual_channel_format() {
         let onto = NovelOntology::new(ProjectId::new("p"), String::new());
         let chapter = make_chapter(1, "梗概", "正文内容");
-        let prompt = build_review_prompt(&onto, &chapter, "前一章纪要");
+        let prompt = build_review_prompt(&onto, &chapter, "前一章纪要", "");
         assert!(prompt.system.contains("SIGNAL_BEGIN"));
         assert!(prompt.system.contains("REPORT_BEGIN"));
         assert!(prompt.user.contains("正文内容"));

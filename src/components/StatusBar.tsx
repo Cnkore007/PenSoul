@@ -20,6 +20,7 @@ const viewLabels: Record<ViewType, string> = {
   "llm-settings": "模型设置",
   plugins: "造化工坊",
   workflow: "工作流",
+  "workflow-library": "工作流模板库",
   experts: "专家库",
 };
 
