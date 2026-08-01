@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { ChevronRight, ChevronDown, FileText, Plus, Edit3, Trash2, Check, X, GitBranch, Wand2, Loader2 } from "lucide-react";
-import type { ProjectData, VolumeWithChapters, Chapter, OutlineArc } from "../types";
-import { deleteChapter, deleteVolume, expandOutlineArc, saveOutlineArcs } from "../ipc";
+import type { ProjectData, VolumeWithChapters, Chapter, OutlineArc, LlmModel } from "../types";
+import { deleteChapter, deleteVolume, expandOutlineArc, saveOutlineArcs, listModels } from "../ipc";
 
 interface OutlineViewProps {
   projectData: ProjectData;
@@ -36,6 +36,15 @@ export function OutlineView({ projectData, persistProjectData, onRefresh }: Outl
   const [editArcDesc, setEditArcDesc] = useState("");
   const [editArcStart, setEditArcStart] = useState(0);
   const [editArcEnd, setEditArcEnd] = useState(0);
+  // 细纲展开模型：默认跟随工作流页「环节技能绑定 → 细纲展开」，可在本页现场覆盖
+  const [models, setModels] = useState<LlmModel[]>([]);
+  const [expandModel, setExpandModel] = useState("");
+
+  useEffect(() => {
+    listModels()
+      .then((ms) => setModels(ms as LlmModel[]))
+      .catch(() => {});
+  }, []);
 
   const arcs = projectData.outlineArcs ?? [];
 
@@ -46,11 +55,14 @@ export function OutlineView({ projectData, persistProjectData, onRefresh }: Outl
   }
 
   // 展开下一批细纲：LLM 把该故事段的规划拆成逐章梗概并落库
+  // 模型：本页下拉可现场覆盖，默认跟随工作流页「环节技能绑定 → 细纲展开」；技法卡取自该配置
   async function handleExpandArc(arc: OutlineArc) {
     setExpandingArcId(arc.arc_id);
     setArcError(null);
     try {
-      await expandOutlineArc(arc.arc_id, null);
+      const stageCfg = projectData.workflowSkills?.outline_expand;
+      // 现场选择的模型优先，其次工作流配置，最后由后端自动选第一个可用模型
+      await expandOutlineArc(arc.arc_id, expandModel || stageCfg?.model || null, undefined, stageCfg?.cards ?? null);
       // 章节由后端落库，全量刷新让新章节与进度一起出现
       await onRefresh?.();
     } catch (e: any) {
@@ -296,8 +308,25 @@ export function OutlineView({ projectData, persistProjectData, onRefresh }: Outl
           <div className="card-header" style={{ fontSize: 14, fontWeight: 600 }}>
             <GitBranch size={15} style={{ verticalAlign: -2, marginRight: 6 }} />
             情节脉络（{arcs.length} 段）
-            <span style={{ marginLeft: "auto", fontSize: "var(--text-2xs)", color: "var(--color-ink-3)", fontWeight: 400 }}>
+            <span style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 8, fontSize: "var(--text-2xs)", color: "var(--color-ink-3)", fontWeight: 400 }}>
               每段覆盖一个章节范围，按批展开为逐章细纲
+              <select
+                className="pm-input"
+                style={{ marginBottom: 0, width: 180, padding: "2px 6px", fontSize: "var(--text-2xs)" }}
+                value={expandModel}
+                onChange={(e) => setExpandModel(e.target.value)}
+                disabled={expandingArcId !== null}
+                title="细纲展开使用的模型：默认跟随工作流页「环节技能绑定 → 细纲展开」配置"
+              >
+                <option value="">展开模型：跟随工作流配置</option>
+                {models
+                  .filter((m) => m.is_available !== false)
+                  .map((m) => (
+                    <option key={m.model_id} value={m.model_id}>
+                      {m.display_name || m.model_id}
+                    </option>
+                  ))}
+              </select>
             </span>
           </div>
           {arcError && (

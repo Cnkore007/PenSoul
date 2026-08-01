@@ -159,7 +159,7 @@ export function ExpertLibraryView() {
     unlistenRef.current = unlistenFn;
 
     try {
-      const result = await distillExpert(persona);
+      const result = await distillExpert(persona, distillModel || null);
       const ne: Expert = {
         id: result.id, name: result.name, description: result.description,
         sourcePersona: result.source_persona, modelId: result.model_id,

@@ -50,6 +50,7 @@ pub async fn distill_expert(
     app_handle: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
     persona: String,
+    model: Option<String>,
 ) -> Result<pensoul_core::Expert, String> {
     use super::llm_helper as lh;
     lh::ensure_api_keys_loaded(&state);
@@ -58,29 +59,39 @@ pub async fn distill_expert(
     let saved_models = lh::load_models(&state);
     let api_keys = { state.api_keys.read().clone() };
 
-    // 找第一个有 API Key 的供应商
-    let (_provider_id, api_key, api_base) =
-        lh::find_any_available_provider(&saved_providers, &api_keys)
-            .ok_or_else(|| "未配置任何 LLM API Key，请在模型设置中配置".to_string())?;
-
-    // 从已保存的模型中取第一个该供应商可用的模型
-    let model_id = saved_models
-        .iter()
-        .find(|m| {
-            m.get("provider_id").and_then(|v| v.as_str()) == Some(&_provider_id)
-                && m.get("is_available")
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(false)
-        })
-        .and_then(|m| m.get("model_id").and_then(|v| v.as_str()))
-        .unwrap_or("gpt-4o");
+    // 模型解析：指定优先（按其归属供应商取 Key）；缺省 = 第一个有 Key 供应商的可用模型
+    let (provider_id, api_key, api_base, model_id) = match model.filter(|m| !m.trim().is_empty()) {
+        Some(m) => {
+            let m2p = lh::build_model_to_provider(&saved_models);
+            let bases = lh::build_provider_api_bases(&saved_providers);
+            let (pid, key, base) = lh::resolve_provider(&m, &m2p, &bases, &api_keys)?;
+            (pid, key, base, m)
+        }
+        None => {
+            let (pid, key, base) = lh::find_any_available_provider(&saved_providers, &api_keys)
+                .ok_or_else(|| "未配置任何 LLM API Key，请在模型设置中配置".to_string())?;
+            let mid = saved_models
+                .iter()
+                .find(|m| {
+                    m.get("provider_id").and_then(|v| v.as_str()) == Some(pid.as_str())
+                        && m.get("is_available")
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false)
+                })
+                .and_then(|m| m.get("model_id").and_then(|v| v.as_str()))
+                .unwrap_or("gpt-4o")
+                .to_string();
+            (pid, key, base, mid)
+        }
+    };
+    let model_id = model_id.as_str();
 
     // 加载 pensoul-skill-Experts 技能作为蒸馏方法论
     let (methodology, skill_source) = load_distill_methodology(&state);
     emit_phase(&app_handle, "加载蒸馏技能", "done", &skill_source, "").ok();
 
     let auth = lh::ProviderAuth {
-        provider_id: &_provider_id,
+        provider_id: &provider_id,
         api_key: &api_key,
         api_base: &api_base,
     };
@@ -296,7 +307,8 @@ fn skill_file_candidates(state: &AppState) -> Vec<std::path::PathBuf> {
 /// 强制将 SKILL.md frontmatter 中的 name 校正为实际目录名。
 /// LLM 有时会把中文名翻译成英文/拼音（如 luxun），此处以用户输入为准；
 /// 缺少 frontmatter 时补一个最小的。
-fn normalize_frontmatter_name(content: &str, dir_name: &str) -> String {
+/// （pub(crate)：书籍蒸馏 book_distill.rs 复用同一校正逻辑）
+pub(crate) fn normalize_frontmatter_name(content: &str, dir_name: &str) -> String {
     let mut lines: Vec<String> = content.lines().map(|l| l.to_string()).collect();
     if lines.first().map(|l| l.trim()) != Some("---") {
         return format!("---\nname: {}\n---\n\n{}", dir_name, content);
@@ -325,7 +337,8 @@ fn normalize_frontmatter_name(content: &str, dir_name: &str) -> String {
 
 /// 从 LLM 输出中提取 ===SKILL_MD_BEGIN=== 与 ===SKILL_MD_END=== 之间的内容，
 /// 并剥离可能残留的 markdown 代码围栏。
-fn extract_skill_md(output: &str) -> Option<String> {
+/// （pub(crate)：书籍蒸馏 book_distill.rs 复用同一提取逻辑）
+pub(crate) fn extract_skill_md(output: &str) -> Option<String> {
     let begin = output.find("===SKILL_MD_BEGIN===")? + "===SKILL_MD_BEGIN===".len();
     let end = output.rfind("===SKILL_MD_END===")?;
     if end <= begin {

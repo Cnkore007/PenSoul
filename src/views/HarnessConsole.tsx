@@ -76,6 +76,11 @@ export function HarnessConsole({ projectData, onNavigate }: HarnessConsoleProps)
     }
   }, []);
 
+  // 工作流页的环节技能绑定（写作/审查），启动时随管线传给后端注入 prompt
+  const workflowSkills = projectData.workflowSkills;
+  const boundWritingCards = workflowSkills?.chapter_writing?.cards ?? [];
+  const boundReviewCards = workflowSkills?.review?.cards ?? [];
+
   // 初始化：模型列表 + 快照恢复（运行状态/事件流/模型选择）+ 实时事件订阅
   useEffect(() => {
     listModels()
@@ -98,9 +103,12 @@ export function HarnessConsole({ projectData, onNavigate }: HarnessConsoleProps)
       .then((s) => {
         setRunning(s.running);
         setPaused(s.paused);
-        // 恢复上次运行使用的模型选择（页面切换后下拉框不再跳回默认）
+        // 恢复上次运行使用的模型选择（页面切换后下拉框不再跳回默认）；
+        // 无运行记录时回退到工作流页的环节绑定模型
         if (s.writing_model) setWritingModel(s.writing_model);
+        else if (workflowSkills?.chapter_writing?.model) setWritingModel(workflowSkills.chapter_writing.model);
         if (s.review_model) setReviewModel(s.review_model);
+        else if (workflowSkills?.review?.model) setReviewModel(workflowSkills.review.model);
         // 重放后端事件缓冲 + 间隙期暂存的事件（按 seq 去重）
         const buffered = s.events ?? [];
         const maxSeq = buffered.reduce((m, e) => Math.max(m, e.seq ?? 0), 0);
@@ -132,7 +140,13 @@ export function HarnessConsole({ projectData, onNavigate }: HarnessConsoleProps)
     setRunning(true);
     setPaused(false);
     try {
-      await runChapterPipeline(null, writingModel || null, reviewModel || null);
+      await runChapterPipeline(
+        null,
+        writingModel || null,
+        reviewModel || null,
+        boundWritingCards.length > 0 ? boundWritingCards : null,
+        boundReviewCards.length > 0 ? boundReviewCards : null
+      );
     } catch (e: any) {
       setError(typeof e === "string" ? e : e?.message || String(e));
     } finally {
@@ -140,7 +154,7 @@ export function HarnessConsole({ projectData, onNavigate }: HarnessConsoleProps)
       setPaused(false);
       setActiveChapterId(null);
     }
-  }, [writingModel, reviewModel]);
+  }, [writingModel, reviewModel, boundWritingCards, boundReviewCards]);
 
   const handlePauseResume = useCallback(async () => {
     try {

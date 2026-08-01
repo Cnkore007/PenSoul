@@ -24,8 +24,12 @@ uuid = { version = "1", features = ["v4"] }
 dirs = "5"
 chrono = "0.4"
 tauri-plugin-http = "2.5.9"
+tauri-plugin-dialog = "2"
 reqwest = { version = "0.13.4", features = ["json", "stream"] }
 futures-util = "0.3"
+# 书籍文件解析（书籍蒸馏用）：epub 解 zip、pdf 文本提取
+zip = { version = "2", default-features = false }
+pdf-extract = "0.7"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

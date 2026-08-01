@@ -426,61 +426,87 @@ async fn synthesize(
         }
     };
 
-    let text = match call_with_system(
-        &caller.model,
-        system,
-        &user_prompt,
-        0.3,
-        // 提炼产出要求丰富（多类设定各 100-500 字），
-        // 推理型模型还要先烧 reasoning tokens，预算给足
-        16384,
-        model_to_provider,
-        provider_api_bases,
-        api_keys,
-    )
-    .await
-    {
-        Ok(t) => t,
-        Err(msg) => return fallback(&msg),
-    };
-
-    // 标记缺失（常见于输出被截断只剩 BEGIN 没有 END）时直接用全文，
-    // 交给修复器截取最外层 JSON 结构，尽量不浪费这次提炼结果
-    let json_str = extract_between(&text, "===SYNTHESIS_BEGIN===", "===SYNTHESIS_END===")
-        .unwrap_or(&text)
-        .trim()
-        .trim_start_matches("```json")
-        .trim_start_matches("```")
-        .trim_end_matches("```")
-        .trim();
-
-    // 先严格解析；失败则按 serde 报错位置驱动式修复（漏逗号、尾逗号、
-    // 注释、字符串内裸换行、截断未闭合等）再解析，仍失败才判定提炼失败
-    let parsed = serde_json::from_str::<DiscussionSynthesis>(json_str).or_else(|strict_err| {
-        json_fix::repair_to_value(json_str)
-            .ok()
-            .and_then(|v| serde_json::from_value::<DiscussionSynthesis>(v).ok())
-            .ok_or(strict_err)
-    });
-
-    match parsed {
-        Ok(mut s) => {
-            emit_discussion(
-                app_handle,
-                state,
-                "synthesis",
-                "成果提炼",
-                3,
-                "done",
-                &s.summary.clone(),
-            );
-            if s.summary.is_empty() {
-                s.summary = "（讨论成果已生成）".to_string();
+    // 最多 2 次尝试。「expected value at line 1 column 1」类错误几乎都是模型
+    // 输出了中文前言/拒答说明而非纯 JSON——首次失败时把错误与输出片段反馈给模型
+    // 自愈重试，这是对付偶发不听话最有效的手段；传输层失败同样再给一次机会。
+    let mut next_prompt = user_prompt.clone();
+    let mut last_err = String::new();
+    for attempt in 1..=2u8 {
+        let text = match call_with_system(
+            &caller.model,
+            system,
+            &next_prompt,
+            0.3,
+            // 提炼产出要求丰富（多类设定各 100-500 字），
+            // 推理型模型还要先烧 reasoning tokens，预算给足
+            16384,
+            model_to_provider,
+            provider_api_bases,
+            api_keys,
+        )
+        .await
+        {
+            Ok(t) => t,
+            Err(msg) => {
+                last_err = msg;
+                continue;
             }
-            s
+        };
+
+        // 标记缺失（常见于输出被截断只剩 BEGIN 没有 END）时剥前言/围栏截取最外层
+        // JSON 结构，尽量不浪费这次提炼结果
+        let json_str = extract_json_block(&text);
+
+        // 先严格解析；失败则按 serde 报错位置驱动式修复（漏逗号、尾逗号、
+        // 注释、字符串内裸换行、截断未闭合等）再解析，仍失败才判定本轮失败
+        let parsed = serde_json::from_str::<DiscussionSynthesis>(json_str).or_else(|strict_err| {
+            json_fix::repair_to_value(json_str)
+                .ok()
+                .and_then(|v| serde_json::from_value::<DiscussionSynthesis>(v).ok())
+                .ok_or(strict_err)
+        });
+
+        match parsed {
+            Ok(mut s) => {
+                emit_discussion(
+                    app_handle,
+                    state,
+                    "synthesis",
+                    "成果提炼",
+                    3,
+                    "done",
+                    &s.summary.clone(),
+                );
+                if s.summary.is_empty() {
+                    s.summary = "（讨论成果已生成）".to_string();
+                }
+                return s;
+            }
+            Err(e) => {
+                last_err = e.to_string();
+                if attempt < 2 {
+                    emit_discussion(
+                        app_handle,
+                        state,
+                        "synthesis",
+                        "成果提炼",
+                        3,
+                        "running",
+                        &format!("首次输出无法解析为 JSON（{last_err}），正在自愈重试…"),
+                    );
+                    let head: String = text.chars().take(200).collect();
+                    next_prompt = format!(
+                        "{user_prompt}\n\n\
+                         ⚠️ 你上一次的输出无法解析为 JSON（错误：{last_err}），开头内容是：\n\
+                         「{head}…」\n\
+                         这一次请只输出 ===SYNTHESIS_BEGIN=== 与 ===SYNTHESIS_END=== 包裹的纯 JSON，\n\
+                         不要任何解释、前言、思考过程或 markdown 代码围栏。",
+                    );
+                }
+            }
         }
-        Err(e) => fallback(&format!("成果 JSON 解析失败: {e}")),
     }
+    fallback(&format!("成果 JSON 解析失败: {last_err}"))
 }
 
 /// 提取两个标记之间的内容
@@ -491,6 +517,26 @@ fn extract_between<'a>(text: &'a str, begin: &str, end: &str) -> Option<&'a str>
         return None;
     }
     Some(&text[b..e])
+}
+
+/// 从模型输出中提取最可能的 JSON 文本块：
+/// 优先 ===SYNTHESIS_BEGIN/END=== 标记包裹的内容；剥 markdown 围栏；
+/// 再截取最外层花括号（剥掉「好的，以下是…」式中文前言与结尾废话）。
+fn extract_json_block(text: &str) -> &str {
+    let inner =
+        extract_between(text, "===SYNTHESIS_BEGIN===", "===SYNTHESIS_END===").unwrap_or(text);
+    let cleaned = inner
+        .trim()
+        .trim_start_matches("```json")
+        .trim_start_matches("```")
+        .trim_end_matches("```")
+        .trim();
+    if let (Some(b), Some(e)) = (cleaned.find('{'), cleaned.rfind('}'))
+        && e > b
+    {
+        return &cleaned[b..=e];
+    }
+    cleaned
 }
 
 /// 推送讨论进度事件：先入控制面缓冲（供页面重连重放），再推送给前端
@@ -513,4 +559,28 @@ fn emit_discussion(
     };
     state.discussion.record(&ev);
     let _ = app_handle.emit("discussion-event", ev);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_extract_json_block_with_markers() {
+        let text =
+            "前言\n===SYNTHESIS_BEGIN===\n{\"summary\": \"共识\"}\n===SYNTHESIS_END===\n后缀";
+        assert_eq!(extract_json_block(text), "{\"summary\": \"共识\"}");
+    }
+
+    #[test]
+    fn test_extract_json_block_strips_prose_and_fence() {
+        // 模型输出中文前言 + markdown 围栏 + 结尾废话（本次线上故障的形态）
+        let text = "好的，以下是提炼结果：\n```json\n{\"summary\": \"x\"}\n```\n希望对你有帮助。";
+        assert_eq!(extract_json_block(text), "{\"summary\": \"x\"}");
+    }
+
+    #[test]
+    fn test_extract_json_block_no_json_returns_cleaned() {
+        assert_eq!(extract_json_block("   "), "");
+    }
 }

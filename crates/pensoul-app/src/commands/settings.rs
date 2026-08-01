@@ -73,3 +73,25 @@ pub async fn load_sprout(
     let ontology = state.ontology.read();
     Ok(ontology.sprout.clone())
 }
+
+/// 保存工作流技能配置（环节 → 模型 + 技法卡绑定，结构由前端定义，透明存储）
+#[tauri::command]
+pub async fn save_workflow_skills(
+    state: tauri::State<'_, AppState>,
+    config: serde_json::Value,
+) -> Result<(), String> {
+    {
+        let mut ontology = state.ontology.write();
+        ontology.workflow_skills = config;
+    }
+    state.save().map_err(|e| e.to_string())
+}
+
+/// 从后端读取工作流技能配置（未配置过返回 null）
+#[tauri::command]
+pub async fn load_workflow_skills(
+    state: tauri::State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    let ontology = state.ontology.read();
+    Ok(ontology.workflow_skills.clone())
+}

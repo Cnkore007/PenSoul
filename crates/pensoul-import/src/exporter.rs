@@ -151,6 +151,8 @@ mod tests {
             core_concept: pensoul_core::CoreConcept::new(),
             sprout: pensoul_core::SproutData::new(),
             outline_arcs: Vec::new(),
+            workflow_skills: serde_json::Value::Null,
+            workflow_ref: serde_json::Value::Null,
         };
 
         let output = export_to_txt(&ontology).unwrap();
