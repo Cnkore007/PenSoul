@@ -232,3 +232,11 @@
 - **08-01 上午**：与用户对齐工作流：自动连写为 P0 主流程；产出 WORKFLOW-PIPELINE-DESIGN-V1（列出 5 个断点：chapter_no 缺失、前端模拟器、委托执行无路径、上下文组装缺失、门控无信号源）。
 - **08-01 全天**：断点全部实现：`Chapter.chapter_no` 顺序语义、`pipeline/` 编排器（写作→审查→回灌三阶段硬编码）、`context.rs` 上下文组装、审查阶段产出 score 供门控；`outline.rs` 两层大纲、`book_distill.rs` 书籍蒸馏、`discussion.rs` 多 Agent 讨论、`expert_distill.rs` 专家蒸馏同步落地；前端 HarnessConsole 重写为事件流渲染器，新增 WorkflowView/OutlineView/ExpertLibraryView/BookDistillPanel。
 - **08-01 晚间**：本任务——docs 全量重建 + agent.md 同步约定。
+
+## 2026-08-02：AlphaEvolve 调研与 PenSoul 匹配方案设计（纯文档，未动代码）
+
+- **改动范围**：新增 `docs/EVOLVE-DESIGN.md`（调研 + 匹配分析 + 四层落地方案 + 路线图）。
+- **遇到的问题**：AlphaEvolve 官方仍 Early Access 限定、未开放 API——方案以开源 OpenEvolve（6.8k★）作 PoC 载体规避；小说正文质量无可靠自动评估器——方案因此限定"进化脚手架（量规/技法卡/提示词/绑定/参数），不进化正文"。
+- **设计思考**：PenSoul 与 AlphaEvolve 的适配是架构级的——审查分/反AI味分/一致性规则/门控记录即现成评估信号，技法卡/提示词即现成可进化小产物，批注采纳与人工门控即免费人类真值；现有"写作经验沉淀"只有变异没有选择，AlphaEvolve 补的是选择那一半。落地顺序评估器先行（L0 标注集一致率 ≥0.8 门槛）→ 离线沙盒 → 影子双跑 → 人工门晋升；防古德哈特用留出人评集 + 安全信号硬约束 + 蜜罐章节（引 arXiv 2509.26354 的 misevolution 教训）。首个 PoC 定审查量规进化（评估最可信、成本最低）。
+- **状态**：已完成（设计提案待用户评审）。
+- **下次待办**：用户确认方案后启动 M0——定义标注集格式并从笔耕批注历史转化首批标签；或先做审查量规进化的 OpenEvolve 配置脚手架。
