@@ -164,3 +164,16 @@ pub struct EditSample {
     #[serde(default)]
     pub created_at: String,
 }
+
+/// 页面受控保存快照 —— 应用「保存并审核」前的页面数据，支持一键撤回
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct PageSnapshot {
+    /// 页面类型：world / character
+    pub page: String,
+    /// 保存前数据
+    pub before: serde_json::Value,
+    /// 保存后数据
+    pub after: serde_json::Value,
+    #[serde(default)]
+    pub created_at: String,
+}

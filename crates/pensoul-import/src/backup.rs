@@ -209,6 +209,7 @@ mod tests {
             workflow_ref: serde_json::Value::Null,
             writing_lessons: Vec::new(),
             pending_edit_samples: Vec::new(),
+            page_snapshots: Vec::new(),
         }
     }
 

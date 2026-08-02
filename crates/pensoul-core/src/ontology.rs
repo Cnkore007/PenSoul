@@ -50,6 +50,9 @@ pub struct NovelOntology {
     /// 待沉淀的编辑修改样本（保存修改时自动收集，蒸馏成 WritingLesson 后清空）
     #[serde(default)]
     pub pending_edit_samples: Vec<crate::narrative::EditSample>,
+    /// 页面受控保存快照栈（每次应用保存前记录，撤回时恢复；上限 10 条/页）
+    #[serde(default)]
+    pub page_snapshots: Vec<crate::narrative::PageSnapshot>,
 }
 
 impl NovelOntology {
@@ -109,6 +112,7 @@ impl NovelOntology {
             workflow_ref: serde_json::Value::Null,
             writing_lessons: Vec::new(),
             pending_edit_samples: Vec::new(),
+            page_snapshots: Vec::new(),
         }
     }
 

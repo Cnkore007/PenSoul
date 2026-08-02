@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback } from "react";
 import { UserPlus, Trash2, Edit3 } from "lucide-react";
 import type { ProjectData, CharacterData } from "../types";
-import { OptimizeControls } from "../components/OptimizeControls";
+import { SaveControls } from "../components/SaveControls";
 import { EntityAnnotations } from "../components/EntityAnnotations";
 
 interface CharacterViewProps {
@@ -77,7 +77,7 @@ export function CharacterView({ projectData, persistProjectData }: CharacterView
       <div className="view-header">
         <h2>人物志</h2>
         <div style={{ display: "flex", gap: 8 }}>
-          <OptimizeControls
+          <SaveControls
             type="character"
             contentJson={charactersJson}
             apply={applyCharacters}

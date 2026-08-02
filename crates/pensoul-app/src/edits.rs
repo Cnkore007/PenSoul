@@ -17,6 +17,41 @@ fn now() -> String {
         .unwrap_or_default()
 }
 
+/// 已解析的可用模型（自持字符串，避免 ProviderAuth 生命周期纠缠）
+pub(crate) struct ResolvedModel {
+    pub provider_id: String,
+    pub api_key: String,
+    pub api_base: String,
+    pub model_id: String,
+}
+
+/// 解析第一个可用供应商下的可用模型
+pub(crate) fn resolve_any_model(state: &AppState) -> Result<ResolvedModel, String> {
+    let providers = lh::load_providers(state);
+    let models = lh::load_models(state);
+    let api_keys = { state.api_keys.read().clone() };
+    let (provider_id, api_key, api_base) =
+        lh::find_any_available_provider(&providers, &api_keys)
+            .ok_or_else(|| "未配置任何 LLM API Key，请在模型设置中配置".to_string())?;
+    let model_id = models
+        .iter()
+        .find(|m| {
+            m.get("provider_id").and_then(|v| v.as_str()) == Some(&provider_id)
+                && m.get("is_available")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false)
+        })
+        .and_then(|m| m.get("model_id").and_then(|v| v.as_str()))
+        .unwrap_or("gpt-4o")
+        .to_string();
+    Ok(ResolvedModel {
+        provider_id,
+        api_key,
+        api_base,
+        model_id,
+    })
+}
+
 /// 截断文本到上限
 fn cap(text: &str, max: usize) -> String {
     if text.chars().count() <= max {
@@ -240,7 +275,7 @@ pub fn pending_edit_count(state: &AppState) -> usize {
 }
 
 /// LLM 蒸馏待沉淀样本为写作经验并合并进经验库（scope 跟随来源环节）
-async fn do_distill_pending_lessons(
+pub(crate) async fn distill_pending_lessons_internal(
     state: &AppState,
 ) -> Result<Vec<WritingLesson>, String> {
     lh::ensure_api_keys_loaded(state);
@@ -252,28 +287,12 @@ async fn do_distill_pending_lessons(
         return Ok(Vec::new());
     }
 
-    // 模型解析：第一个可用供应商下的可用模型
-    let providers = lh::load_providers(state);
-    let models = lh::load_models(state);
-    let api_keys = { state.api_keys.read().clone() };
-    let (provider_id, api_key, api_base) =
-        lh::find_any_available_provider(&providers, &api_keys)
-            .ok_or_else(|| "未配置任何 LLM API Key，请在模型设置中配置".to_string())?;
-    let model_id = models
-        .iter()
-        .find(|m| {
-            m.get("provider_id").and_then(|v| v.as_str()) == Some(&provider_id)
-                && m.get("is_available")
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(false)
-        })
-        .and_then(|m| m.get("model_id").and_then(|v| v.as_str()))
-        .unwrap_or("gpt-4o")
-        .to_string();
+    let rm = resolve_any_model(state)?;
+    let model_id = rm.model_id.as_str();
     let auth = lh::ProviderAuth {
-        provider_id: &provider_id,
-        api_key: &api_key,
-        api_base: &api_base,
+        provider_id: &rm.provider_id,
+        api_key: &rm.api_key,
+        api_base: &rm.api_base,
     };
 
     let system = "你是写作复盘教练，负责从作者的修改动作中提炼可复用的写作经验。\
@@ -301,7 +320,7 @@ async fn do_distill_pending_lessons(
          3. scope 取修改来源环节\n\
          4. 用 ===LESSONS_BEGIN=== 与 ===LESSONS_END=== 包裹纯 JSON，全部内容用中文"
     );
-    let raw = lh::call_llm_task(&auth, &model_id, system, &user, 0.2, 4096, LlmTask::Light).await?;
+    let raw = lh::call_llm_task(&auth, model_id, system, &user, 0.2, 4096, LlmTask::Light).await?;
     let json_str = extract_block(&raw, "===LESSONS_BEGIN===", "===LESSONS_END===");
     let payload: DistillPayload = serde_json::from_str(&json_str)
         .or_else(|strict_err| {
@@ -334,7 +353,7 @@ pub async fn get_pending_edits(
 pub async fn distill_pending_lessons(
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<WritingLesson>, String> {
-    do_distill_pending_lessons(&state).await
+    distill_pending_lessons_internal(&state).await
 }
 
 fn extract_block(raw: &str, begin: &str, end: &str) -> String {

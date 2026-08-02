@@ -155,6 +155,17 @@ annotations_export(project_id, kind?) → JSONL 标注集
 2. `resolved_by` 区分"用户直接判决"（强标签）与"重写计划默许"（弱标签），学习时分层加权；
 3. 标注集只含批注文本与锚定快照，不含完整私密正文，符合 EVOLVE-DESIGN 红线 2。
 
+## 六·五、受控保存（保存并审核，已落地世界观/人物志）
+
+原「优化」按钮统一升级为「保存并审核」受控流程（`page_review.rs` + `SaveControls`）：
+
+1. **分析**：收集页面待处理批注（open）+ 编辑修改样本（scope 匹配），LLM 逐条判定 `valid / invalid / uncertain` 并给理由，同时评估对全文的影响（牵动章节/实体、一致性风险）；
+2. **二次确认**：判定面板逐条展示（可修改判定），用户确认后才应用；
+3. **应用**：记录 `PageSnapshot`（保存前/后数据，每页上限 10 条）→ 覆盖页面数据 → 批注按判定流转（valid→accepted / invalid→rejected，resolved_by=manual）→ valid 的修改样本与批注统一蒸馏为经验；
+4. **撤回**：`undo_page_change` 恢复最近一次快照。
+
+经验判定原则：**批注与修改都只是人工数据采集，是否沉淀由 LLM 判定有效性**——invalid 的修改样本直接丢弃、批注标记 rejected，只有 valid 的才进经验库。
+
 ## 七、迁移与兼容
 
 - `ChapterAnnotation` 保留为兼容别名/转换函数，旧项目 JSON 无需迁移；

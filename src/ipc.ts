@@ -72,6 +72,45 @@ export async function distillPendingLessons(): Promise<WritingLesson[]> {
   return await invoke<WritingLesson[]>("distill_pending_lessons");
 }
 
+// ── 页面受控保存（保存并审核） ──
+
+export interface ReviewItem {
+  source: "annotation" | "edit";
+  id: string;
+  label: string;
+  content: string;
+  verdict: "valid" | "invalid" | "uncertain" | string;
+  reason: string;
+}
+
+export interface PageReview {
+  items: ReviewItem[];
+  impact: string;
+}
+
+export async function reviewPageChanges(
+  page: "world" | "character",
+  contentJson: string
+): Promise<PageReview> {
+  return await invoke<PageReview>("review_page_changes", { page, contentJson });
+}
+
+export async function applyPageReview(
+  page: "world" | "character",
+  contentJson: string,
+  confirmations: Array<{ id: string; verdict: string }>
+): Promise<{ applied: boolean; page: string; lessons: WritingLesson[]; can_undo: boolean }> {
+  return await invoke("apply_page_review", { page, contentJson, confirmations });
+}
+
+export async function undoPageChange(page: "world" | "character"): Promise<unknown> {
+  return await invoke("undo_page_change", { page });
+}
+
+export async function pageUndoAvailable(page: "world" | "character"): Promise<boolean> {
+  return await invoke<boolean>("page_undo_available", { page });
+}
+
 // ── 项目管理 ──
 
 export async function createProject(title: string): Promise<string> {

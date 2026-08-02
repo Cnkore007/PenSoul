@@ -256,3 +256,11 @@
 - **设计取舍**：修改采样零 LLM 成本（后端 diff + 摘要截断），蒸馏是唯一手动触发的 LLM 调用（避免每次保存都调 LLM 造成延迟与费用）；同实体同标签样本只保留最新一条，防止反复编辑刷屏；正文修改同样进样本（diff 定位首个变化区）。
 - **状态**：已完成。cargo test 全绿（含 diff/采样/去重单测），tsc 通过，clippy 无新增警告。
 - **下次待办**：用户验收；蒸馏入口后续可在笔耕页与经验管理页复用。
+
+## 2026-08-02：受控保存（保存并审核）
+
+- **改动范围**：新增 `crates/pensoul-app/src/page_review.rs`（review_page_changes / apply_page_review / undo_page_change / page_undo_available）；`NovelOntology` 加 `page_snapshots`（每页上限 10 条）；前端新增 `SaveControls` 替代 `OptimizeControls`（世界观/人物志），删除 `OptimizeControls.tsx` 与 `utils/optimize.ts`。
+- **流程**：点「保存并审核」→ 收集页面 open 批注 + 编辑修改样本 → LLM 判定每条 valid/invalid/uncertain + 对全文影响评估 → 面板二次确认（可逐条改判定）→ 应用时快照入栈、批注按判定流转、valid 样本蒸馏为经验 → 「撤回」恢复快照。
+- **设计取舍**：批注与修改只是数据采集，是否进经验由 LLM 判定（invalid 修改样本丢弃、批注 rejected）；快照存本体（随项目持久化），比原优化器的内存备份可靠；大纲/笔耕保留各自保存流，未并入本流程。
+- **状态**：已完成。cargo test 全绿（含判定/收集/批注流转单测），tsc 通过，clippy 无新增警告。
+- **下次待办**：用户验收；受控保存可扩展到细纲/正文；影响评估结果后续可联动 CDA 影响图。

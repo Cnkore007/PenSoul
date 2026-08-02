@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback } from "react";
 import { MapPin, Clock, BookOpen, Plus, Trash2, Edit3 } from "lucide-react";
 import type { ProjectData, WorldData } from "../types";
-import { OptimizeControls } from "../components/OptimizeControls";
+import { SaveControls } from "../components/SaveControls";
 import { EntityAnnotations } from "../components/EntityAnnotations";
 
 type TabType = "locations" | "timeline" | "rules";
@@ -135,7 +135,7 @@ export function WorldView({ projectData, persistProjectData }: WorldViewProps) {
       <div className="view-header">
         <h2>世界观</h2>
         <div style={{ display: "flex", gap: 8 }}>
-          <OptimizeControls
+          <SaveControls
             type="world"
             contentJson={worldJson}
             apply={applyWorld}
