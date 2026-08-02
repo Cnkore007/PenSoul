@@ -549,7 +549,9 @@ export async function analyzeAiFlavor(content: string): Promise<import("./types"
 export interface AntiAiCategoryConfig {
   key: string;
   label: string;
+  tier: number;
   words: string[];
+  patterns: string[];
   score_per_hit: number;
   max_score: number;
   exempt_per_1k: number;

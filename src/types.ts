@@ -132,10 +132,20 @@ export interface ChapterImpact {
 export interface AiFlavorCategory {
   key: string;
   label: string;
+  tier: number; // 1 = 单词命中即扣 / 2 = 同段聚集 / 3 = 全文密度
   hits: number;
   score: number;
   max_score: number;
   examples: string[];
+}
+
+// 节奏信号（确定性指标，信息性展示，不参与总分）
+export interface RhythmSignal {
+  avg_sentence_length: number;
+  sentence_var: number;
+  paragraph_uniformity: number;
+  flagged: boolean;
+  note: string;
 }
 
 export interface AiFlavorReport {
@@ -143,6 +153,7 @@ export interface AiFlavorReport {
   level: string; // 低 / 中 / 高
   total_hits: number;
   categories: AiFlavorCategory[];
+  rhythm: RhythmSignal;
   suggestion: string;
 }
 

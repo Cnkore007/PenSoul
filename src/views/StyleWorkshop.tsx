@@ -7,11 +7,12 @@ import {
   analyzeAiFlavor,
   checkConsistency,
   getAntiAiRules,
+  getStyleFingerprint,
   getStyleMetrics,
   saveAntiAiRules,
   type AntiAiRuleConfig,
 } from "../ipc";
-import type { AiFlavorReport, ConsistencyViolation, ProjectData, StyleMetrics } from "../types";
+import type { AiFlavorReport, ConsistencyViolation, ProjectData, StyleFingerprint, StyleMetrics } from "../types";
 
 interface StyleWorkshopProps {
   projectData: ProjectData;
@@ -20,6 +21,7 @@ interface StyleWorkshopProps {
 export function StyleWorkshop({ projectData }: StyleWorkshopProps) {
   const [metrics, setMetrics] = useState<StyleMetrics | null>(null);
   const [flavor, setFlavor] = useState<AiFlavorReport | null>(null);
+  const [fingerprint, setFingerprint] = useState<StyleFingerprint | null>(null);
   const [loading, setLoading] = useState(true);
   const [checkedChapter, setCheckedChapter] = useState("");
 
@@ -37,6 +39,7 @@ export function StyleWorkshop({ projectData }: StyleWorkshopProps) {
     try {
       const result = await getStyleMetrics();
       setMetrics(result);
+      getStyleFingerprint().then(setFingerprint).catch(() => {});
       const chapters = projectData.volumes
         .flatMap(v => v.chapters)
         .filter(c => (c.word_count ?? 0) > 0)
@@ -159,6 +162,14 @@ export function StyleWorkshop({ projectData }: StyleWorkshopProps) {
                   <div style={{ fontSize: "var(--text-2xs)", color: "var(--color-ink-3)", marginBottom: 8 }}>
                     检测对象：{checkedChapter} · 共 {flavor.total_hits} 处命中 · {flavor.suggestion}
                   </div>
+                  {flavor.rhythm && (
+                    <div className="rule-row" style={{ marginBottom: 8, fontSize: "var(--text-2xs)", color: flavor.rhythm.flagged ? "var(--color-warning)" : "var(--color-jade)" }}>
+                      <span className="rule-icon">{flavor.rhythm.flagged ? "!" : "✓"}</span>
+                      <span className="rule-text">
+                        节奏：均句 {flavor.rhythm.avg_sentence_length.toFixed(1)} 字 · 句长方差 {flavor.rhythm.sentence_var.toFixed(1)} · 段落均匀度 {flavor.rhythm.paragraph_uniformity.toFixed(2)}。{flavor.rhythm.note}
+                      </span>
+                    </div>
+                  )}
                   <div className="flex-col flex-gap-sm">
                     {flavor.categories.map(cat => {
                       const status = cat.hits === 0 ? "pass" : cat.score >= cat.max_score * 0.8 ? "fail" : "warning";
@@ -166,7 +177,11 @@ export function StyleWorkshop({ projectData }: StyleWorkshopProps) {
                         <div key={cat.key} className={"rule-row rule-" + status}>
                           <div className="rule-icon">{status === "pass" ? "✓" : status === "warning" ? "!" : "✗"}</div>
                           <span className="rule-text">
-                            {cat.label}：命中 {cat.hits} 处，扣 {cat.score.toFixed(0)}/{cat.max_score.toFixed(0)} 分
+                            {cat.label}
+                            <span style={{ marginLeft: 6, padding: "0 6px", borderRadius: 8, background: "rgba(128,128,128,0.15)", fontSize: "var(--text-2xs)" }}>
+                              T{cat.tier}
+                            </span>
+                            ：命中 {cat.hits} 处，扣 {cat.score.toFixed(0)}/{cat.max_score.toFixed(0)} 分
                             {cat.examples.length > 0 && (
                               <details style={{ marginTop: 4 }}>
                                 <summary style={{ fontSize: "var(--text-2xs)", color: "var(--color-accent)", cursor: "pointer" }}>违例样例</summary>
@@ -224,6 +239,51 @@ export function StyleWorkshop({ projectData }: StyleWorkshopProps) {
               </div>
             </div>
           </div>
+
+          {fingerprint && (
+            <div className="card" style={{ marginTop: 16 }}>
+              <div className="card-header">
+                <Feather size={15} color="var(--color-ink-3)" /><h3>本书文风指纹</h3>
+                <span style={{ marginLeft: "auto", fontSize: "var(--text-2xs)", color: "var(--color-ink-3)" }}>
+                  采样 {fingerprint.sampled_chapters} 章 · 注入写作/审查作为文风基线，防止越改越模板
+                </span>
+              </div>
+              <div className="stat-grid stat-grid-4">
+                <div className="stat-card">
+                  <div className="stat-card-value">{fingerprint.avg_sentence_length.toFixed(1)}</div>
+                  <div className="stat-card-unit">平均句长（字）</div>
+                </div>
+                <div className="stat-card">
+                  <div className="stat-card-value">{fingerprint.sentence_var.toFixed(1)}</div>
+                  <div className="stat-card-unit">句长方差（越小越齐）</div>
+                </div>
+                <div className="stat-card">
+                  <div className="stat-card-value">{(fingerprint.connector_per_1k).toFixed(1)}</div>
+                  <div className="stat-card-unit">连接词/千字</div>
+                </div>
+                <div className="stat-card">
+                  <div className="stat-card-value">{fingerprint.quote_style || "—"}</div>
+                  <div className="stat-card-unit">引号习惯</div>
+                </div>
+                <div className="stat-card">
+                  <div className="stat-card-value">{(fingerprint.dialogue_ratio * 100).toFixed(0)}%</div>
+                  <div className="stat-card-unit">对话占比</div>
+                </div>
+                <div className="stat-card">
+                  <div className="stat-card-value">{(fingerprint.vocabulary_richness * 100).toFixed(0)}%</div>
+                  <div className="stat-card-unit">词汇丰富度</div>
+                </div>
+                <div className="stat-card">
+                  <div className="stat-card-value">{fingerprint.avg_paragraph_length.toFixed(0)}</div>
+                  <div className="stat-card-unit">平均段落长（字）</div>
+                </div>
+                <div className="stat-card">
+                  <div className="stat-card-value">{fingerprint.paragraph_uniformity.toFixed(2)}</div>
+                  <div className="stat-card-unit">段落均匀度</div>
+                </div>
+              </div>
+            </div>
+          )}
         </>
       )}
 
@@ -257,6 +317,11 @@ export function StyleWorkshop({ projectData }: StyleWorkshopProps) {
                   <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6, flexWrap: "wrap" }}>
                     <span style={{ fontWeight: 600, fontSize: "var(--text-xs)" }}>{c.label}</span>
                     <label style={{ fontSize: "var(--text-2xs)", color: "var(--color-ink-3)", display: "inline-flex", gap: 4, alignItems: "center" }}>
+                      分级T
+                      <input className="pm-input" type="number" min={1} max={3} style={{ marginBottom: 0, width: 44, padding: "1px 4px" }}
+                        value={c.tier} onChange={e => updateCategory(i, { tier: Math.max(1, Math.min(3, Number(e.target.value) || 1)) })} />
+                    </label>
+                    <label style={{ fontSize: "var(--text-2xs)", color: "var(--color-ink-3)", display: "inline-flex", gap: 4, alignItems: "center" }}>
                       单次扣分
                       <input className="pm-input" type="number" step="0.5" style={{ marginBottom: 0, width: 56, padding: "1px 4px" }}
                         value={c.score_per_hit} onChange={e => updateCategory(i, { score_per_hit: Number(e.target.value) || 0 })} />
@@ -280,6 +345,14 @@ export function StyleWorkshop({ projectData }: StyleWorkshopProps) {
                     placeholder="命中词，用顿号或逗号分隔"
                     value={c.words.join("、")}
                     onChange={e => updateCategory(i, { words: e.target.value.split(/[、,，\s]+/).filter(Boolean) })}
+                  />
+                  <textarea
+                    className="pm-textarea"
+                    rows={2}
+                    style={{ fontSize: "var(--text-2xs)", marginTop: 6 }}
+                    placeholder="正则模式（如结构骨架/翻译腔），用换行或逗号分隔；留空表示仅用词表"
+                    value={c.patterns.join("\n")}
+                    onChange={e => updateCategory(i, { patterns: e.target.value.split(/[\n,，]+/).map(s => s.trim()).filter(Boolean) })}
                   />
                 </div>
               ))}
