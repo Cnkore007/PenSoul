@@ -44,6 +44,9 @@ pub struct NovelOntology {
     /// 旧项目 JSON 无此字段，默认为 null
     #[serde(default)]
     pub workflow_ref: serde_json::Value,
+    /// 项目写作经验库：批注重写沉淀的错误经验，注入章节审查 prompt
+    #[serde(default)]
+    pub writing_lessons: Vec<crate::narrative::WritingLesson>,
 }
 
 impl NovelOntology {
@@ -101,6 +104,7 @@ impl NovelOntology {
             outline_arcs: Vec::new(),
             workflow_skills: serde_json::Value::Null,
             workflow_ref: serde_json::Value::Null,
+            writing_lessons: Vec::new(),
         }
     }
 
@@ -226,6 +230,8 @@ mod tests {
             consistency_score: 0.0,
             created_at: String::new(),
             updated_at: String::new(),
+            annotations: Vec::new(),
+            revisions: Vec::new(),
         }
     }
 

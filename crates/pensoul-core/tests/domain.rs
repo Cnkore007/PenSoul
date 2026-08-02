@@ -37,6 +37,8 @@ fn test_chapter_all_status_variants_round_trip() {
             consistency_score: 0.95,
             created_at: "2026-07-30T00:00:00Z".to_string(),
             updated_at: "2026-07-30T01:00:00Z".to_string(),
+            annotations: Vec::new(),
+            revisions: Vec::new(),
         };
         let back = round_trip(&ch);
         assert_eq!(back.chapter_id, ch.chapter_id);

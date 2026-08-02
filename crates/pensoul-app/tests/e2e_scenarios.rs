@@ -39,6 +39,8 @@ fn make_chapter(chapter_id: &str, title: &str) -> Chapter {
         consistency_score: 0.9,
         created_at: "2026-01-01T00:00:00Z".to_string(),
         updated_at: "2026-01-01T00:00:00Z".to_string(),
+        annotations: Vec::new(),
+        revisions: Vec::new(),
     }
 }
 

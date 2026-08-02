@@ -233,7 +233,7 @@ fn collect_entity_states(ontology: &NovelOntology) -> Vec<EntityState> {
 }
 
 /// 采集单个章节的一致性实体状态。
-fn entity_states_for_chapter(
+pub(crate) fn entity_states_for_chapter(
     ontology: &NovelOntology,
     chapter_id: &ChapterId,
     version: i32,
@@ -361,6 +361,8 @@ mod tests {
             consistency_score: 1.0,
             created_at: String::new(),
             updated_at: String::new(),
+            annotations: Vec::new(),
+            revisions: Vec::new(),
         }
     }
 

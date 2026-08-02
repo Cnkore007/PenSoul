@@ -4,6 +4,7 @@ pub mod book_distill;
 pub(crate) mod book_file;
 pub mod cda;
 pub mod chapter;
+pub mod chapter_rewrite;
 pub mod character;
 pub mod consistency;
 pub mod discussion;

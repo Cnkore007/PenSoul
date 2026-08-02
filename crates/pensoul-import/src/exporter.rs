@@ -77,6 +77,8 @@ mod tests {
             consistency_score: 1.0,
             created_at: "2026-01-01".to_string(),
             updated_at: "2026-01-01".to_string(),
+            annotations: Vec::new(),
+            revisions: Vec::new(),
         }
     }
 
@@ -153,6 +155,7 @@ mod tests {
             outline_arcs: Vec::new(),
             workflow_skills: serde_json::Value::Null,
             workflow_ref: serde_json::Value::Null,
+            writing_lessons: Vec::new(),
         };
 
         let output = export_to_txt(&ontology).unwrap();

@@ -8,7 +8,7 @@ pub mod context;
 pub mod stages;
 
 mod executor;
-mod runner;
+pub(crate) mod runner;
 
 pub use runner::run_pipeline;
 

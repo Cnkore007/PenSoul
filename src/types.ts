@@ -8,6 +8,48 @@ export interface Chapter {
   word_count: number;
   version: number;
   status: 'Draft' | 'Reviewing' | 'Reviewed' | 'Polished' | 'Published';
+  // 笔耕批注（行内 + 整章）
+  annotations?: ChapterAnnotation[];
+  // 版本历史（批注重写前快照 / 回滚点）
+  revisions?: ChapterRevision[];
+}
+
+// 行内批注锚点：段落索引 + 段内偏移 + 锚定原文片段
+export interface AnnotationAnchor {
+  paragraph_index: number;
+  offset: number;
+  text: string;
+}
+
+// 笔耕批注
+export interface ChapterAnnotation {
+  annotation_id: string;
+  kind: "issue" | "suggestion" | "note"; // 问题 / 修改建议 / 备注
+  anchor?: AnnotationAnchor | null;
+  content: string;
+  status: "open" | "accepted" | "rejected"; // 待处理 / 已采纳 / 已拒绝
+  created_at?: string;
+  processed_in_version?: number;
+}
+
+// 章节版本历史
+export interface ChapterRevision {
+  version: number;
+  content: string;
+  word_count?: number;
+  created_at?: string;
+  reason?: string;
+}
+
+// 项目写作经验条目
+export interface WritingLesson {
+  lesson_id: string;
+  category: string;
+  problem: string;
+  fix?: string;
+  example?: string;
+  count?: number;
+  created_at?: string;
 }
 
 export interface Volume {
@@ -61,6 +103,13 @@ export interface StyleMetrics {
   dialogue_ratio: number;
   pace_score: number;
   ai_pattern_score: number;
+}
+
+// 章节修改后的影响分析（analyze_chapter_impact 命令返回）
+export interface ChapterImpact {
+  chapter_no: number;
+  affected: any[]; // CDA AffectedItem：node_id / chapter_id / severity / action
+  consistency: any[]; // ConsistencyViolation：rule_name / description / severity
 }
 
 // 反 AI 味检测报告（analyze_ai_flavor 命令返回）
@@ -331,6 +380,15 @@ export interface DiscussionSynthesis {
     relationships?: Array<{ from: string; to: string; relation_type: string; strength: number }>;
   }>;
   outline_beats: Array<{ title: string; description: string; chapter_hint?: string }>;
+  // 讨论中显式保留的分歧与裁决（含跨维度冲突）
+  disagreements?: Array<{
+    topic: string;
+    dimension?: string;
+    sides?: Array<{ agent: string; position: string; rationale?: string }>;
+    status?: string; // resolved=讨论内已收敛 / open=未收敛
+    resolution?: string;
+    adjudicated?: boolean;
+  }>;
 }
 
 // 讨论完整输出

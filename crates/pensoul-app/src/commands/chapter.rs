@@ -1,7 +1,7 @@
 //! 章节管理命令
 use crate::state::AppState;
 use pensoul_concurrency::{Operation, OperationType};
-use pensoul_core::{ChapterId, ChapterStatus, Volume, VolumeId};
+use pensoul_core::{ChapterAnnotation, ChapterId, ChapterStatus, Volume, VolumeId};
 
 /// 获取章节
 #[tauri::command]
@@ -30,6 +30,7 @@ pub async fn save_chapter(
     chapter_id: String,
     content: String,
     expected_version: i32,
+    annotations: Option<Vec<ChapterAnnotation>>,
 ) -> Result<i32, String> {
     let id = ChapterId::new(chapter_id);
 
@@ -75,6 +76,9 @@ pub async fn save_chapter(
                     chapter.content = content;
                     chapter.version = new_version;
                     chapter.word_count = chapter.content.chars().count() as u32;
+                    if let Some(anno) = annotations {
+                        chapter.annotations = anno;
+                    }
                 }
             }
 
@@ -180,6 +184,8 @@ pub async fn upsert_chapter(
                     consistency_score: 1.0,
                     created_at: now.clone(),
                     updated_at: now,
+                    annotations: Vec::new(),
+                    revisions: Vec::new(),
                 });
             }
         }

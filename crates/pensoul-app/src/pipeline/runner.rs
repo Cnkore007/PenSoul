@@ -21,7 +21,7 @@ const MAX_STAGE_ITERATIONS: usize = 12;
 const MAX_EXEC_RETRIES: u32 = 2;
 
 /// 解析项目引用的全局工作流模板（未配置/解析失败返回 None）。
-fn resolve_project_workflow(state: &AppState) -> Option<WorkflowTemplate> {
+pub(crate) fn resolve_project_workflow(state: &AppState) -> Option<WorkflowTemplate> {
     let ref_json = {
         let onto = state.ontology.read();
         onto.workflow_ref.clone()
@@ -36,7 +36,7 @@ fn resolve_project_workflow(state: &AppState) -> Option<WorkflowTemplate> {
 }
 
 /// 解析某环节的技法卡：显式参数 > 项目覆盖 > 模板绑定 > 空
-fn resolve_stage_cards(
+pub(crate) fn resolve_stage_cards(
     state: &AppState,
     template: Option<&WorkflowTemplate>,
     explicit: Option<&Vec<String>>,
@@ -84,7 +84,7 @@ fn resolve_stage_cards(
 }
 
 /// 解析某环节的模型：显式参数 > 项目覆盖 > 模板绑定 > None
-fn resolve_stage_model(
+pub(crate) fn resolve_stage_model(
     state: &AppState,
     template: Option<&WorkflowTemplate>,
     explicit: Option<&str>,

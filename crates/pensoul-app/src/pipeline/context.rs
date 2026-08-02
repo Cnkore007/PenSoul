@@ -82,6 +82,36 @@ fn character_digest(onto: &NovelOntology) -> String {
     cap_chars(out.trim(), 1500)
 }
 
+/// 项目写作经验库压缩：历史错误经验清单，审查时重点检查是否重犯
+fn lessons_digest(onto: &NovelOntology) -> String {
+    if onto.writing_lessons.is_empty() {
+        return String::new();
+    }
+    let mut lines: Vec<String> = Vec::new();
+    for l in onto.writing_lessons.iter().take(30) {
+        let count_mark = if l.count > 1 {
+            format!("（已发生 {} 次）", l.count)
+        } else {
+            String::new()
+        };
+        let example_mark = if l.example.is_empty() {
+            String::new()
+        } else {
+            format!("（出自{}）", l.example)
+        };
+        let fix = if l.fix.is_empty() {
+            String::new()
+        } else {
+            format!("；改正：{}", l.fix)
+        };
+        lines.push(format!(
+            "- [{}]{count_mark} {}{example_mark}{fix}",
+            l.category, l.problem
+        ));
+    }
+    cap_chars(&lines.join("\n"), 3000)
+}
+
 /// 记忆包压缩：热记忆前文 + 温记忆（卷摘要/角色状态/活跃伏笔）
 fn memory_digest(packet: &MemoryPacket) -> String {
     let mut out = String::new();
@@ -113,7 +143,7 @@ fn memory_digest(packet: &MemoryPacket) -> String {
 }
 
 /// 反 AI 味写作铁律（注入写作与审查阶段）
-const ANTI_AI_RULES: &str = "\
+pub(crate) const ANTI_AI_RULES: &str = "\
 语言铁律（反 AI 味）：
 1. 删除套话：「不禁」「仿佛」「映入眼帘」「心中暗道」「嘴角微扬」「脸色一变」等一律不写；
 2. 弱化副词（微微/淡淡/缓缓/轻轻/悄然/默默）每千字不超过 3 个；
@@ -220,7 +250,9 @@ pub fn build_writing_prompt(
 
     let mut system = "你是一位长篇小说作家，正在为一部连载小说撰写章节正文。\n\
         铁律：只输出章节正文本身——不输出章节标题、不输出大纲复述、不输出任何解释或元信息；\n\
-        文风贴合给定题材与基调，严格承接前文情节与人物状态，不得与世界观设定矛盾。"
+        文风贴合给定题材与基调，严格承接前文情节与人物状态，不得与世界观设定矛盾。\n\
+        输出协议：正文必须严格包裹在 ===CHAPTER_BEGIN=== 与 ===CHAPTER_END=== 两个标记之间；\n\
+        标记之外不得出现任何内容——不输出英文规划、不输出场景说明、不输出思考过程、不输出节拍表复述。"
         .to_string();
     system.push_str(&format!("\n\n{ANTI_AI_RULES}"));
     // 开篇黄金三章：前 3 章用「立刻出事 → 给期待 → 给爽点」节奏
@@ -371,6 +403,12 @@ pub fn build_review_prompt(
     if !chars.is_empty() {
         user.push_str(&format!("【人物志】\n{chars}\n\n"));
     }
+    let lessons = lessons_digest(onto);
+    if !lessons.is_empty() {
+        user.push_str(&format!(
+            "【本书历史写作经验（必须重点检查本章是否重犯同类错误，发现即计入 issues）】\n{lessons}\n\n"
+        ));
+    }
     user.push_str(&format!(
         "【待审章节】第 {} 章《{}》（梗概：{}）\n正文：\n{}",
         chapter.chapter_no,
@@ -430,6 +468,8 @@ mod tests {
             consistency_score: 1.0,
             created_at: String::new(),
             updated_at: String::new(),
+            annotations: Vec::new(),
+            revisions: Vec::new(),
         }
     }
 

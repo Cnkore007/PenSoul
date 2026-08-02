@@ -236,6 +236,8 @@ pub async fn expand_outline_arc(
                 consistency_score: 1.0,
                 created_at: now.clone(),
                 updated_at: now.clone(),
+                annotations: Vec::new(),
+                revisions: Vec::new(),
             });
             created += 1;
         }

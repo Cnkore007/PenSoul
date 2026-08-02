@@ -144,6 +144,10 @@ const SIGNAL_BEGIN: &str = "===SIGNAL_BEGIN===";
 const SIGNAL_END: &str = "===SIGNAL_END===";
 const REPORT_BEGIN: &str = "===REPORT_BEGIN===";
 const REPORT_END: &str = "===REPORT_END===";
+/// 写作阶段双通道标记：模型必须把正文包裹在这两个标记之间，
+/// 标记外不得输出任何内容（防英文规划/思考/场景说明混入正文）。
+pub const CHAPTER_BEGIN: &str = "===CHAPTER_BEGIN===";
+pub const CHAPTER_END: &str = "===CHAPTER_END===";
 
 /// 审查信号（SIGNAL 通道）：门控分数 + 问题清单
 #[derive(Debug, Clone, PartialEq)]
@@ -163,23 +167,88 @@ fn between<'a>(text: &'a str, begin: &str, end: &str) -> Option<&'a str> {
     Some(text[b..e].trim())
 }
 
-/// 解析写作阶段输出：剥掉 Markdown 代码围栏，返回纯正文。
-///
-/// 模型偶尔会用 ``` 包裹全文或加前导语，这里取最长连续文本块。
+/// 解析写作阶段输出：优先取 CHAPTER 标记内的正文；无标记时剥掉
+/// Markdown 代码围栏与前导规划文本（模型常把英文/中文规划混在正文前）。
 pub fn parse_writing_output(text: &str) -> String {
     let trimmed = text.trim();
-    // 整体被代码围栏包裹时剥掉围栏
-    if trimmed.starts_with("```") {
-        let body = trimmed
-            .trim_start_matches('`')
-            .trim_start_matches(|c: char| c.is_alphabetic()) // 剥掉语言标记如 ```text
-            .trim_start();
-        if let Some(end) = body.rfind("```") {
-            return body[..end].trim().to_string();
+
+    // 1) 标记协议优先：===CHAPTER_BEGIN=== … ===CHAPTER_END===
+    if let Some(b) = trimmed.find(CHAPTER_BEGIN) {
+        let rest = &trimmed[b + CHAPTER_BEGIN.len()..];
+        let body = match rest.find(CHAPTER_END) {
+            Some(e) => &rest[..e],
+            None => rest,
+        };
+        let body = strip_code_fence(body.trim());
+        if !body.is_empty() {
+            return body;
         }
-        return body.trim().to_string();
     }
-    trimmed.to_string()
+
+    // 2) 剥代码围栏
+    let stripped = strip_code_fence(trimmed);
+    // 3) 剥离前导规划文本（模型把 planning 输出在正文前面时）
+    strip_planning_prefix(&stripped)
+}
+
+/// 剥掉整体包裹的 Markdown 代码围栏（如 ```text … ```）
+fn strip_code_fence(text: &str) -> String {
+    let trimmed = text.trim();
+    if !trimmed.starts_with("```") {
+        return trimmed.to_string();
+    }
+    let body = trimmed
+        .trim_start_matches('`')
+        .trim_start_matches(|c: char| c.is_alphabetic()) // 剥掉语言标记如 ```text
+        .trim_start();
+    if let Some(end) = body.rfind("```") {
+        body[..end].trim().to_string()
+    } else {
+        body.trim().to_string()
+    }
+}
+
+/// 剥离正文前的规划/思考文本。
+///
+/// 模型常先输出英文或中文的写作规划（"Let me carefully write…"、
+/// "Scene 1…"、"场景一：…"、大纲编号等）再开始正文。规则：逐行扫描，
+/// 遇到第一行「正文特征行」（含中文且不是规划模式）时，从该行开始截取。
+fn strip_planning_prefix(text: &str) -> String {
+    let lines: Vec<&str> = text.lines().collect();
+    let mut start = 0usize;
+    for (i, line) in lines.iter().enumerate() {
+        let l = line.trim();
+        if l.is_empty() {
+            continue; // 前缀空行跳过
+        }
+        let is_planning = {
+            let lower = l.to_lowercase();
+            l.starts_with("##")
+                || l.starts_with("###")
+                || l.starts_with("- ")
+                || l.starts_with("* ")
+                || l.starts_with("【")
+                || lower.starts_with("scene")
+                || lower.starts_with("step")
+                || lower.starts_with("let me")
+                || lower.starts_with("i need")
+                || lower.starts_with("i'll")
+                || lower.starts_with("i will")
+                || lower.contains("场景 ")
+                || lower.contains("章节规划")
+                || lower.contains("chapter ")
+                || lower.starts_with("plan")
+                || lower.starts_with("draft")
+                || (l.starts_with(|c: char| c.is_ascii_digit())
+                    && (l.contains('.') || l.contains('、') || l.contains(')')))
+                || !l.contains(|c: char| c >= '\u{4e00}' && c <= '\u{9fff}') // 纯英文/符号行
+        };
+        if !is_planning {
+            start = i;
+            break;
+        }
+    }
+    lines[start..].join("\n").trim().to_string()
 }
 
 /// 解析审查阶段输出：SIGNAL JSON + REPORT 文本。
@@ -344,6 +413,26 @@ mod tests {
         assert_eq!(parse_writing_output(fenced), "第一章的正文内容。\n第二段。");
         let plain = "直接的正文";
         assert_eq!(parse_writing_output(plain), "直接的正文");
+    }
+
+    #[test]
+    fn test_parse_writing_chapter_markers() {
+        let raw = "Let me carefully write this chapter.\n===CHAPTER_BEGIN===\n他最后记得的，是天台栏杆上一枚反射灯光的金属铆钉。\n第二段正文。\n===CHAPTER_END===\n以上是本章正文。";
+        let out = parse_writing_output(raw);
+        assert!(out.starts_with("他最后记得的"));
+        assert!(!out.contains("CHAPTER"));
+        assert!(!out.contains("Let me"));
+    }
+
+    #[test]
+    fn test_parse_writing_strips_planning_prefix() {
+        // 模型把英文规划 + 中文场景规划混在正文前（无标记协议时的兜底）
+        let raw = "Let me carefully write Chapter 1 of this novel.\nI need to: 1. write 3000 chars 2. build the opening\nScene 1 (550 words): Falling and landing\n- Opening hook\n- The falling sensation\n\n他最后记得的，是天台栏杆上一枚反射灯光的金属铆钉。\n金属铆钉很小，藏在栏杆底部。";
+        let out = parse_writing_output(raw);
+        assert!(out.starts_with("他最后记得的"));
+        assert!(!out.contains("Let me"));
+        assert!(!out.contains("Scene 1"));
+        assert!(out.contains("金属铆钉很小"));
     }
 
     #[test]

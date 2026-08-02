@@ -1,5 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { DiscussionOutput, PipelineState } from "./types";
+import type {
+  ChapterAnnotation,
+  ChapterRevision,
+  DiscussionOutput,
+  PipelineState,
+  WritingLesson,
+} from "./types";
 
 // ── 项目管理 ──
 
@@ -41,8 +47,52 @@ export async function getChapter(chapterId: string): Promise<any> {
   return await invoke<any>("get_chapter", { chapterId });
 }
 
-export async function saveChapter(chapterId: string, content: string, expectedVersion: number): Promise<number> {
-  return await invoke<number>("save_chapter", { chapterId, content, expectedVersion });
+export async function saveChapter(
+  chapterId: string,
+  content: string,
+  expectedVersion: number,
+  annotations?: ChapterAnnotation[] | null
+): Promise<number> {
+  return await invoke<number>("save_chapter", { chapterId, content, expectedVersion, annotations });
+}
+
+// 按批注重写本章：修改计划 → 重写正文 → 沉淀写作经验（新版本，旧版进历史可回滚）
+export async function rewriteChapterWithAnnotations(
+  chapterId: string,
+  modelId?: string | null,
+  skillCards?: string[] | null
+): Promise<{
+  new_version: number;
+  accepted: string[];
+  rejected: string[];
+  untouched: string[];
+  plan_summary: string;
+  lessons: WritingLesson[];
+}> {
+  return await invoke("rewrite_chapter_with_annotations", {
+    chapterId,
+    model: modelId,
+    skillCards,
+  });
+}
+
+// 章节版本历史（批注重写前快照 / 回滚点）
+export async function listChapterRevisions(chapterId: string): Promise<ChapterRevision[]> {
+  return await invoke<ChapterRevision[]>("list_chapter_revisions", { chapterId });
+}
+
+// 回滚到指定版本（当前版进历史）
+export async function rollbackChapter(chapterId: string, targetVersion: number): Promise<number> {
+  return await invoke<number>("rollback_chapter", { chapterId, targetVersion });
+}
+
+// 项目写作经验库
+export async function getWritingLessons(): Promise<WritingLesson[]> {
+  return await invoke<WritingLesson[]>("get_writing_lessons");
+}
+
+export async function saveWritingLessons(lessons: WritingLesson[]): Promise<void> {
+  await invoke("save_writing_lessons", { lessons });
 }
 
 // 新建或更新章节（含标题/卷归属/梗概），新建章节必须走这里才能落盘
@@ -134,6 +184,11 @@ export async function findAffected(chapterId: string, changedEntities: string[])
 
 export async function getImpactGraph(): Promise<any> {
   return await invoke<any>("get_impact_graph");
+}
+
+// 章节修改后的影响分析：受影响章节 + 本章相关一致性违规（笔耕保存后展示）
+export async function analyzeChapterImpact(chapterId: string): Promise<import("./types").ChapterImpact> {
+  return await invoke<import("./types").ChapterImpact>("analyze_chapter_impact", { chapterId });
 }
 
 // ── Harness 流程引擎 ──

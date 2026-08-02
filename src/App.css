@@ -364,6 +364,24 @@ body::after {
 .toolbar-btn.active { color: var(--color-accent); background: var(--color-accent-wash); }
 
 .tiptap-content { flex: 1; overflow: auto; background: var(--color-paper); }
+.anno-marker {
+  background: rgba(244, 190, 96, 0.28);
+  border-bottom: 1.5px dashed #d98a2b;
+  border-radius: 2px;
+  padding: 0 1px;
+  cursor: pointer;
+}
+.anno-trigger {
+  z-index: 40;
+  animation: fade-in var(--dur-fast) var(--ease-out);
+}
+.anno-composer {
+  background: var(--color-paper);
+  border: 1px solid var(--color-rule);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-pop);
+  padding: var(--space-sm) var(--space-md);
+}
 .tiptap-editor-wrapper .tiptap {
   outline: none;
   min-height: 100%;

@@ -121,3 +121,23 @@ pub struct OutlineArc {
     #[serde(default)]
     pub expanded_until: i64,
 }
+
+/// 项目写作经验条目（批注重写沉淀，注入章节审查 prompt 避错）
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct WritingLesson {
+    pub lesson_id: String,
+    /// 问题类型：措辞 / 节奏 / 对话 / 一致性 / 反AI味 / 结构 / 其他
+    pub category: String,
+    /// 具体问题描述
+    pub problem: String,
+    /// 改正方法
+    pub fix: String,
+    /// 出处（如「第 12 章」）
+    #[serde(default)]
+    pub example: String,
+    /// 同类经验累计出现次数
+    #[serde(default)]
+    pub count: u32,
+    #[serde(default)]
+    pub created_at: String,
+}
