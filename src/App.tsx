@@ -14,6 +14,7 @@ import { WorkflowLibraryView } from "./views/WorkflowLibraryView";
 import { ConceptView } from "./views/ConceptView";
 import { ExpertLibraryView } from "./views/ExpertLibraryView";
 import { ProjectDashboard } from "./views/ProjectDashboard";
+import { AnnotationInbox } from "./views/AnnotationInbox";
 import type { ViewType, ProjectMeta, ProjectData } from "./types";
 import { loadProjectData, refreshProjectData, saveProjectData } from "./store";
 import { getHarnessStatus } from "./ipc";
@@ -231,6 +232,8 @@ function App() {
         return <CharacterView projectData={projectData} persistProjectData={persistProjectData} />;
       case "world":
         return <WorldView projectData={projectData} persistProjectData={persistProjectData} />;
+      case "annotations":
+        return <AnnotationInbox onNavigate={setCurrentView} />;
       case "consistency":
         return <ConsistencyView />;
       case "harness":

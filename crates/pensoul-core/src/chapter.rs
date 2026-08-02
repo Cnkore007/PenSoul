@@ -10,9 +10,12 @@ pub struct AnnotationAnchor {
     pub offset: usize,
     /// 锚定原文片段（保存时校验/重新定位用）
     pub text: String,
+    /// 字段级锚点（细纲/描述等表单字段名）；行内批注为 None
+    #[serde(default)]
+    pub field: Option<String>,
 }
 
-/// 笔耕批注（行内或整章）
+/// 全链路批注（正文行内 / 表单字段 / 实体级）
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct ChapterAnnotation {
     pub annotation_id: String,
@@ -31,6 +34,18 @@ pub struct ChapterAnnotation {
     /// 处理该批注的章节版本（0 = 未处理）
     #[serde(default)]
     pub processed_in_version: i32,
+    /// 定位串：如 chapter:ch-1:body / location:loc-1:description
+    #[serde(default)]
+    pub target: Option<String>,
+    /// 判决来源：manual=用户直接处理 / rewrite_plan=重写计划（LLM 提案+用户默许）
+    #[serde(default)]
+    pub resolved_by: Option<String>,
+    /// 批注创建时的锚定文本快照（漂移检测与学习数据用）
+    #[serde(default)]
+    pub anchor_snapshot: Option<String>,
+    /// 处理时间
+    #[serde(default)]
+    pub resolved_at: Option<String>,
 }
 
 /// 章节版本历史（批注重写前快照 / 回滚点）

@@ -7,6 +7,52 @@ import type {
   WritingLesson,
 } from "./types";
 
+// ── 全链路批注 ──
+
+export async function annotationAdd(
+  target: string,
+  kind: ChapterAnnotation["kind"],
+  content: string,
+  anchor?: ChapterAnnotation["anchor"] | null
+): Promise<ChapterAnnotation> {
+  return await invoke<ChapterAnnotation>("annotation_add", { target, kind, content, anchor });
+}
+
+export async function annotationUpdate(
+  target: string,
+  annotationId: string,
+  patch: { kind?: string; content?: string; status?: string }
+): Promise<void> {
+  await invoke("annotation_update", { target, annotationId, patch });
+}
+
+export async function annotationRemove(target: string, annotationId: string): Promise<void> {
+  await invoke("annotation_remove", { target, annotationId });
+}
+
+export async function annotationResolve(
+  target: string,
+  decisions: Array<{ annotation_id: string; accept: boolean }>
+): Promise<ChapterAnnotation[]> {
+  return await invoke<ChapterAnnotation[]>("annotation_resolve", { target, decisions });
+}
+
+export async function annotationsList(target: string): Promise<ChapterAnnotation[]> {
+  return await invoke<ChapterAnnotation[]>("annotations_list", { target });
+}
+
+export async function annotationsAll(): Promise<
+  Array<{ target: string; label: string; annotations: ChapterAnnotation[] }>
+> {
+  return await invoke<Array<{ target: string; label: string; annotations: ChapterAnnotation[] }>>(
+    "annotations_all"
+  );
+}
+
+export async function annotationsExport(): Promise<string> {
+  return await invoke<string>("annotations_export");
+}
+
 // ── 项目管理 ──
 
 export async function createProject(title: string): Promise<string> {

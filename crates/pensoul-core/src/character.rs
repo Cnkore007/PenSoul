@@ -35,6 +35,9 @@ pub struct Character {
     pub growth_curve: Vec<GrowthPoint>,
     /// 知识库
     pub knowledge_base: CharacterKnowledgeBase,
+    /// 批注（实体级或字段级）
+    #[serde(default)]
+    pub annotations: Vec<crate::chapter::ChapterAnnotation>,
 }
 
 /// 性格向量

@@ -14,14 +14,15 @@ export interface Chapter {
   revisions?: ChapterRevision[];
 }
 
-// 行内批注锚点：段落索引 + 段内偏移 + 锚定原文片段
+// 批注锚点：段落索引 + 段内偏移 + 锚定原文片段（行内）；field 为字段级锚点（细纲/描述等）
 export interface AnnotationAnchor {
   paragraph_index: number;
   offset: number;
   text: string;
+  field?: string | null;
 }
 
-// 笔耕批注
+// 全链路批注（正文行内 / 表单字段 / 实体级）
 export interface ChapterAnnotation {
   annotation_id: string;
   kind: "issue" | "suggestion" | "note"; // 问题 / 修改建议 / 备注
@@ -30,6 +31,13 @@ export interface ChapterAnnotation {
   status: "open" | "accepted" | "rejected"; // 待处理 / 已采纳 / 已拒绝
   created_at?: string;
   processed_in_version?: number;
+  // 定位串：如 chapter:ch-1:body / location:loc-1:description
+  target?: string | null;
+  // 判决来源：manual=用户直接处理 / rewrite_plan=重写计划
+  resolved_by?: string | null;
+  // 创建时的锚定文本快照
+  anchor_snapshot?: string | null;
+  resolved_at?: string | null;
 }
 
 // 章节版本历史
@@ -468,6 +476,7 @@ export type ViewType =
   | 'outline'
   | 'character'
   | 'world'
+  | 'annotations'
   | 'consistency'
   | 'harness'
   | 'style'

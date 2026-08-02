@@ -41,6 +41,9 @@ pub struct Location {
     /// 空间标签
     #[serde(default)]
     pub spatial_tags: Vec<String>,
+    /// 批注（实体级或字段级）
+    #[serde(default)]
+    pub annotations: Vec<crate::chapter::ChapterAnnotation>,
 }
 
 /// 时间线
@@ -71,6 +74,9 @@ pub struct TimelineEvent {
     /// 参与者
     #[serde(default)]
     pub participants: Vec<String>,
+    /// 批注（实体级或字段级）
+    #[serde(default)]
+    pub annotations: Vec<crate::chapter::ChapterAnnotation>,
 }
 
 /// 时间线事件缺失章节归属时的默认值
@@ -104,6 +110,9 @@ pub struct SettingRule {
     /// 约束条件
     #[serde(default)]
     pub constraints: Vec<String>,
+    /// 批注（实体级或字段级）
+    #[serde(default)]
+    pub annotations: Vec<crate::chapter::ChapterAnnotation>,
 }
 
 /// 术语表条目
@@ -117,6 +126,9 @@ pub struct TerminologyEntry {
     pub aliases: Vec<String>,
     /// 分类
     pub category: String,
+    /// 批注（实体级或字段级）
+    #[serde(default)]
+    pub annotations: Vec<crate::chapter::ChapterAnnotation>,
 }
 
 /// 物品节点
@@ -180,6 +192,7 @@ mod tests {
                     name: "山谷".into(),
                     description: "幽静".into(),
                     spatial_tags: vec!["山".into()],
+                    annotations: vec![],
                 }],
                 hierarchy: vec![],
             },
@@ -190,6 +203,7 @@ mod tests {
                     chapter_id: ChapterId::new("2"),
                     description: "大战".into(),
                     participants: vec!["甲".into()],
+                    annotations: vec![],
                 }],
                 epoch_markers: vec![],
             },

@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import {
   PenLine, ListTree, Users, Globe, ShieldCheck, Palette, LayoutDashboard,
-  FolderOpen, Settings, Workflow, Play,
+  FolderOpen, Settings, Workflow, Play, MessageSquareText,
   ChevronsLeft, ChevronsRight, ArrowLeft, Lightbulb,
 } from "lucide-react";
 import type { ViewType, ProjectMeta } from "../types";
@@ -33,6 +33,7 @@ const projectNav = [
   // 阶段三：骨架大纲 + 正文
   { id: "outline" as ViewType, label: "大纲", icon: <ListTree size={18} />, group: "创作" as const },
   { id: "writing" as ViewType, label: "笔耕", icon: <PenLine size={18} />, group: "创作" as const },
+  { id: "annotations" as ViewType, label: "批注", icon: <MessageSquareText size={18} />, group: "创作" as const },
   // 自动化引擎
   { id: "harness" as ViewType, label: "造化工坊", icon: <Play size={18} />, group: "引擎" as const },
   // 辅助工具

@@ -77,6 +77,13 @@ pub async fn save_chapter(
                     chapter.version = new_version;
                     chapter.word_count = chapter.content.chars().count() as u32;
                     if let Some(anno) = annotations {
+                        // 回填批注定位串，保证批注中心/标注集可统一寻址
+                        let mut anno = anno;
+                        for a in anno.iter_mut() {
+                            if a.target.is_none() {
+                                a.target = Some(format!("chapter:{}:body", id));
+                            }
+                        }
                         chapter.annotations = anno;
                     }
                 }

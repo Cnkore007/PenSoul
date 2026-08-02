@@ -13,6 +13,7 @@ const viewLabels: Record<ViewType, string> = {
   outline: "大纲",
   character: "人物志",
   world: "世界观",
+  annotations: "批注",
   consistency: "审校",
   harness: "造化工坊",
   style: "墨韵",

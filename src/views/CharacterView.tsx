@@ -2,6 +2,7 @@ import { useState, useMemo, useCallback } from "react";
 import { UserPlus, Trash2, Edit3 } from "lucide-react";
 import type { ProjectData, CharacterData } from "../types";
 import { OptimizeControls } from "../components/OptimizeControls";
+import { EntityAnnotations } from "../components/EntityAnnotations";
 
 interface CharacterViewProps {
   projectData: ProjectData;
@@ -129,6 +130,7 @@ export function CharacterView({ projectData, persistProjectData }: CharacterView
                       {char.current_mood && <span className="char-mood">{char.current_mood}</span>}
                     </div>
                     <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+                      <EntityAnnotations target={`character:${char.id}`} />
                       <button className="pv-icon-btn" onClick={() => startEdit(char)} title="编辑"><Edit3 size={14} /></button>
                       <button className="pv-icon-btn pv-icon-btn-danger" onClick={() => handleDelete(char.id)} title="删除"><Trash2 size={14} /></button>
                     </div>

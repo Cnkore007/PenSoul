@@ -48,6 +48,13 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .manage(state)
         .invoke_handler(tauri::generate_handler![
+            pensoul_app::commands::annotations::annotation_add,
+            pensoul_app::commands::annotations::annotation_update,
+            pensoul_app::commands::annotations::annotation_remove,
+            pensoul_app::commands::annotations::annotation_resolve,
+            pensoul_app::commands::annotations::annotations_list,
+            pensoul_app::commands::annotations::annotations_all,
+            pensoul_app::commands::annotations::annotations_export,
             pensoul_app::commands::project::create_project,
             pensoul_app::commands::project::list_projects,
             pensoul_app::commands::project::get_project,

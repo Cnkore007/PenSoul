@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { ChevronRight, ChevronDown, FileText, Plus, Edit3, Trash2, Check, X, GitBranch, Wand2 } from "lucide-react";
 import type { ProjectData, VolumeWithChapters, Chapter, OutlineArc, LlmModel } from "../types";
 import { deleteChapter, deleteVolume, expandOutlineArc, saveOutlineArcs, listModels } from "../ipc";
+import { EntityAnnotations } from "../components/EntityAnnotations";
 import { confirmDialog } from "../dialogs";
 
 interface OutlineViewProps {
@@ -277,6 +278,7 @@ export function OutlineView({ projectData, persistProjectData, onRefresh }: Outl
         />
         <div style={{ display: "flex", gap: 8 }}>
           <button className="btn btn-primary" style={{ padding: "4px 10px" }} onClick={() => handleSaveChapterEdit(volId)} disabled={!editChapterTitle.trim()}>保存</button>
+          <EntityAnnotations target={`chapter:${ch.chapter_id}:summary`} title="细纲批注" />
           <button className="btn btn-secondary" style={{ padding: "4px 10px" }} onClick={() => setEditingChapterId(null)}>取消</button>
         </div>
       </div>
@@ -292,6 +294,7 @@ export function OutlineView({ projectData, persistProjectData, onRefresh }: Outl
           )}
         </div>
         <span style={{ display: "flex", gap: 2 }}>
+          <EntityAnnotations target={`chapter:${ch.chapter_id}:summary`} title="细纲批注" />
           <button className="pv-icon-btn" title="编辑章节" onClick={() => startEditChapter(ch)}><Edit3 size={13} /></button>
           <button className="pv-icon-btn pv-icon-btn-danger" title="删除章节" onClick={() => handleDeleteChapter(volId, ch)}><Trash2 size={13} /></button>
         </span>
@@ -428,6 +431,7 @@ export function OutlineView({ projectData, persistProjectData, onRefresh }: Outl
                     </button>
                   ))}
                   <button className="pv-icon-btn" title="编辑节点" onClick={() => startEditArc(arc)}><Edit3 size={13} /></button>
+                  <EntityAnnotations target={`outline_arc:${arc.arc_id}`} />
                   <button className="pv-icon-btn pv-icon-btn-danger" title="删除节点" onClick={() => handleDeleteArc(arc)}><Trash2 size={13} /></button>
                 </div>
               );

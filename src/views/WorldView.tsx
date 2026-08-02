@@ -2,6 +2,7 @@ import { useState, useMemo, useCallback } from "react";
 import { MapPin, Clock, BookOpen, Plus, Trash2, Edit3 } from "lucide-react";
 import type { ProjectData, WorldData } from "../types";
 import { OptimizeControls } from "../components/OptimizeControls";
+import { EntityAnnotations } from "../components/EntityAnnotations";
 
 type TabType = "locations" | "timeline" | "rules";
 
@@ -101,7 +102,7 @@ export function WorldView({ projectData, persistProjectData }: WorldViewProps) {
   const currentTab = tabs.find(t => t.id === tab)!;
   const items = tab === "locations" ? world.locations : tab === "timeline" ? world.timeline_events : world.setting_rules;
 
-  const renderItem = (id: string, title: string, desc: string, titleTag?: string) => {
+  const renderItem = (id: string, title: string, desc: string, target: string, titleTag?: string) => {
     if (editingId === id) {
       return (
         <div style={{ display: "flex", flexDirection: "column", gap: 8, flex: 1 }}>
@@ -121,6 +122,7 @@ export function WorldView({ projectData, persistProjectData }: WorldViewProps) {
           <p className="detail-desc">{desc}</p>
         </div>
         <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+          <EntityAnnotations target={target} />
           <button className="pv-icon-btn" onClick={() => startEdit(id, title, desc)} title="编辑"><Edit3 size={14} /></button>
           <button className="pv-icon-btn pv-icon-btn-danger" onClick={() => handleDeleteItem(id)} title="删除"><Trash2 size={14} /></button>
         </div>
@@ -171,17 +173,17 @@ export function WorldView({ projectData, persistProjectData }: WorldViewProps) {
         <div>
           {tab === "locations" && world.locations.map(loc => (
             <div key={loc.id} className="detail-item" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-              {renderItem(loc.id, loc.name, loc.description)}
+              {renderItem(loc.id, loc.name, loc.description, `location:${loc.id}`)}
             </div>
           ))}
           {tab === "timeline" && world.timeline_events.map(evt => (
             <div key={evt.event_id} className="timeline-item" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-              {renderItem(evt.event_id, evt.story_time, evt.description, evt.story_time)}
+              {renderItem(evt.event_id, evt.story_time, evt.description, `timeline:${evt.event_id}`, evt.story_time)}
             </div>
           ))}
           {tab === "rules" && world.setting_rules.map(rule => (
             <div key={rule.rule_id} className="detail-item" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-              {renderItem(rule.rule_id, rule.title, rule.description)}
+              {renderItem(rule.rule_id, rule.title, rule.description, `rule:${rule.rule_id}`)}
             </div>
           ))}
         </div>

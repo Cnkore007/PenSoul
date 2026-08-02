@@ -8,6 +8,7 @@ interface AnnotationPanelProps {
   onUpdate: (id: string, patch: Partial<ChapterAnnotation>) => void;
   onRemove: (id: string) => void;
   onLocate: (anno: ChapterAnnotation) => void;
+  onResolve?: (id: string, accept: boolean) => void;
 }
 
 const KIND_STYLE: Record<string, { label: string; color: string; bg: string }> = {
@@ -28,6 +29,7 @@ export function AnnotationPanel({
   onUpdate,
   onRemove,
   onLocate,
+  onResolve,
 }: AnnotationPanelProps) {
   const [showAdd, setShowAdd] = useState(false);
   const [addKind, setAddKind] = useState<ChapterAnnotation["kind"]>("issue");
@@ -151,11 +153,11 @@ export function AnnotationPanel({
               {a.status === "open" && (
                 <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
                   <button className="btn btn-secondary" style={{ padding: "1px 8px", fontSize: "var(--text-2xs)" }}
-                    onClick={() => onUpdate(a.annotation_id, { status: "accepted" })}>
+                    onClick={() => onResolve ? onResolve(a.annotation_id, true) : onUpdate(a.annotation_id, { status: "accepted" })}>
                     标记已采纳
                   </button>
                   <button className="btn btn-secondary" style={{ padding: "1px 8px", fontSize: "var(--text-2xs)" }}
-                    onClick={() => onUpdate(a.annotation_id, { status: "rejected" })}>
+                    onClick={() => onResolve ? onResolve(a.annotation_id, false) : onUpdate(a.annotation_id, { status: "rejected" })}>
                     标记已拒绝
                   </button>
                 </div>

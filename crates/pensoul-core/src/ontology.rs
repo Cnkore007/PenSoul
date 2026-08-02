@@ -172,6 +172,7 @@ impl NovelOntology {
                         chapter_start: start,
                         chapter_end: end,
                         expanded_until: 0,
+                        annotations: Vec::new(),
                     });
                     migrated = true;
                 }
@@ -249,6 +250,7 @@ mod tests {
             current_knowledge: KnowledgeSet { facts: vec![] },
             state_history: vec![],
             transition_rules: vec![],
+            annotations: vec![],
             dialogue_style: DialogueStyle {
                 patterns: vec![],
                 vocabulary_level: String::new(),

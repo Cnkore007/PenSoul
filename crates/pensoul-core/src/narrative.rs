@@ -120,6 +120,9 @@ pub struct OutlineArc {
     /// 已展开细纲到第几章（0 表示尚未展开；>= chapter_end 表示全部展开）
     #[serde(default)]
     pub expanded_until: i64,
+    /// 批注（实体级）
+    #[serde(default)]
+    pub annotations: Vec<crate::chapter::ChapterAnnotation>,
 }
 
 /// 项目写作经验条目（批注重写沉淀，注入章节审查 prompt 避错）
