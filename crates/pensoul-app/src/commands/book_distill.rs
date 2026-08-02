@@ -18,6 +18,13 @@ use super::llm_helper as lh;
 /// 技能文件在工作区内的相对路径
 const SKILL_RELATIVE_PATH: &str = "skills/pensoul-skill-Books/SKILL.md";
 
+/// 编译进二进制的完整蒸馏技能内容（发布版必然可用，不依赖运行时路径）。
+/// 技能源文件随仓库分发，构建时用 include_str! 嵌入。
+const EMBEDDED_SKILL_MD: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../skills/pensoul-skill-Books/SKILL.md"
+));
+
 /// 五维度定义：(slug, 中文名, 适用环节, 提取重点)
 /// 环节 key 与前端工作流配置一致：outline_expand / chapter_writing / review
 pub(crate) const DIMENSIONS: [(&str, &str, &[&str], &str); 5] = [
@@ -73,25 +80,6 @@ pub struct BookPackage {
     pub created_at: String,
     pub cards: Vec<BookCardInfo>,
 }
-
-/// 找不到技能文件时的内置简版方法论（保证发布版可用）
-const FALLBACK_METHODOLOGY: &str = r#"# PenSoul · 书籍写作蒸馏术（简版）
-
-核心理念：提炼写法，不提炼内容。捕捉 HOW it is written，不是内容梗概。
-
-产物红线：技能卡中不保留内容梗概——不写情节摘要、不抄书摘、不做读后感。
-
-五维度：style 文风 DNA / structure 叙事结构 / character 人物塑造 / tension 冲突与张力 / genre 类型范式。
-
-技法三重验证：跨章复现（书中≥2处体现）、生成力（能指导没写过的新场景）、
-独特性（不是所有作者都这样做）。三重通过才是技法，每维取 1-3 个，宁少勿多。
-
-卡片六段：R 手法出处 / I 技法骨架 / A1 书中案例 / A2 适用场景（何时绑这张卡）/
-E 执行步骤（可判断完成标准的动作）/ B 边界（何时失效 + 置信度声明）。
-
-知识蒸馏模式（无样章）必须在 B 段标注「基于模型知识储备，非逐字文本核对」。
-宁可产 2 张过硬的卡，不产 5 张注水的卡。
-"#;
 
 // ── 蒸馏主命令 ──
 
@@ -751,20 +739,9 @@ pub(crate) fn resolve_model_and_auth(
 
     let model_id = match model.filter(|m| !m.trim().is_empty()) {
         Some(m) => m,
-        None => models
-            .iter()
-            .find_map(|m| {
-                let mid = m.get("model_id")?.as_str()?.to_string();
-                let pid = m.get("provider_id")?.as_str()?;
-                let available = m
-                    .get("is_available")
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(true);
-                (available && keys.contains_key(pid)).then_some(mid)
-            })
-            .ok_or_else(|| {
-                "未配置可用模型。请先在「模型设置」添加模型并配置 API Key。".to_string()
-            })?,
+        None => lh::pick_default_model(&models, &keys).ok_or_else(|| {
+            "未配置可用模型。请先在「模型设置」添加模型并配置 API Key。".to_string()
+        })?,
     };
     let (pid, key, base) = lh::resolve_provider(&model_id, &m2p, &bases, &keys)?;
     Ok((model_id, pid, key, base))
@@ -795,8 +772,8 @@ fn load_book_methodology(state: &AppState) -> (String, String) {
         }
     }
     (
-        FALLBACK_METHODOLOGY.to_string(),
-        "未找到 skills/pensoul-skill-Books/SKILL.md，使用内置简版方法论".to_string(),
+        EMBEDDED_SKILL_MD.to_string(),
+        "已加载内置蒸馏技能（编译进应用）".to_string(),
     )
 }
 

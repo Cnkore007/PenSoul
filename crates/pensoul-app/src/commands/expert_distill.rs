@@ -148,26 +148,12 @@ pub async fn get_distill_state(
 /// 技能文件在工作区内的相对路径
 const SKILL_RELATIVE_PATH: &str = "skills/pensoul-skill-Experts/SKILL.md";
 
-/// 找不到技能文件时使用的内置简版方法论（保证发布版可用）。
-/// 完整方法论见 skills/pensoul-skill-Experts/SKILL.md。
-const FALLBACK_METHODOLOGY: &str = r#"# PenSoul · 专家思维蒸馏术（简版）
-
-核心理念：提炼思维框架，不是复制人物生平。捕捉 HOW they think，不是 WHAT they said。
-
-产物红线：不保留人物简介——不写身份卡、生平时间线、智识谱系，只保留可运行的思维方式。
-
-调研六维度：1 著作（反复≥3次的核心论点=真信念）2 对话（被追问时的即兴反应）
-3 表达（高频用词句式、幽默方式）4 他者（外部批评与盲点）5 决策（真实创作决策 vs 声称）
-6 演变（思想转折点，非生平年表）。
-
-心智模型三重验证：跨域复现（≥2个领域出现）、生成力（能推断对新问题的立场）、
-排他性（不是所有聪明人都这样想）。三重通过才是心智模型，取 3-7 个，宁少勿多。
-
-矛盾保留：发现矛盾不要调和，矛盾是深度的来源。
-
-诚实边界：明确写出做不到什么、信息截止时间、信息不足的维度。
-宁可生成诚实标注局限的 60 分专家，也不要编造的 90 分专家。
-"#;
+/// 编译进二进制的完整蒸馏技能内容（发布版必然可用，不依赖运行时路径）。
+/// 技能源文件随仓库分发，构建时用 include_str! 嵌入。
+const EMBEDDED_SKILL_MD: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../skills/pensoul-skill-Experts/SKILL.md"
+));
 
 #[tauri::command]
 pub async fn distill_expert(
@@ -185,7 +171,7 @@ pub async fn distill_expert(
     let saved_models = lh::load_models(&state);
     let api_keys = { state.api_keys.read().clone() };
 
-    // 模型解析：指定优先（按其归属供应商取 Key）；缺省 = 第一个有 Key 供应商的可用模型
+    // 模型解析：指定优先（按其归属供应商取 Key）；缺省 = 全局默认模型，其次任意可用模型
     let (provider_id, api_key, api_base, model_id) = match model.filter(|m| !m.trim().is_empty()) {
         Some(m) => {
             let m2p = lh::build_model_to_provider(&saved_models);
@@ -194,19 +180,11 @@ pub async fn distill_expert(
             (pid, key, base, m)
         }
         None => {
-            let (pid, key, base) = lh::find_any_available_provider(&saved_providers, &api_keys)
-                .ok_or_else(|| "未配置任何 LLM API Key，请在模型设置中配置".to_string())?;
-            let mid = saved_models
-                .iter()
-                .find(|m| {
-                    m.get("provider_id").and_then(|v| v.as_str()) == Some(pid.as_str())
-                        && m.get("is_available")
-                            .and_then(|v| v.as_bool())
-                            .unwrap_or(false)
-                })
-                .and_then(|m| m.get("model_id").and_then(|v| v.as_str()))
-                .unwrap_or("gpt-4o")
-                .to_string();
+            let mid = lh::pick_default_model(&saved_models, &api_keys)
+                .ok_or_else(|| "未配置任何可用模型，请在模型设置中配置 API Key".to_string())?;
+            let m2p = lh::build_model_to_provider(&saved_models);
+            let bases = lh::build_provider_api_bases(&saved_providers);
+            let (pid, key, base) = lh::resolve_provider(&mid, &m2p, &bases, &api_keys)?;
             (pid, key, base, mid)
         }
     };
@@ -421,8 +399,8 @@ fn load_distill_methodology(state: &AppState) -> (String, String) {
         }
     }
     (
-        FALLBACK_METHODOLOGY.to_string(),
-        "未找到 skills/pensoul-skill-Experts/SKILL.md，使用内置简版方法论".to_string(),
+        EMBEDDED_SKILL_MD.to_string(),
+        "已加载内置蒸馏技能（编译进应用）".to_string(),
     )
 }
 
@@ -445,6 +423,28 @@ fn skill_file_candidates(state: &AppState) -> Vec<std::path::PathBuf> {
     // 当前工作目录
     if let Ok(cwd) = std::env::current_dir() {
         candidates.push(cwd.join(SKILL_RELATIVE_PATH));
+    }
+
+    // 用户技能目录（~/.codex/skills、~/.agents/skills）下的 PenSoul-skill-Experts：
+    // 目录名可能是 nuwa-skill 等任意名字，按 SKILL.md frontmatter 的 name 匹配。
+    // 固定路径与全量扫描都加入，保证换目录名后仍能找到。
+    if let Some(home) = dirs::home_dir() {
+        for base in [home.join(".codex").join("skills"), home.join(".agents").join("skills")] {
+            candidates.push(base.join("nuwa-skill").join("SKILL.md"));
+            if let Ok(entries) = std::fs::read_dir(&base) {
+                for entry in entries.flatten() {
+                    let skill_md = entry.path().join("SKILL.md");
+                    if !skill_md.is_file() {
+                        continue;
+                    }
+                    if let Ok(content) = std::fs::read_to_string(&skill_md)
+                        && content.lines().any(|l| l.trim() == "name: PenSoul-skill-Experts")
+                    {
+                        candidates.push(skill_md);
+                    }
+                }
+            }
+        }
     }
 
     candidates

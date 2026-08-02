@@ -20,6 +20,13 @@ use super::llm_helper as lh;
 /// 技能文件在工作区内的相对路径
 const SKILL_RELATIVE_PATH: &str = "skills/pensoul-skill-Methodology/SKILL.md";
 
+/// 编译进二进制的完整蒸馏技能内容（发布版必然可用，不依赖运行时路径）。
+/// 技能源文件随仓库分发，构建时用 include_str! 嵌入。
+const EMBEDDED_SKILL_MD: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../skills/pensoul-skill-Methodology/SKILL.md"
+));
+
 /// 方法论六维度：(slug, 中文名, 适用环节, 提取重点)
 pub const METHODOLOGY_DIMENSIONS: [(&str, &str, &[&str], &str); 6] = [
     (
@@ -59,23 +66,6 @@ pub const METHODOLOGY_DIMENSIONS: [(&str, &str, &[&str], &str); 6] = [
         "评分维度、门禁标准、问题清单格式",
     ),
 ];
-
-/// 找不到技能文件时的内置简版方法论（保证发布版可用）
-const FALLBACK_METHODOLOGY: &str = r#"# PenSoul · 方法论蒸馏术（简版）
-
-核心理念：提炼「可执行的方法」，不写观点总结与态度口号。
-
-产物红线：不写泛泛道理；不抄原文长段落；每维 1-3 个技法宁少勿多；标注置信度。
-
-六维度：style 文风规则 / structure 结构与编排 / character 人物塑造 /
-tension 冲突与张力 / genre 类型范式 / review 审查标准。
-
-技法三重验证：V1 跨方法复现（原文至少 2 处体现）/ V2 生成力（能指导新场景）/
-V3 独特性（不是人人都会的常识）。三重全过才成立。
-
-卡片六段：R 手法出处 / I 技法骨架 / A1 原文案例 / A2 适用场景 /
-E 执行步骤（可判断完成标准）/ B 边界（何时失效 + 置信度声明）。
-"#;
 
 /// 蒸馏一段方法论为写作技能卡组。
 ///
@@ -465,8 +455,8 @@ fn load_methodology_skill(state: &AppState) -> (String, String) {
         }
     }
     (
-        FALLBACK_METHODOLOGY.to_string(),
-        "未找到 skills/pensoul-skill-Methodology/SKILL.md，使用内置简版方法论".to_string(),
+        EMBEDDED_SKILL_MD.to_string(),
+        "已加载内置蒸馏技能（编译进应用）".to_string(),
     )
 }
 
