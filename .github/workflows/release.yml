@@ -30,7 +30,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: pensoul-macos
-          path: target/release/bundle/**
+          path: target/release/bundle/dmg/**
 
   build-windows:
     name: 构建 Windows 版本
@@ -51,7 +51,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: pensoul-windows
-          path: target/release/bundle/**
+          path: |
+            target/release/bundle/msi/**
+            target/release/bundle/nsis/**
 
   build-web:
     name: 构建 Web 版本
