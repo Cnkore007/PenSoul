@@ -111,7 +111,7 @@ fn parse_character_layer(v: &serde_json::Value) -> Result<pensoul_core::Characte
         .cloned()
         .unwrap_or_default()
         .into_iter()
-        .filter_map(|c| {
+        .map(|c| {
             let name = c.get("name").and_then(|x| x.as_str()).unwrap_or("").to_string();
             let traits: Vec<(String, f32)> = c
                 .get("personality_traits")
@@ -129,7 +129,7 @@ fn parse_character_layer(v: &serde_json::Value) -> Result<pensoul_core::Characte
                         .collect()
                 })
                 .unwrap_or_default();
-            Some(pensoul_core::Character {
+            pensoul_core::Character {
                 id: pensoul_core::CharacterId::new(
                     c.get("id").and_then(|x| x.as_str()).unwrap_or("").to_string(),
                 ),
@@ -164,7 +164,7 @@ fn parse_character_layer(v: &serde_json::Value) -> Result<pensoul_core::Characte
                     },
                 },
                 annotations: Vec::new(),
-            })
+            }
         })
         .collect();
     // relationships：拍平各角色的关系并去重
@@ -632,7 +632,7 @@ pub async fn undo_page_change(
             onto.world = layer;
             drop(onto);
             state.save().map_err(|e| e.to_string())?;
-            return Ok(frontend);
+            Ok(frontend)
         }
         "character" => {
             let layer: pensoul_core::CharacterLayer =
@@ -641,7 +641,7 @@ pub async fn undo_page_change(
             onto.characters = layer;
             drop(onto);
             state.save().map_err(|e| e.to_string())?;
-            return Ok(frontend);
+            Ok(frontend)
         }
         other => return Err(format!("不支持的页面类型: {other}")),
     }
