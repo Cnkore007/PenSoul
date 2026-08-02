@@ -1,7 +1,8 @@
 # PenSoul 全链路批注系统设计
 
 > 最后更新：2026-08-02
-> 定位：设计提案。把笔耕批注泛化为覆盖正文、细纲、脉络、人物志、世界观、萌芽的统一批注系统，并让批注历史成为学习进化的标注集底座。
+> 定位：设计 + 实施记录。把笔耕批注泛化为覆盖正文、细纲、脉络、人物志、世界观、萌芽的统一批注系统，并让批注历史成为学习进化的标注集底座。
+> 状态：2026-08-02 已落地正文/细纲/脉络/人物志/世界观五类；核心概念/萌芽（P2）待做。
 
 ## 一、现状与目标
 
@@ -18,15 +19,17 @@
 ### 2.1 通用批注（替换 `ChapterAnnotation`）
 
 ```rust
-/// 锚点分级：富文本行内锚点（段落+偏移+原文）| 表单字段锚点（字段名）| 实体级（无锚点）
-pub enum AnnotationAnchor {
-    Inline { paragraph_index: usize, offset: usize, text: String },
-    Field(String),   // 如 "description" / "summary"
+/// 锚点分级：行内（paragraph_index+offset+text）| 字段级（field 字段名）| 实体级（anchor=None）
+pub struct AnnotationAnchor {
+    pub paragraph_index: usize,
+    pub offset: usize,
+    pub text: String,
+    pub field: Option<String>,  // 字段级锚点（细纲/描述等），行内批注为 None
 }
 
 pub struct Annotation {
     pub annotation_id: String,
-    /// 稳定定位 key：如 "chapter:ch-001:body" / "world:location:loc-1:description"
+    /// 稳定定位 key：如 "chapter:ch-001:body" / "location:loc-1:description"
     pub target: String,
     /// issue=问题 / suggestion=修改建议 / note=备注
     pub kind: String,
@@ -52,13 +55,13 @@ pub struct Annotation {
 | 章节正文 | `chapter:ch-001:body` |
 | 章节细纲 | `chapter:ch-001:summary` |
 | 脉络节点 | `outline_arc:arc-1` |
-| 人物 | `character:char-1:description` |
-| 地点 | `world:location:loc-1:description` |
-| 时间线事件 | `world:timeline:evt-1:description` |
-| 设定规则 | `world:rule:rule-1:description` |
-| 术语 | `world:glossary:term-1:description` |
-| 核心概念 | `concept:high_concept` |
-| 萌芽 | `sprout:premise` |
+| 人物 | `character:char-1[:name]` |
+| 地点 | `location:loc-1[:description]` |
+| 时间线事件 | `timeline:evt-1[:description]` |
+| 设定规则 | `rule:rule-1[:description]` |
+| 术语 | `glossary:term-1[:definition]` |
+| 核心概念 | `concept:high_concept`（P2） |
+| 萌芽 | `sprout:premise`（P2） |
 
 ### 2.2 挂载方式：分散存储，随实体级联
 
@@ -71,6 +74,7 @@ pub struct Annotation {
 - `SproutData.annotations`（P2）。
 
 理由：删除实体自动级联批注；旧项目 JSON 无该字段时 serde default 兜底；前端 `persistProjectData` 结构自然。聚合查询用后端 `annotations_all` 遍历本体一次即可，PenSoul 项目实体规模下开销可忽略。
+实现上兼容旧数据：`ChapterAnnotation` 保留原名，新增 `target` / `resolved_by` / `anchor_snapshot` / `resolved_at` 字段（`#[serde(default)]`），旧项目 JSON 无需迁移。
 
 ## 三、锚点策略
 
@@ -84,7 +88,7 @@ pub struct Annotation {
 
 ## 四、后端命令（泛型化）
 
-在 `pensoul-app/src/commands/annotations.rs` 新增，替代各视图零散逻辑：
+已在 `pensoul-app/src/commands/annotations.rs` 落地，替代各视图零散逻辑：
 
 ```
 annotations_add(project_id, target, kind, content, anchor?) → Annotation
@@ -96,7 +100,7 @@ annotations_all(project_id) → 聚合收件箱（按实体类型分组 + open �
 annotations_export(project_id, kind?) → JSONL 标注集
 ```
 
-**处理流解耦**：正文保留"批注重写"整合流程（rewrite plan → 蒸馏经验），但 accept/reject 不再只发生在重写时——`annotations_resolve` 支持任何实体逐条处理，正文批注也可先在面板手动处理再重写。
+**处理流解耦**：正文保留"批注重写"整合流程（rewrite plan → 蒸馏经验），但 accept/reject 不再只发生在重写时——`annotation_resolve` 支持任何实体逐条处理（记 `resolved_by=manual`），正文批注也可先在面板手动处理再重写；`annotation_update` 支持重开（status=open 时清除判决记录）。
 
 **蒸馏泛化**：`distill_lessons` 从"只吃正文 accepted 批注"扩为 `distill_lessons_from(project_id, scope)`：
 
@@ -108,25 +112,24 @@ annotations_export(project_id, kind?) → JSONL 标注集
 
 ## 五、前端 UI
 
-### 5.1 组件改造
+### 5.1 组件改造（已落地）
 
 - **`AnnotationPanel` 泛型化**：props 改为 `annotations + target + onResolve + onLocate`，去掉章节专用逻辑；每条批注支持逐条 accept/reject/编辑/删除/定位。
-- **`AnnotatableField`（新）**：包装 input/textarea，右侧批注角标（open 计数），点击展开批注抽屉，自动生成字段级 target。细纲、描述、设定字段统一用它。
-- **实体卡片批注按钮**：WorldView/CharacterView 每条目头部加批注图标，展开实体级批注。
+- **`EntityAnnotations`（新，落地版）**：实体旁的批注按钮 + 抽屉面板（open 计数角标），挂在 WorldView/CharacterView/OutlineView 条目上；字段级 target 由调用方传入。
 - **行内批注**：TipTap 现有交互保留，底层类型切换为通用 `Annotation`。
 
-### 5.2 批注中心（新入口）
+### 5.2 批注中心（已落地）
 
-侧边栏新增"批注"聚合视图：按实体类型分组展示全部 open 批注，点击经 target 路由跳转到对应视图并定位（行内锚点滚动到段落，字段级滚动到字段容器）。这是"批注即标注"工作流的总入口，也是用户处理批注的主界面。
+侧边栏新增"批注"聚合视图（`AnnotationInbox`）：按实体分组展示全部批注与 open 计数，支持就地采纳/拒绝，点击"前往"按 target 前缀路由到笔耕/大纲/人物志/世界观。这是"批注即标注"工作流的总入口。
 
 ### 5.3 视图接入优先级
 
 | 优先级 | 视图 | 锚点粒度 |
 |---|---|---|
-| P0 | 笔耕（现有） | 行内 + 实体 |
-| P0 | 大纲（细纲 textarea + 脉络卡片） | 字段 + 实体 |
-| P1 | 世界观（地点/时间线/设定/术语） | 字段 + 实体 |
-| P1 | 人物志 | 字段 + 实体 |
+| P0 | 笔耕（现有） | 行内 + 实体（已落地） |
+| P0 | 大纲（细纲 + 脉络卡片） | 字段 + 实体（已落地） |
+| P1 | 世界观（地点/时间线/设定/术语） | 字段 + 实体（已落地） |
+| P1 | 人物志 | 字段 + 实体（已落地） |
 | P2 | 核心概念 / 萌芽 | 字段 |
 
 ## 六、学习进化衔接（核心价值）

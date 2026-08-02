@@ -240,3 +240,12 @@
 - **设计思考**：PenSoul 与 AlphaEvolve 的适配是架构级的——审查分/反AI味分/一致性规则/门控记录即现成评估信号，技法卡/提示词即现成可进化小产物，批注采纳与人工门控即免费人类真值；现有"写作经验沉淀"只有变异没有选择，AlphaEvolve 补的是选择那一半。落地顺序评估器先行（L0 标注集一致率 ≥0.8 门槛）→ 离线沙盒 → 影子双跑 → 人工门晋升；防古德哈特用留出人评集 + 安全信号硬约束 + 蜜罐章节（引 arXiv 2509.26354 的 misevolution 教训）。首个 PoC 定审查量规进化（评估最可信、成本最低）。
 - **状态**：已完成（设计提案待用户评审）。
 - **下次待办**：用户确认方案后启动 M0——定义标注集格式并从笔耕批注历史转化首批标签；或先做审查量规进化的 OpenEvolve 配置脚手架。
+
+## 2026-08-02：代码精简 + 全链路批注系统落地（分支 codex/annotation-system）
+
+- **改动范围**：
+  1. **精简**：Rust 侧合并 12 个文件——commands 9 个薄命令文件并成 `data.rs`/`harness.rs`；cda 的 edge/node/stats 并入 `types.rs`；concurrency 的 conflict/version 合并；llm 的 model/provider/comparison 并入 `config.rs`；harness 的 memo/tools 合并；core 的 prelude/experts 并入 lib.rs；memory 的 hot/cold 并入 `layers.rs`；agent 的 message/protocol 合并。纯搬移不改逻辑，cargo test 全绿。
+  2. **批注系统**（按 ANNOTATION-DESIGN.md）：`ChapterAnnotation` 泛化为全链路批注（新增 `target`/`resolved_by`/`anchor_snapshot`/`resolved_at`，锚点加 `field` 字段级）；OutlineArc/Character/Location/TimelineEvent/SettingRule/TerminologyEntry 挂批注；新增 `commands/annotations.rs` 7 个命令（增删改查/逐条处理/聚合/JSONL 导出）；前端 `EntityAnnotations` 组件 + 批注中心 `AnnotationInbox` 视图（侧边栏"批注"入口，可跳转各视图）；笔耕保存时回填 target。
+- **设计取舍**：批注数据分散挂在本体实体上、展示走后端 IPC，前端状态结构零污染；判决标签 `resolved_by` 区分 manual 与 rewrite_plan，为后续标注集分层加权做准备；批注中心先做跳转不做锚点滚动定位（滚动留待后续）。
+- **状态**：已完成并提交（3 个提交）。cargo test 全绿（含新增批注定位单元测试），tsc + vite build 通过。
+- **下次待办**：用户人工验收后合并到 main；P2 补核心概念/萌芽批注；批注中心锚点滚动定位；`distill_lessons_from` 泛化接 EVOLVE-DESIGN L0。
