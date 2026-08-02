@@ -168,6 +168,18 @@ export interface ProjectMeta {
   total_words: number;
 }
 
+// 去 AI 味重写结果（rewrite_chapter_deai 命令返回）
+export interface DeaiRewriteResult {
+  new_version: number;
+  word_count: number;
+  original_word_count: number;
+  suggested_deletions: Array<{ sentence: string; reason: string }>;
+  fidelity_issues: string[];
+  residual_issues: string[];
+  repaired: boolean;
+  summary: string;
+}
+
 // LLM 提供商
 export interface LlmProvider {
   provider_id: string;

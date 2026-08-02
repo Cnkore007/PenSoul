@@ -12,6 +12,7 @@ import {
   rollbackChapter,
   getWritingLessons,
   saveWritingLessons,
+  rewriteChapterDeai,
 } from "../ipc";
 import type { PageReview } from "../ipc";
 import { messageDialog, confirmDialog } from "../dialogs";
@@ -24,6 +25,7 @@ import type {
   AnnotationAnchor,
   ChapterRevision,
   WritingLesson,
+  DeaiRewriteResult,
 } from "../types";
 
 interface WritingViewProps {
@@ -57,6 +59,9 @@ export function WritingView({ projectData, persistProjectData, chapterId, onWord
     plan_summary: string;
     lessons: WritingLesson[];
   } | null>(null);
+  // 去 AI 味重写：进度 / 结果（建议删除清单、保真问题、残留问题）
+  const [deaiRewriting, setDeaiRewriting] = useState(false);
+  const [deaiResult, setDeaiResult] = useState<DeaiRewriteResult | null>(null);
   const [revisions, setRevisions] = useState<ChapterRevision[]>([]);
   const [showRevisions, setShowRevisions] = useState(true);
   // 项目写作经验库（批注重写沉淀，注入审查）
@@ -422,6 +427,67 @@ export function WritingView({ projectData, persistProjectData, chapterId, onWord
     void handleRollback(latest);
   }
 
+  // ── 去 AI 味重写（保真账本 → 有界改写 → 两步回读 → 建议删除清单） ──
+  async function handleDeaiRewrite() {
+    if (!chapter || deaiRewriting) return;
+    if (toPlain(content).trim().length === 0) {
+      await messageDialog("本章还没有正文，无法去 AI 味重写。");
+      return;
+    }
+    const ok = await confirmDialog(
+      "对本章做去 AI 味重写？\n\n规则：只做句内清洗，不新增/删除事实；整句空话进「建议删除清单」由你确认后再删；重写后生成新版本，原稿保留在版本历史中可回滚。"
+    );
+    if (!ok) return;
+    setDeaiRewriting(true);
+    setDeaiResult(null);
+    setRewriteMsg("正在做保真账本与有界改写…");
+    try {
+      // 先保存未落盘的正文，重写命令读后端已保存内容
+      const plainText = toPlain(content);
+      const savedVersion = await saveChapter(chapter.chapter_id, plainText, chapter.version, annotations);
+      if (savedVersion !== chapter.version) {
+        setChapter(prev => (prev ? { ...prev, content: plainText, word_count: plainText.length, version: savedVersion, annotations } : prev));
+      }
+      const stageCfg = (projectData as any).workflowSkills?.chapter_writing;
+      const res = await rewriteChapterDeai(
+        chapter.chapter_id,
+        stageCfg?.model ?? null,
+        stageCfg?.cards ?? null
+      );
+      setDeaiResult(res);
+      setRewriteMsg(null);
+      // 从后端重载章节与版本历史
+      const revs = await listChapterRevisions(chapter.chapter_id);
+      setRevisions(revs);
+      const latest = await import("../ipc").then(m => m.getChapter(chapter.chapter_id));
+      if (latest) {
+        const fresh: Chapter = {
+          ...chapter,
+          content: latest.content ?? "",
+          word_count: latest.word_count ?? 0,
+          version: latest.version ?? res.new_version,
+          annotations: latest.annotations ?? chapter.annotations ?? [],
+          revisions: latest.revisions ?? revs,
+        };
+        setChapter(fresh);
+        setAnnotations(fresh.annotations ?? []);
+        setContent(applyAnnotations(toHtml(fresh.content), fresh.annotations ?? []));
+        persistProjectData(prev => ({
+          ...prev,
+          volumes: prev.volumes.map(v => ({
+            ...v,
+            chapters: v.chapters.map(c => (c.chapter_id === chapter.chapter_id ? fresh : c)),
+          })),
+        }));
+      }
+    } catch (e: any) {
+      setRewriteMsg(null);
+      await messageDialog("去 AI 味重写失败：\n" + (typeof e === "string" ? e : e?.message || String(e)));
+    } finally {
+      setDeaiRewriting(false);
+    }
+  }
+
   function toggleVolume(volId: string) {
     setExpandedVolumes(prev => ({ ...prev, [volId]: !prev[volId] }));
   }
@@ -485,6 +551,11 @@ export function WritingView({ projectData, persistProjectData, chapterId, onWord
             {chapter && <span className={`badge badge-${chapter.status.toLowerCase()}`}>{chapter.status}</span>}
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            {chapter && (
+              <button className="btn btn-secondary" onClick={handleDeaiRewrite} disabled={deaiRewriting || saving} title="保真账本 + 有界改写 + 两步回读，整句空话进建议删除清单">
+                {deaiRewriting ? <><Loader2 size={15} className="spinning" /> 去AI味中…</> : <><Wand2 size={15} /> 去AI味重写</>}
+              </button>
+            )}
             {chapter && openAnnoCount > 0 && (
               <button className="btn btn-accent" onClick={handleRewrite} disabled={rewriting}>
                 {rewriting ? <><Loader2 size={15} className="spinning" /> 重写中…</> : <><Wand2 size={15} /> 按批注重写本章（{openAnnoCount}）</>}
@@ -519,6 +590,25 @@ export function WritingView({ projectData, persistProjectData, chapterId, onWord
             {rewriteResult.rejected.length > 0 && `拒绝 ${rewriteResult.rejected.length} 条；`}
             {rewriteResult.untouched.length > 0 && `未处理 ${rewriteResult.untouched.length} 条。`}
             {rewriteResult.lessons.length > 0 && ` 本次沉淀写作经验 ${rewriteResult.lessons.length} 条（注入后续审查）。`}
+          </div>
+        )}
+        {deaiResult && (
+          <div className="save-message success" style={{ whiteSpace: "pre-wrap" }}>
+            去 AI 味重写完成（第 {deaiResult.new_version} 版，{deaiResult.original_word_count} → {deaiResult.word_count} 字）。
+            {deaiResult.repaired ? ` 检测到 ${deaiResult.fidelity_issues.length} 项保真问题并已修复；` : " 保真回读未发现问题；"}
+            {deaiResult.summary && ` ${deaiResult.summary}`}
+            {deaiResult.suggested_deletions.length > 0 && (
+              <>
+                {"\n\n【建议删除清单】以下整句空话未删，确认无信息丢失后可手动删除：\n"}
+                {deaiResult.suggested_deletions.map(d => `- ${d.sentence}（${d.reason}）`).join("\n")}
+              </>
+            )}
+            {deaiResult.residual_issues.length > 0 && (
+              <>
+                {"\n\n【残留提示】不改写全文，仅提示后续写作注意：\n"}
+                {deaiResult.residual_issues.map(r => `- ${r}`).join("\n")}
+              </>
+            )}
           </div>
         )}
         <div style={{ flex: 1, display: "flex", flexDirection: "column" }} ref={editorWrapRef}>

@@ -571,6 +571,19 @@ export async function saveAntiAiRules(config: AntiAiRuleConfig): Promise<void> {
   await invoke("save_anti_ai_rules", { config });
 }
 
+// 去 AI 味重写：保真账本 → 有界改写 → 两步回读 → 建议删除清单（写手确认后才删）
+export async function rewriteChapterDeai(
+  chapterId: string,
+  model: string | null,
+  skillCards: string[] | null
+): Promise<import("./types").DeaiRewriteResult> {
+  return await invoke<import("./types").DeaiRewriteResult>("rewrite_chapter_deai", {
+    chapterId,
+    model,
+    skillCards,
+  });
+}
+
 // ── 工作流技能配置（环节 → 模型 + 技法卡绑定，随项目持久化） ──
 
 export async function saveWorkflowSkills(config: import("./types").WorkflowSkillConfig | null): Promise<void> {

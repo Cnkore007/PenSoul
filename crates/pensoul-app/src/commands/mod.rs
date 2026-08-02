@@ -7,6 +7,7 @@ pub mod cda;
 pub mod chapter;
 pub mod chapter_rewrite;
 pub mod data;
+pub mod deai_rewrite;
 pub mod discussion;
 pub mod discussion_synthesis;
 pub mod expert_distill;

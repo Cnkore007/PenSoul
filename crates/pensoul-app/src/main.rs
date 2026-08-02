@@ -79,6 +79,7 @@ fn main() {
             pensoul_app::commands::chapter_rewrite::rollback_chapter,
             pensoul_app::commands::chapter_rewrite::get_writing_lessons,
             pensoul_app::commands::chapter_rewrite::save_writing_lessons,
+            pensoul_app::commands::deai_rewrite::rewrite_chapter_deai,
             pensoul_app::commands::chapter::save_volumes,
             pensoul_app::commands::chapter::get_volumes,
             pensoul_app::commands::chapter::delete_chapter,
