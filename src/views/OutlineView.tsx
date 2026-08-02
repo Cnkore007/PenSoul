@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { ChevronRight, ChevronDown, FileText, Plus, Edit3, Trash2, Check, X, GitBranch, Wand2, Loader2 } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import { ChevronRight, ChevronDown, FileText, Plus, Edit3, Trash2, Check, X, GitBranch, Wand2 } from "lucide-react";
 import type { ProjectData, VolumeWithChapters, Chapter, OutlineArc, LlmModel } from "../types";
 import { deleteChapter, deleteVolume, expandOutlineArc, saveOutlineArcs, listModels } from "../ipc";
 import { confirmDialog } from "../dialogs";
@@ -13,9 +13,6 @@ interface OutlineViewProps {
 
 // 隐式默认卷 ID：未显式建卷时章节挂在这里，页面平铺展示，不显示卷头
 const DEFAULT_VOL_ID = "_default";
-// 每批展开的章节数（与后端默认值一致，仅用于按钮文案）
-const EXPAND_BATCH = 20;
-
 export function OutlineView({ projectData, persistProjectData, onRefresh }: OutlineViewProps) {
   // 新建卷 / 章节
   const [newVolumeTitle, setNewVolumeTitle] = useState("");
@@ -31,6 +28,10 @@ export function OutlineView({ projectData, persistProjectData, onRefresh }: Outl
   const [editChapterSummary, setEditChapterSummary] = useState("");
   // 情节脉络：展开中的节点 / 错误 / 行内编辑
   const [expandingArcId, setExpandingArcId] = useState<string | null>(null);
+  // 展开进度（自动续展时显示 已展开/总数）
+  const [expandProgress, setExpandProgress] = useState<{ expanded: number; total: number } | null>(null);
+  // 取消续展标志（循环内检查，避免闭包读到旧 state）
+  const cancelExpandRef = useRef(false);
   const [arcError, setArcError] = useState<string | null>(null);
   const [editingArcId, setEditingArcId] = useState<string | null>(null);
   const [editArcTitle, setEditArcTitle] = useState("");
@@ -46,6 +47,8 @@ export function OutlineView({ projectData, persistProjectData, onRefresh }: Outl
       .then((ms) => setModels(ms as LlmModel[]))
       .catch(() => {});
   }, []);
+  // 离开大纲页时停止自动续展（已展开部分保留）
+  useEffect(() => () => { cancelExpandRef.current = true; }, []);
 
   const arcs = projectData.outlineArcs ?? [];
 
@@ -55,22 +58,55 @@ export function OutlineView({ projectData, persistProjectData, onRefresh }: Outl
     persistProjectData(prev => ({ ...prev, outlineArcs: next }));
   }
 
-  // 展开下一批细纲：LLM 把该故事段的规划拆成逐章梗概并落库
-  // 模型：本页下拉可现场覆盖，默认跟随工作流页「环节技能绑定 → 细纲展开」；技法卡取自该配置
+  // 展开细纲：一次点击自动续展到该节点全部展开。
+  // 后端每批固定 20 章（单次 LLM 产出过多容易截断），前端循环调用直至 arc_done，
+  // 每批落库后刷新一次，让章节与进度渐进可见；「取消」后保留已展开部分，可再次点击继续。
   async function handleExpandArc(arc: OutlineArc) {
     setExpandingArcId(arc.arc_id);
     setArcError(null);
+    cancelExpandRef.current = false;
+    const total = Math.max(0, arc.chapter_end - arc.chapter_start + 1);
+    const already = arc.expanded_until > 0
+      ? Math.max(0, Math.min(arc.expanded_until, arc.chapter_end) - arc.chapter_start + 1)
+      : 0;
+    setExpandProgress({ expanded: already, total });
     try {
       const stageCfg = projectData.workflowSkills?.outline_expand;
       // 现场选择的模型优先，其次工作流配置，最后由后端自动选第一个可用模型
-      await expandOutlineArc(arc.arc_id, expandModel || stageCfg?.model || null, undefined, stageCfg?.cards ?? null);
-      // 章节由后端落库，全量刷新让新章节与进度一起出现
-      await onRefresh?.();
+      const model = expandModel || stageCfg?.model || null;
+      const cards = stageCfg?.cards ?? null;
+      let batches = 0;
+      while (!cancelExpandRef.current) {
+        try {
+          const res = await expandOutlineArc(arc.arc_id, model, undefined, cards);
+          setExpandProgress(p => p
+            ? { ...p, expanded: Math.max(p.expanded, res.to - arc.chapter_start + 1) }
+            : p);
+          if (res.arc_done || res.created === 0) break;
+          if (++batches >= 200) {
+            setArcError("展开批次数超过上限已自动停止，可再次点击继续");
+            break;
+          }
+        } catch (e: any) {
+          const msg = typeof e === "string" ? e : e?.message || String(e);
+          if (msg.includes("已全部展开")) break; // 并发/重入下已展开完，视为完成
+          throw e;
+        }
+        await onRefresh?.();
+      }
     } catch (e: any) {
       setArcError(typeof e === "string" ? e : e?.message || String(e));
     } finally {
       setExpandingArcId(null);
+      setExpandProgress(null);
+      cancelExpandRef.current = false;
+      await onRefresh?.();
     }
+  }
+
+  // 取消当前节点的自动续展（已展开部分保留）
+  function handleCancelExpand() {
+    cancelExpandRef.current = true;
   }
 
   function startEditArc(arc: OutlineArc) {
@@ -310,7 +346,7 @@ export function OutlineView({ projectData, persistProjectData, onRefresh }: Outl
             <GitBranch size={15} style={{ verticalAlign: -2, marginRight: 6 }} />
             情节脉络（{arcs.length} 段）
             <span style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 8, fontSize: "var(--text-2xs)", color: "var(--color-ink-3)", fontWeight: 400 }}>
-              每段覆盖一个章节范围，按批展开为逐章细纲
+              每段覆盖一个章节范围，点击「展开细纲」一次生成全部逐章细纲（内部按每批 20 章自动续展）
               <select
                 className="pm-input"
                 style={{ marginBottom: 0, width: 180, padding: "2px 6px", fontSize: "var(--text-2xs)" }}
@@ -339,8 +375,6 @@ export function OutlineView({ projectData, persistProjectData, onRefresh }: Outl
             {arcs.map(arc => {
               const total = Math.max(0, arc.chapter_end - arc.chapter_start + 1);
               const done = arc.expanded_until >= arc.chapter_end && arc.chapter_end > 0;
-              const nextFrom = arc.expanded_until > 0 ? arc.expanded_until + 1 : arc.chapter_start;
-              const nextTo = Math.min(nextFrom + EXPAND_BATCH - 1, arc.chapter_end);
               const expandedCount = arc.expanded_until > 0
                 ? Math.max(0, Math.min(arc.expanded_until, arc.chapter_end) - arc.chapter_start + 1)
                 : 0;
@@ -379,14 +413,20 @@ export function OutlineView({ projectData, persistProjectData, onRefresh }: Outl
                       </div>
                     )}
                   </div>
-                  {!done && (
+                  {!done && (expanding ? (
+                    <button className="btn btn-secondary" style={{ padding: "4px 12px", fontSize: "var(--text-xs)", whiteSpace: "nowrap" }}
+                      onClick={handleCancelExpand}
+                      title="停止自动续展，已展开的细纲保留，可再次点击继续">
+                      <X size={13} /> 取消（{expandProgress ? `${expandProgress.expanded}/${expandProgress.total}` : "展开中"}）
+                    </button>
+                  ) : (
                     <button className="btn btn-accent" style={{ padding: "4px 12px", fontSize: "var(--text-xs)", whiteSpace: "nowrap" }}
                       disabled={expandingArcId !== null}
-                      title="调用 LLM 按本段规划生成下一批逐章梗概"
+                      title="调用 LLM 按本段规划生成全部逐章梗概（每批 20 章自动续展，可在展开中取消）"
                       onClick={() => handleExpandArc(arc)}>
-                      {expanding ? (<><Loader2 size={13} className="spinning" /> 展开中…</>) : (<><Wand2 size={13} /> 展开细纲（第{nextFrom}–{nextTo}章）</>)}
+                      <Wand2 size={13} /> 展开细纲（共 {total} 章）
                     </button>
-                  )}
+                  ))}
                   <button className="pv-icon-btn" title="编辑节点" onClick={() => startEditArc(arc)}><Edit3 size={13} /></button>
                   <button className="pv-icon-btn pv-icon-btn-danger" title="删除节点" onClick={() => handleDeleteArc(arc)}><Trash2 size={13} /></button>
                 </div>
