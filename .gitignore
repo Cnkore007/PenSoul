@@ -46,6 +46,9 @@ downloads/
 .env
 .env.local
 
+# 使用 pnpm，忽略 npm 锁文件
+package-lock.json
+
 # 日志
 *.log
 /tmp/

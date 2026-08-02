@@ -95,7 +95,7 @@ PenSoul 是一个面向网络文学作者和严肃小说创作者的 AI 写作�
 cargo build
 
 # 启动 Vite 前端开发服务器
-npm run dev
+pnpm dev
 
 # 启动 Tauri 桌面应用
 cargo tauri dev
@@ -115,7 +115,7 @@ cargo fmt --all --check
 cargo tauri build
 
 # Web 版本（产物在 dist/）
-npm run build
+pnpm build
 ```
 
 ## 下载与发布
