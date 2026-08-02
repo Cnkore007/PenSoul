@@ -44,8 +44,14 @@ pub async fn save_characters(
     state: tauri::State<'_, AppState>,
     characters: serde_json::Value,
 ) -> Result<(), String> {
-    let layer: pensoul_core::CharacterLayer =
+    let mut layer: pensoul_core::CharacterLayer =
         serde_json::from_value(characters).map_err(|e| e.to_string())?;
+    // 关系去重防线：同 from+to+relation_type 只保留第一条，防止前端/历史 bug 成倍膨胀
+    let mut seen = std::collections::HashSet::new();
+    layer.relationships.retain(|r| {
+        let key = format!("{}|{}|{}", r.from, r.to, r.relation_type);
+        seen.insert(key)
+    });
     let samples = {
         let onto = state.ontology.read();
         crate::edits::characters_diff_samples(&onto.characters, &layer)

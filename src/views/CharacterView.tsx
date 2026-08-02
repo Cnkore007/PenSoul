@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback } from "react";
-import { UserPlus, Trash2, Edit3 } from "lucide-react";
+import { UserPlus, Trash2, Edit3, ChevronDown, ChevronUp, Search } from "lucide-react";
 import type { ProjectData, CharacterData } from "../types";
 import { SaveControls } from "../components/SaveControls";
 import { EntityAnnotations } from "../components/EntityAnnotations";
@@ -23,8 +23,27 @@ export function CharacterView({ projectData, persistProjectData }: CharacterView
   const [editName, setEditName] = useState("");
   const [editTraits, setEditTraits] = useState("");
   const [editMood, setEditMood] = useState("");
+  // 渲染保护：分页 + 搜索 + 关系折叠（角色/关系量大时不卡）
+  const [visibleCount, setVisibleCount] = useState(24);
+  const [query, setQuery] = useState("");
+  const [expandedRels, setExpandedRels] = useState<Set<string>>(new Set());
 
   const characters = projectData.characters;
+  const filtered = useMemo(() => {
+    const q = query.trim();
+    if (!q) return characters;
+    return characters.filter(c =>
+      c.name.includes(q) || c.personality_traits.some(([t]) => t.includes(q))
+    );
+  }, [characters, query]);
+
+  function toggleRels(id: string) {
+    setExpandedRels(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
 
   // 优化/撤回：写回项目数据（函数式更新，组件卸载后仍生效）
   const applyCharacters = useCallback((parsed: CharacterData[]) => {
@@ -108,8 +127,26 @@ export function CharacterView({ projectData, persistProjectData }: CharacterView
           <div className="empty-state-sub">每一位角色都是故事的灵魂</div>
         </div>
       ) : (
-        <div className="grid-auto">
-          {characters.map(char => (
+        <div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 12 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, flex: 1, maxWidth: 320 }}>
+              <Search size={14} style={{ color: "var(--color-ink-3)" }} />
+              <input
+                className="pm-input"
+                style={{ marginBottom: 0 }}
+                placeholder="搜索角色名 / 性格特征"
+                value={query}
+                onChange={e => { setQuery(e.target.value); setVisibleCount(24); }}
+              />
+            </div>
+            <span style={{ fontSize: "var(--text-2xs)", color: "var(--color-ink-3)" }}>
+              {filtered.length > visibleCount
+                ? `显示 ${visibleCount} / ${filtered.length} 位角色`
+                : `${filtered.length} 位角色`}
+            </span>
+          </div>
+          <div className="grid-auto">
+          {filtered.slice(0, visibleCount).map(char => (
             <div key={char.id} className="char-card">
               {editingId === char.id ? (
                 <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -145,11 +182,21 @@ export function CharacterView({ projectData, persistProjectData }: CharacterView
                   </div>
                   {char.relationships.length > 0 && (
                     <div className="char-section">
-                      <div className="char-section-label">关系</div>
+                      <div className="char-section-label" style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        关系（{char.relationships.length}）
+                        {char.relationships.length > 6 && (
+                          <button className="pv-icon-btn" title={expandedRels.has(char.id) ? "收起" : "展开全部"} onClick={() => toggleRels(char.id)}>
+                            {expandedRels.has(char.id) ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                          </button>
+                        )}
+                      </div>
                       <div style={{ fontSize: "var(--text-2xs)", color: "var(--color-ink-3)", lineHeight: 1.6 }}>
-                        {char.relationships.map((r, i) => (
+                        {(expandedRels.has(char.id) ? char.relationships : char.relationships.slice(0, 6)).map((r, i) => (
                           <div key={i}>{r.from} → {r.to}：{r.relation_type}</div>
                         ))}
+                        {!expandedRels.has(char.id) && char.relationships.length > 6 && (
+                          <div style={{ color: "var(--color-ink-3)", opacity: 0.7 }}>… 其余 {char.relationships.length - 6} 条已折叠</div>
+                        )}
                       </div>
                     </div>
                   )}
@@ -157,6 +204,14 @@ export function CharacterView({ projectData, persistProjectData }: CharacterView
               )}
             </div>
           ))}
+          </div>
+          {filtered.length > visibleCount && (
+            <div style={{ textAlign: "center", marginTop: 16 }}>
+              <button className="btn btn-secondary" onClick={() => setVisibleCount(n => n + 24)}>
+                加载更多（{filtered.length - visibleCount} 位）
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>

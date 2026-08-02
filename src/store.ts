@@ -137,12 +137,19 @@ function transformCharacters(raw: any) {
     } else if (ch.current_mood && typeof ch.current_mood === 'object') {
       mood = ch.current_mood.primary || undefined;
     }
+    // 顶层关系按「关系双方」分发给相关角色（旧实现把全量关系塞给每个角色，
+    // 保存时 flatMap 会按角色数成倍膨胀——曾导致项目 JSON 膨胀到 93MB）
+    const mine = (ch.relationships ?? []).length > 0
+      ? ch.relationships
+      : layerRelationships.filter((r: any) =>
+          (r.from ?? "") === (ch.name ?? "") || (r.to ?? "") === (ch.name ?? "")
+        );
     return {
       id: String(ch.id ?? ''),
       name: ch.name ?? '',
       personality_traits: Array.isArray(traits) ? traits : [],
       current_mood: mood,
-      relationships: ch.relationships ?? layerRelationships,
+      relationships: mine,
     };
   });
 }
@@ -172,7 +179,10 @@ function toBackendCharacters(chars: any[]) {
         strength: Number.isFinite(Number(r.strength)) ? Number(r.strength) : 0.5,
         history: [],
       }))
-    ),
+    ).filter((r, i, arr) => {
+      // 去重：同一对实体 + 关系类型只保留一条（防保存链路重复膨胀）
+      return arr.findIndex(x => x.from === r.from && x.to === r.to && x.relation_type === r.relation_type) === i;
+    }),
   };
 }
 
