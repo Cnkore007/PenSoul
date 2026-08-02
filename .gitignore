@@ -21,8 +21,12 @@ __pycache__/
 # 前端构建产物
 dist/
 
-# Tauri 图标生成缓存
-icons/
+# Tauri 图标生成缓存（仅根目录的 logo 素材，构建必需的图标除外）
+/icons/
+crates/pensoul-app/icons/*
+!crates/pensoul-app/icons/icon.png
+!crates/pensoul-app/icons/icon.icns
+!crates/pensoul-app/icons/icon.ico
 
 # 截图和临时图片
 current-state.png
