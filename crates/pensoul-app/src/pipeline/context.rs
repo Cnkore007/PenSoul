@@ -142,17 +142,6 @@ fn memory_digest(packet: &MemoryPacket) -> String {
     cap_chars(out.trim(), 6000)
 }
 
-/// 反 AI 味写作铁律（注入写作与审查阶段）
-pub(crate) const ANTI_AI_RULES: &str = "\
-语言铁律（反 AI 味）：
-1. 删除套话：「不禁」「仿佛」「映入眼帘」「心中暗道」「嘴角微扬」「脸色一变」等一律不写；
-2. 弱化副词（微微/淡淡/缓缓/轻轻/悄然/默默）每千字不超过 3 个；
-3. 不用排比三连（三个词一组堆砌「全面感」）；
-4. 不用「与此同时」「从而」「于是乎」「诚然」「一方面…另一方面…」等书面连接词；
-5. 情绪不许直说：不写「他很担忧」，写「他的后背出了一层冷汗」；
-6. 用具体细节代替判断：不写「她很聪明」，写她做了什么具体的聪明事；
-7. 长短句交替，段落不超过五行，对话优先于叙述、行动优先于形容。";
-
 /// 章前策划 prompt：生成本章节拍表（JSON）。
 /// `manual` 为模板阶段手册，约束策划规则。
 pub fn build_planning_prompt(
@@ -233,6 +222,7 @@ pub fn build_planning_prompt(
 /// 写作阶段 prompt。`prev_issues` 非空表示本次是审查退回后的重写。
 /// `beat_plan` 为章前策划产出的节拍表（JSON 文本，可为空表示无策划）。
 /// `cards` 为工作流绑定的写作技法卡注入块（load_writing_cards 拼接结果），可为空。
+#[allow(clippy::too_many_arguments)]
 pub fn build_writing_prompt(
     onto: &NovelOntology,
     memo_ctx: &str,
@@ -241,6 +231,7 @@ pub fn build_writing_prompt(
     prev_issues: &[String],
     beat_plan: &str,
     cards: &str,
+    anti_ai: &str,
 ) -> StagePrompt {
     let target_words = if onto.settings.chapter_target_words > 0 {
         onto.settings.chapter_target_words
@@ -254,7 +245,7 @@ pub fn build_writing_prompt(
         输出协议：正文必须严格包裹在 ===CHAPTER_BEGIN=== 与 ===CHAPTER_END=== 两个标记之间；\n\
         标记之外不得出现任何内容——不输出英文规划、不输出场景说明、不输出思考过程、不输出节拍表复述。"
         .to_string();
-    system.push_str(&format!("\n\n{ANTI_AI_RULES}"));
+    system.push_str(&format!("\n\n{anti_ai}"));
     // 开篇黄金三章：前 3 章用「立刻出事 → 给期待 → 给爽点」节奏
     if chapter.chapter_no <= 3 {
         system.push_str(
@@ -339,6 +330,7 @@ pub fn build_review_prompt(
     beat_plan: &str,
     cards: &str,
     golden: bool,
+    anti_ai: &str,
 ) -> StagePrompt {
     let signal_schema = if golden {
         "{\"score\": 0到100的整数, \"hook\": 0到10的整数, \"payoff\": 0到10的整数, \"issues\": [\"问题1\", \"问题2\"]}"
@@ -389,6 +381,9 @@ pub fn build_review_prompt(
             本书工作流绑定了以下技法卡。除上述一致性核对外，还须对照技法卡的\n\
             「I · 技法骨架」与「B · 边界」检查文风是否严重偏离；偏离计入 issues 并扣分。\n\n{cards}"
         ));
+    }
+    if !anti_ai.trim().is_empty() {
+        system.push_str(&format!("\n\n【语言铁律（反 AI 味，项目配置）】\n{anti_ai}"));
     }
 
     let mut user = String::new();
@@ -489,7 +484,16 @@ mod tests {
                 pensoul_memory::EditingMode::Drafting,
             ),
         };
-        let prompt = build_writing_prompt(&onto, "memo: 测试", &chapter, &packet, &[], "", "");
+        let prompt = build_writing_prompt(
+            &onto,
+            "memo: 测试",
+            &chapter,
+            &packet,
+            &[],
+            "",
+            "",
+            crate::anti_ai::DEFAULT_PROMPT,
+        );
         assert!(prompt.user.contains("测试高概念"));
         assert!(prompt.user.contains("本章梗概内容"));
         assert!(prompt.user.contains("前一章的正文节选"));
@@ -505,6 +509,7 @@ mod tests {
             &["时间线矛盾".to_string()],
             "",
             "",
+            crate::anti_ai::DEFAULT_PROMPT,
         );
         assert!(retry.user.contains("时间线矛盾"));
         // 携带节拍表
@@ -516,6 +521,7 @@ mod tests {
             &[],
             "{\"章节目标\": \"脱困\"}",
             "",
+            crate::anti_ai::DEFAULT_PROMPT,
         );
         assert!(planned.user.contains("【本章节拍表】"));
         // 前 3 章注入黄金三章规则
@@ -544,6 +550,7 @@ mod tests {
             &[],
             "",
             "── 技能卡「x/style」──\n卡内容",
+            crate::anti_ai::DEFAULT_PROMPT,
         );
         assert!(prompt.system.contains("写作技法卡"));
         assert!(prompt.system.contains("卡内容"));
@@ -583,6 +590,7 @@ mod tests {
             "{\"章节目标\": \"脱困\"}",
             "",
             false,
+            crate::anti_ai::DEFAULT_PROMPT,
         );
         assert!(prompt.system.contains("SIGNAL_BEGIN"));
         assert!(prompt.system.contains("REPORT_BEGIN"));
@@ -596,11 +604,11 @@ mod tests {
     fn test_review_prompt_golden_gate() {
         let onto = NovelOntology::new(ProjectId::new("p"), String::new());
         let chapter = make_chapter(1, "梗概", "正文内容");
-        let golden = build_review_prompt(&onto, &chapter, "", "", "", true);
+        let golden = build_review_prompt(&onto, &chapter, "", "", "", true, crate::anti_ai::DEFAULT_PROMPT);
         assert!(golden.system.contains("黄金三章硬门控"));
         assert!(golden.system.contains("\"hook\""));
         assert!(golden.system.contains("\"payoff\""));
-        let normal = build_review_prompt(&onto, &chapter, "", "", "", false);
+        let normal = build_review_prompt(&onto, &chapter, "", "", "", false, crate::anti_ai::DEFAULT_PROMPT);
         assert!(!normal.system.contains("黄金三章硬门控"));
         assert!(!normal.system.contains("\"hook\""));
     }

@@ -12,7 +12,6 @@ use crate::commands::book_distill::load_writing_cards;
 use crate::commands::json_fix;
 use crate::commands::llm_helper as lh;
 use crate::llm_profile::LlmTask;
-use crate::pipeline::context::ANTI_AI_RULES;
 use crate::pipeline::runner::{
     resolve_project_workflow, resolve_stage_cards, resolve_stage_model,
 };
@@ -165,6 +164,7 @@ pub async fn rewrite_chapter_with_annotations(
     let plan = build_plan(&auth, &model_id, &chapter, &concept_brief, &settings_brief, &prev_tail, &cards_block, &open_annos).await?;
 
     // ── 4. 按计划重写正文 ──
+    let anti_ai = state.anti_ai.read().prompt.clone();
     let body_raw = rewrite_body(
         &auth,
         &model_id,
@@ -175,6 +175,7 @@ pub async fn rewrite_chapter_with_annotations(
         &cards_block,
         &plan,
         target_words,
+        &anti_ai,
     )
     .await?;
     let new_content = parse_writing_output(&body_raw);
@@ -415,13 +416,14 @@ async fn rewrite_body(
     cards_block: &str,
     plan: &PlanPayload,
     target_words: usize,
+    anti_ai: &str,
 ) -> Result<String, String> {
     let system = format!(
         "你是一位长篇小说作家，正在按作者的批注意见重写一章正文。\n\
          铁律：只输出章节正文本身——不输出标题、不输出批注复述、不输出解释或元信息；\n\
          严格承接前文情节与人物状态，不得与世界观设定矛盾；\n\
          输出协议：正文必须严格包裹在 ===CHAPTER_BEGIN=== 与 ===CHAPTER_END=== 两个标记之间，\
-         标记之外不得出现任何内容。\n\n{ANTI_AI_RULES}"
+         标记之外不得出现任何内容。\n\n{anti_ai}"
     );
     let mut plan_text = String::new();
     for item in &plan.plan {

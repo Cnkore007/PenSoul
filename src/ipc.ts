@@ -540,6 +540,31 @@ export async function analyzeAiFlavor(content: string): Promise<import("./types"
   return await invoke<import("./types").AiFlavorReport>("analyze_ai_flavor", { content });
 }
 
+// ── 反 AI 味规则配置（墨韵页编辑，注入工作流） ──
+
+export interface AntiAiCategoryConfig {
+  key: string;
+  label: string;
+  words: string[];
+  score_per_hit: number;
+  max_score: number;
+  exempt_per_1k: number;
+  suggestion: string;
+}
+
+export interface AntiAiRuleConfig {
+  categories: AntiAiCategoryConfig[];
+  prompt: string;
+}
+
+export async function getAntiAiRules(): Promise<AntiAiRuleConfig> {
+  return await invoke<AntiAiRuleConfig>("get_anti_ai_rules");
+}
+
+export async function saveAntiAiRules(config: AntiAiRuleConfig): Promise<void> {
+  await invoke("save_anti_ai_rules", { config });
+}
+
 // ── 工作流技能配置（环节 → 模型 + 技法卡绑定，随项目持久化） ──
 
 export async function saveWorkflowSkills(config: import("./types").WorkflowSkillConfig | null): Promise<void> {

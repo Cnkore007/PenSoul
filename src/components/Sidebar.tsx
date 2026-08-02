@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import {
-  PenLine, ListTree, Users, Globe, ShieldCheck, Palette, LayoutDashboard,
+  PenLine, ListTree, Users, Globe, Palette, LayoutDashboard,
   FolderOpen, Settings, Workflow, Play, MessageSquareText,
   ChevronsLeft, ChevronsRight, ArrowLeft, Lightbulb,
 } from "lucide-react";
@@ -37,7 +37,6 @@ const projectNav = [
   // 自动化引擎
   { id: "harness" as ViewType, label: "造化工坊", icon: <Play size={18} />, group: "引擎" as const },
   // 辅助工具
-  { id: "consistency" as ViewType, label: "审校", icon: <ShieldCheck size={18} />, group: "工具" as const },
   { id: "style" as ViewType, label: "墨韵", icon: <Palette size={18} />, group: "工具" as const },
 ];
 
@@ -54,7 +53,7 @@ const groupLabels: Record<string, string> = {
 const groupHints: Record<string, string> = {
   "创作": "概念→世界→人物→大纲→笔耕",
   "引擎": "造化工坊 + 智能体自动化",
-  "工具": "审校·墨韵",
+  "工具": "墨韵（文风 + 审校 + 规则）",
 };
 
 export function Sidebar({ currentView, onViewChange, currentProject, onExitProject }: SidebarProps) {

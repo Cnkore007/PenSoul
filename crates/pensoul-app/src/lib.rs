@@ -1,3 +1,4 @@
+pub mod anti_ai;
 pub mod commands;
 pub mod chapter_review;
 pub mod edits;

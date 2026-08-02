@@ -5,7 +5,6 @@ import { WritingView } from "./views/WritingView";
 import { OutlineView } from "./views/OutlineView";
 import { CharacterView } from "./views/CharacterView";
 import { WorldView } from "./views/WorldView";
-import { ConsistencyView } from "./views/ConsistencyView";
 import { HarnessConsole } from "./views/HarnessConsole";
 import { StyleWorkshop } from "./views/StyleWorkshop";
 import { ProjectManager } from "./views/ProjectManager";
@@ -235,7 +234,7 @@ function App() {
       case "annotations":
         return <AnnotationInbox onNavigate={setCurrentView} />;
       case "consistency":
-        return <ConsistencyView />;
+        return <StyleWorkshop projectData={projectData} />;
       case "harness":
         return <HarnessConsole projectData={projectData} persistProjectData={persistProjectData} onNavigate={setCurrentView} />;
       case "style":

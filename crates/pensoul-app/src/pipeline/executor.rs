@@ -76,6 +76,7 @@ pub(super) async fn execute_stage(
                 .get("chapter_plan")
                 .unwrap_or("")
                 .to_string();
+            let anti_ai = state.anti_ai.read().prompt.clone();
             let prompt = context::build_writing_prompt(
                 &onto,
                 &memo_ctx,
@@ -84,6 +85,7 @@ pub(super) async fn execute_stage(
                 prev_issues,
                 &beat_plan,
                 &ctx.writing_cards,
+                &anti_ai,
             );
             let raw = call_interruptible(state, ctx, &ctx.writing_model, &prompt, 0.85).await?;
             let content = stages::parse_writing_output(&raw);
@@ -143,6 +145,7 @@ pub(super) async fn execute_stage(
                 .to_string();
             // 黄金三章硬门控：模板声明 + 前 3 章生效
             let golden = ctx.golden_review && chapter.chapter_no <= 3;
+            let anti_ai = state.anti_ai.read().prompt.clone();
             let prompt = context::build_review_prompt(
                 &onto,
                 &chapter,
@@ -150,6 +153,7 @@ pub(super) async fn execute_stage(
                 &beat_plan,
                 &ctx.review_cards,
                 golden,
+                &anti_ai,
             );
             let raw = call_interruptible(state, ctx, &ctx.review_model, &prompt, 0.3).await?;
             let (signal, report) = stages::parse_review_output(&raw)?;

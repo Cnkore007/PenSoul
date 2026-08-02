@@ -140,6 +140,8 @@ fn main() {
             pensoul_app::commands::book_distill::delete_book_package,
             pensoul_app::commands::methodology_distill::distill_methodology,
             pensoul_app::commands::ai_flavor::analyze_ai_flavor,
+            pensoul_app::commands::ai_flavor::get_anti_ai_rules,
+            pensoul_app::commands::ai_flavor::save_anti_ai_rules,
             pensoul_app::commands::workflow_templates::list_workflow_templates,
             pensoul_app::commands::workflow_templates::save_workflow_templates,
             pensoul_app::commands::workflow_templates::reset_workflow_templates,
