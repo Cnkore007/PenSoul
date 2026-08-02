@@ -1,0 +1,99 @@
+# 发布流水线：推送 v* 标签时，构建 macOS / Windows / Web 三端产物并发布到 GitHub Releases。
+# 发版前必须先在 CHANGELOG.md 中追加对应版本的更新日志，Release 正文会自动提取该段落。
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-macos:
+    name: 构建 macOS 版本
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - run: npm ci
+      - name: 构建 Tauri 应用（.app / .dmg）
+        working-directory: crates/pensoul-app
+        run: npx tauri build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pensoul-macos
+          path: target/release/bundle/**
+
+  build-windows:
+    name: 构建 Windows 版本
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - run: npm ci
+      - name: 构建 Tauri 应用（.msi / .exe）
+        working-directory: crates/pensoul-app
+        run: npx tauri build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pensoul-windows
+          path: target/release/bundle/**
+
+  build-web:
+    name: 构建 Web 版本
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: 打包 Web 产物
+        run: zip -r pensoul-web.zip dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pensoul-web
+          path: pensoul-web.zip
+
+  publish:
+    name: 发布 Release
+    needs: [build-macos, build-windows, build-web]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: 提取本版本更新日志
+        id: changelog
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          awk -v ver="[$VERSION]" '
+            $0 ~ ("## \\[" ver "\\]") { capture=1; next }
+            capture && /^## / { exit }
+            capture { print }
+          ' CHANGELOG.md > release-notes.md
+          if [ ! -s release-notes.md ]; then
+            echo "CHANGELOG.md 中缺少 [$VERSION] 段落，请先更新更新日志" >&2
+            exit 1
+          fi
+          cat release-notes.md
+      - uses: softprops/action-gh-release@v2
+        with:
+          body_path: release-notes.md
+          files: |
+            artifacts/pensoul-macos/**
+            artifacts/pensoul-windows/**
+            artifacts/pensoul-web/*

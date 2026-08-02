@@ -2587,7 +2587,7 @@ dependencies = [
 
 [[package]]
 name = "pensoul-agent"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "pensoul-core",
  "serde",
@@ -2599,7 +2599,7 @@ dependencies = [
 
 [[package]]
 name = "pensoul-app"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2631,7 +2631,7 @@ dependencies = [
 
 [[package]]
 name = "pensoul-cda"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "pensoul-core",
  "petgraph",
@@ -2641,7 +2641,7 @@ dependencies = [
 
 [[package]]
 name = "pensoul-concurrency"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "blake3",
  "parking_lot",
@@ -2654,7 +2654,7 @@ dependencies = [
 
 [[package]]
 name = "pensoul-consistency"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "pensoul-core",
  "petgraph",
@@ -2665,7 +2665,7 @@ dependencies = [
 
 [[package]]
 name = "pensoul-core"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "blake3",
  "serde",
@@ -2676,7 +2676,7 @@ dependencies = [
 
 [[package]]
 name = "pensoul-harness"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "blake3",
  "pensoul-core",
@@ -2691,7 +2691,7 @@ dependencies = [
 
 [[package]]
 name = "pensoul-import"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "chrono",
  "pensoul-core",
@@ -2703,7 +2703,7 @@ dependencies = [
 
 [[package]]
 name = "pensoul-llm"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "pensoul-core",
  "reqwest 0.12.28",
@@ -2714,7 +2714,7 @@ dependencies = [
 
 [[package]]
 name = "pensoul-memory"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "pensoul-core",
  "serde",
