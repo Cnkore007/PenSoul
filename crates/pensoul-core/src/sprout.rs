@@ -98,6 +98,40 @@ pub struct OutlineBeat {
     pub chapter_hint: String,
 }
 
+/// 讨论中某一议题的分歧项 —— 显式保留，不抹平
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct Disagreement {
+    /// 分歧议题（一句话概括，如「力量体系是否应有上限」）
+    pub topic: String,
+    /// 所属维度：世界观-地点/时间线、设定规则、人物、情节脉络、总结、跨维度冲突
+    #[serde(default)]
+    pub dimension: String,
+    /// 各方立场与依据
+    #[serde(default)]
+    pub sides: Vec<DisagreeSide>,
+    /// resolved=讨论内已收敛 / open=未收敛，需裁决或由作者决定
+    #[serde(default)]
+    pub status: String,
+    /// 已收敛时的收敛结果；未收敛时为裁判裁决建议（可直接使用的设定文字）
+    #[serde(default)]
+    pub resolution: String,
+    /// 是否已经过裁判裁决
+    #[serde(default)]
+    pub adjudicated: bool,
+}
+
+/// 分歧中的一方立场
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct DisagreeSide {
+    /// 提出该立场的评审者名
+    pub agent: String,
+    /// 立场内容
+    pub position: String,
+    /// 依据/理由
+    #[serde(default)]
+    pub rationale: String,
+}
+
 /// 结构化讨论成果
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct DiscussionSynthesis {
@@ -113,6 +147,9 @@ pub struct DiscussionSynthesis {
     pub characters: Vec<CharacterItem>,
     #[serde(default)]
     pub outline_beats: Vec<OutlineBeat>,
+    /// 讨论中显式保留的分歧与裁决（含跨维度冲突）
+    #[serde(default)]
+    pub disagreements: Vec<Disagreement>,
 }
 
 /// 一次讨论的完整记录（全部发言 + 提炼成果）
@@ -341,6 +378,7 @@ mod tests {
                     description: "引出主角".to_string(),
                     chapter_hint: "第1章".to_string(),
                 }],
+                disagreements: vec![],
             },
         });
         let json = serde_json::to_string(&s).unwrap();

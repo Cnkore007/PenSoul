@@ -17,7 +17,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::Emitter;
 
-use super::json_fix;
+use super::discussion_synthesis;
 use super::llm_helper as lh;
 
 #[derive(Debug, Deserialize)]
@@ -277,8 +277,7 @@ async fn discuss_inner(
         }
     }
 
-    // ── 第 3 轮：成果提炼（完整讨论记录 → 丰富的结构化 JSON）──
-    emit_discussion(app_handle, state, "synthesis", "成果提炼", 3, "running", "");
+    // ── 第 3 轮：成果提炼（分维度并行提炼 + 冲突检查 + 裁决）──
     let synthesis = synthesize(
         app_handle,
         state,
@@ -338,7 +337,7 @@ fn load_skill_content(skill_path: Option<&str>) -> Option<String> {
 
 /// 解析供应商并以指定 system 提示词调用 LLM
 #[allow(clippy::too_many_arguments)]
-async fn call_with_system(
+pub(crate) async fn call_with_system(
     model: &str,
     system_prompt: &str,
     user_prompt: &str,
@@ -365,7 +364,7 @@ async fn call_with_system(
     .await
 }
 
-/// 第 3 轮成果提炼：汇总全部发言（不截断），输出丰富的结构化 JSON
+/// 第 3 轮成果提炼：分维度并行提炼 + 跨维度冲突检查 + 裁判裁决
 #[allow(clippy::too_many_arguments)]
 async fn synthesize(
     app_handle: &tauri::AppHandle,
@@ -378,170 +377,23 @@ async fn synthesize(
     provider_api_bases: &HashMap<String, String>,
     api_keys: &HashMap<String, String>,
 ) -> DiscussionSynthesis {
-    // 用第一个可解析模型的 Agent 做提炼者
-    let Some(caller) = enabled.first() else {
-        return DiscussionSynthesis::default();
+    let ctx = discussion_synthesis::SynthesisContext {
+        app_handle,
+        state,
+        enabled,
+        idea_description,
+        settings_context,
+        turns,
+        model_to_provider,
+        provider_api_bases,
+        api_keys,
     };
-
-    // 完整讨论记录（不截断，确保成果丰富）
-    let all_turns: String = turns
-        .iter()
-        .map(|t| format!("【{} · 第{}轮】：\n{}", t.agent_name, t.round, t.content))
-        .collect::<Vec<_>>()
-        .join("\n\n---\n\n");
-
-    let system = "你是创作讨论的成果提炼者。你的任务是从多位评审者的讨论中提炼出丰富、具体、\
-        可直接落地的创作成果，输出严格 JSON。不评论、不解释，只输出 JSON。";
-    let user_prompt = format!(
-        "【故事构思】\n{idea_description}\n\n\
-         【创作设定】\n{settings_context}\n\n\
-         【全部讨论记录】\n{all_turns}\n\n\
-         这场讨论的目的是帮助作者把构思落地为可写作的世界观与人物志。\
-         请把讨论成果提炼为丰富的 JSON，用 ===SYNTHESIS_BEGIN=== 和 ===SYNTHESIS_END=== 包裹。结构：\n\
-         {{\n\
-         \"summary\": \"讨论共识、核心分歧与给作者的总体建议（300-500字，要具体，引用讨论中的关键观点）\",\n\
-         \"locations\": [{{\"name\": \"地点名\", \"description\": \"100-200字的完整描述：外观、氛围、功能、与故事的关系\"}}],\n\
-         \"timeline_events\": [{{\"story_time\": \"故事时间\", \"description\": \"80-150字：事件经过及其对后续的影响\"}}],\n\
-         \"setting_rules\": [{{\"name\": \"设定规则标题\", \"description\": \"100-200字：规则内容、约束、代价、可被利用的漏洞\"}}],\n\
-         \"characters\": [{{\"name\": \"人物名\", \"personality_traits\": [[\"特质\", 0.8]], \
-         \"current_mood\": \"登场时的心境\", \"description\": \"100-200字：身份、欲望、恐惧、在故事中的功能\", \
-         \"relationships\": [{{\"from\": \"人物名\", \"to\": \"人物名\", \"relation_type\": \"关系类型\", \"strength\": 0.7}}]}}],\n\
-         \"outline_beats\": [{{\"title\": \"情节节点标题\", \"description\": \"100-200字：该节点发生什么、核心冲突是什么、如何推进主线\", \"chapter_hint\": \"建议章节范围，如 第1-3章\"}}]\n\
-         }}\n\
-         要求：\n\
-         - 成果必须丰富：充分吸收讨论中出现的所有有价值设定，宁多勿缺；每个类别尽量覆盖讨论提到的内容\n\
-         - 没有讨论到的类别留空数组，但不要遗漏讨论中实际提到的设定\n\
-         - 人物从构思与讨论中提取所有核心人物（主角/关键配角/重要反派），特质 3-5 个，强度 0.0-1.0\n\
-         - 人物关系只描述提炼出的人物之间的关系，strength 0.0-1.0\n\
-         - 情节脉络按故事发生顺序排列，覆盖开端、发展、转折、高潮、结局的关键节点，并结合创作设定中的章数与字数规划来切分节点粒度\n\
-         - 描述要写成可直接交给作者使用的设定文字，不要写成「讨论认为」的转述\n\
-         - 所有内容用中文",
-    );
-
-    let fallback = |msg: &str| {
-        emit_discussion(app_handle, state, "synthesis", "成果提炼", 3, "error", msg);
-        DiscussionSynthesis {
-            summary: format!("⚠️ 成果提炼失败: {msg}"),
-            ..Default::default()
-        }
-    };
-
-    // 最多 2 次尝试。「expected value at line 1 column 1」类错误几乎都是模型
-    // 输出了中文前言/拒答说明而非纯 JSON——首次失败时把错误与输出片段反馈给模型
-    // 自愈重试，这是对付偶发不听话最有效的手段；传输层失败同样再给一次机会。
-    let mut next_prompt = user_prompt.clone();
-    let mut last_err = String::new();
-    for attempt in 1..=2u8 {
-        let text = match call_with_system(
-            &caller.model,
-            system,
-            &next_prompt,
-            0.3,
-            // 提炼产出要求丰富（多类设定各 100-500 字），
-            // 推理型模型还要先烧 reasoning tokens，预算给足
-            16384,
-            model_to_provider,
-            provider_api_bases,
-            api_keys,
-        )
-        .await
-        {
-            Ok(t) => t,
-            Err(msg) => {
-                last_err = msg;
-                continue;
-            }
-        };
-
-        // 标记缺失（常见于输出被截断只剩 BEGIN 没有 END）时剥前言/围栏截取最外层
-        // JSON 结构，尽量不浪费这次提炼结果
-        let json_str = extract_json_block(&text);
-
-        // 先严格解析；失败则按 serde 报错位置驱动式修复（漏逗号、尾逗号、
-        // 注释、字符串内裸换行、截断未闭合等）再解析，仍失败才判定本轮失败
-        let parsed = serde_json::from_str::<DiscussionSynthesis>(json_str).or_else(|strict_err| {
-            json_fix::repair_to_value(json_str)
-                .ok()
-                .and_then(|v| serde_json::from_value::<DiscussionSynthesis>(v).ok())
-                .ok_or(strict_err)
-        });
-
-        match parsed {
-            Ok(mut s) => {
-                emit_discussion(
-                    app_handle,
-                    state,
-                    "synthesis",
-                    "成果提炼",
-                    3,
-                    "done",
-                    &s.summary.clone(),
-                );
-                if s.summary.is_empty() {
-                    s.summary = "（讨论成果已生成）".to_string();
-                }
-                return s;
-            }
-            Err(e) => {
-                last_err = e.to_string();
-                if attempt < 2 {
-                    emit_discussion(
-                        app_handle,
-                        state,
-                        "synthesis",
-                        "成果提炼",
-                        3,
-                        "running",
-                        &format!("首次输出无法解析为 JSON（{last_err}），正在自愈重试…"),
-                    );
-                    let head: String = text.chars().take(200).collect();
-                    next_prompt = format!(
-                        "{user_prompt}\n\n\
-                         ⚠️ 你上一次的输出无法解析为 JSON（错误：{last_err}），开头内容是：\n\
-                         「{head}…」\n\
-                         这一次请只输出 ===SYNTHESIS_BEGIN=== 与 ===SYNTHESIS_END=== 包裹的纯 JSON，\n\
-                         不要任何解释、前言、思考过程或 markdown 代码围栏。",
-                    );
-                }
-            }
-        }
-    }
-    fallback(&format!("成果 JSON 解析失败: {last_err}"))
-}
-
-/// 提取两个标记之间的内容
-fn extract_between<'a>(text: &'a str, begin: &str, end: &str) -> Option<&'a str> {
-    let b = text.find(begin)? + begin.len();
-    let e = text.rfind(end)?;
-    if e <= b {
-        return None;
-    }
-    Some(&text[b..e])
-}
-
-/// 从模型输出中提取最可能的 JSON 文本块：
-/// 优先 ===SYNTHESIS_BEGIN/END=== 标记包裹的内容；剥 markdown 围栏；
-/// 再截取最外层花括号（剥掉「好的，以下是…」式中文前言与结尾废话）。
-fn extract_json_block(text: &str) -> &str {
-    let inner =
-        extract_between(text, "===SYNTHESIS_BEGIN===", "===SYNTHESIS_END===").unwrap_or(text);
-    let cleaned = inner
-        .trim()
-        .trim_start_matches("```json")
-        .trim_start_matches("```")
-        .trim_end_matches("```")
-        .trim();
-    if let (Some(b), Some(e)) = (cleaned.find('{'), cleaned.rfind('}'))
-        && e > b
-    {
-        return &cleaned[b..=e];
-    }
-    cleaned
+    discussion_synthesis::synthesize(&ctx).await
 }
 
 /// 推送讨论进度事件：先入控制面缓冲（供页面重连重放），再推送给前端
 #[allow(clippy::too_many_arguments)]
-fn emit_discussion(
+pub(crate) fn emit_discussion(
     app_handle: &tauri::AppHandle,
     state: &AppState,
     agent_id: &str,
@@ -559,28 +411,4 @@ fn emit_discussion(
     };
     state.discussion.record(&ev);
     let _ = app_handle.emit("discussion-event", ev);
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_extract_json_block_with_markers() {
-        let text =
-            "前言\n===SYNTHESIS_BEGIN===\n{\"summary\": \"共识\"}\n===SYNTHESIS_END===\n后缀";
-        assert_eq!(extract_json_block(text), "{\"summary\": \"共识\"}");
-    }
-
-    #[test]
-    fn test_extract_json_block_strips_prose_and_fence() {
-        // 模型输出中文前言 + markdown 围栏 + 结尾废话（本次线上故障的形态）
-        let text = "好的，以下是提炼结果：\n```json\n{\"summary\": \"x\"}\n```\n希望对你有帮助。";
-        assert_eq!(extract_json_block(text), "{\"summary\": \"x\"}");
-    }
-
-    #[test]
-    fn test_extract_json_block_no_json_returns_cleaned() {
-        assert_eq!(extract_json_block("   "), "");
-    }
 }

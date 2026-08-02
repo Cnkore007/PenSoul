@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Bot, CheckCircle2, Loader2, XCircle, MapPin, Clock, BookOpen, Users, Sparkles, ListOrdered } from "lucide-react";
+import { Bot, CheckCircle2, Loader2, XCircle, MapPin, Clock, BookOpen, Users, Sparkles, ListOrdered, Scale } from "lucide-react";
 import type { DiscussionTurn, DiscussionSynthesis, DiscussionEvent, AgentDiscussionConfig } from "../types";
 
 interface DiscussionPanelProps {
@@ -26,7 +26,7 @@ export interface SelectedResults {
   outline_beats: Array<{ title: string; description: string; chapter_hint?: string }>;
 }
 
-const ROUND_LABELS: Record<number, string> = { 1: "第一轮 · 立论", 2: "第二轮 · 交锋" };
+const ROUND_LABELS: Record<number, string> = { 1: "第一轮 · 立论", 2: "第二轮 · 交锋", 3: "第三轮 · 成果提炼" };
 
 function TurnCard({ agent, turn, live }: {
   agent?: AgentDiscussionConfig;
@@ -109,12 +109,42 @@ export function DiscussionPanel({ agents, turns, liveEvents, synthesis, discussi
               {discussing ? "讨论进行中" : "讨论过程"}
             </span>
           </div>
-          {rounds.map(round => {
+          {[...rounds, 3].map(round => {
             const roundTurns = turns.filter(t => t.round === round);
             const roundLive = Object.values(liveEvents).filter(e => e.round === round);
             // 该轮是否已有任何内容（事件或发言）
             const hasContent = roundTurns.length > 0 || roundLive.length > 0;
             if (!hasContent && round === 2) return null;
+            // 第三轮：成果提炼进度（分维度提炼 / 冲突检查 / 裁决），不是评审 Agent 发言
+            if (round === 3) {
+              if (roundLive.length === 0) return null;
+              return (
+                <div key={round} style={{ marginBottom: "var(--space-lg)" }}>
+                  <div style={{ fontSize: "var(--text-xs)", fontWeight: 600, color: "var(--color-accent)", letterSpacing: "1px", marginBottom: "var(--space-sm)" }}>
+                    {ROUND_LABELS[round]}
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-xs)" }}>
+                    {roundLive.map(ev => {
+                      const running = ev.status === "running";
+                      const isError = ev.status === "error";
+                      return (
+                        <div key={ev.agent_id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "var(--text-xs)", color: "var(--color-ink-2)" }}>
+                          {running
+                            ? <Loader2 size={13} className="spinning" style={{ color: "var(--color-accent)" }} />
+                            : isError
+                              ? <XCircle size={13} style={{ color: "var(--color-error)" }} />
+                              : <CheckCircle2 size={13} style={{ color: "var(--color-jade)" }} />}
+                          <span style={{ color: "var(--color-ink)" }}>{ev.agent_name}</span>
+                          <span style={{ color: "var(--color-ink-3)" }}>
+                            {running ? "提炼中..." : isError ? `失败：${ev.content}` : ev.content || "完成"}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            }
             return (
               <div key={round} style={{ marginBottom: "var(--space-lg)" }}>
                 <div style={{ fontSize: "var(--text-xs)", fontWeight: 600, color: "var(--color-accent)", letterSpacing: "1px", marginBottom: "var(--space-sm)" }}>
@@ -148,6 +178,42 @@ export function DiscussionPanel({ agents, turns, liveEvents, synthesis, discussi
           {synthesis.summary && (
             <div style={{ fontSize: "var(--text-xs)", color: "var(--color-ink-2)", lineHeight: 1.8, padding: "var(--space-sm) var(--space-md)", background: "var(--color-jade-wash)", borderRadius: "var(--radius-sm)", marginBottom: "var(--space-md)", whiteSpace: "pre-wrap" }}>
               {synthesis.summary}
+            </div>
+          )}
+
+          {(synthesis.disagreements?.length ?? 0) > 0 && (
+            <div style={{ border: "1px solid var(--color-rule-light)", borderRadius: "var(--radius-sm)", padding: "var(--space-sm) var(--space-md)", marginBottom: "var(--space-md)" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "var(--text-xs)", fontWeight: 600, color: "var(--color-ink)", marginBottom: 6 }}>
+                <Scale size={14} style={{ color: "var(--color-accent)" }} /> 分歧与裁决
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {synthesis.disagreements!.map((d, i) => (
+                  <div key={i} style={{ fontSize: "var(--text-2xs)", color: "var(--color-ink-2)", lineHeight: 1.7, padding: "var(--space-xs) var(--space-sm)", background: "var(--color-paper-warm)", borderRadius: "var(--radius-sm)" }}>
+                    <div style={{ fontWeight: 600, color: "var(--color-ink)" }}>
+                      {d.topic}
+                      {d.dimension && <span style={{ fontWeight: 400, color: "var(--color-ink-3)" }}> · {d.dimension}</span>}
+                      <span style={{ marginLeft: 6, color: d.status === "resolved" ? "var(--color-jade)" : "var(--color-error)", fontWeight: 500 }}>
+                        {d.status === "resolved" ? "已收敛" : d.adjudicated ? "已裁决" : "未收敛"}
+                      </span>
+                    </div>
+                    {d.sides && d.sides.length > 0 && (
+                      <div>
+                        {d.sides.map((s, j) => (
+                          <div key={j}>
+                            {s.agent}：{s.position}
+                            {s.rationale && <span style={{ color: "var(--color-ink-3)" }}>（{s.rationale}）</span>}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {d.resolution && (
+                      <div style={{ color: "var(--color-accent)", marginTop: 2 }}>
+                        {d.adjudicated ? "裁决建议：" : "收敛结果："}{d.resolution}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 

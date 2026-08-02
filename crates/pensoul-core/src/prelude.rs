@@ -11,8 +11,9 @@ pub use crate::narrative::*;
 pub use crate::ontology::NovelOntology;
 pub use crate::settings::ProjectSettings;
 pub use crate::sprout::{
-    AgentDiscussionConfig, AgentTurn, CharacterItem, DiscussionRecord, DiscussionSynthesis,
-    NamedDesc, OutlineBeat, RelationItem, SproutData, TimelineItem,
+    AgentDiscussionConfig, AgentTurn, CharacterItem, Disagreement, DisagreeSide,
+    DiscussionRecord, DiscussionSynthesis, NamedDesc, OutlineBeat, RelationItem, SproutData,
+    TimelineItem,
 };
 pub use crate::workflow::*;
 pub use crate::world::*;

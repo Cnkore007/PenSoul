@@ -7,6 +7,7 @@ pub mod chapter;
 pub mod character;
 pub mod consistency;
 pub mod discussion;
+pub mod discussion_synthesis;
 pub mod expert_distill;
 pub mod experts;
 pub mod harness;
