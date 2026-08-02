@@ -156,6 +156,7 @@ mod tests {
             workflow_skills: serde_json::Value::Null,
             workflow_ref: serde_json::Value::Null,
             writing_lessons: Vec::new(),
+            pending_edit_samples: Vec::new(),
         };
 
         let output = export_to_txt(&ontology).unwrap();

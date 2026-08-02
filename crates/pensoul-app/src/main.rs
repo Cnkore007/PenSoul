@@ -55,6 +55,8 @@ fn main() {
             pensoul_app::commands::annotations::annotations_list,
             pensoul_app::commands::annotations::annotations_all,
             pensoul_app::commands::annotations::annotations_export,
+            pensoul_app::edits::get_pending_edits,
+            pensoul_app::edits::distill_pending_lessons,
             pensoul_app::commands::project::create_project,
             pensoul_app::commands::project::list_projects,
             pensoul_app::commands::project::get_project,

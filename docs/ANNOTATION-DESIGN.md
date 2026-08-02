@@ -102,7 +102,13 @@ annotations_export(project_id, kind?) → JSONL 标注集
 
 **处理流解耦**：正文保留"批注重写"整合流程（rewrite plan → 蒸馏经验），但 accept/reject 不再只发生在重写时——`annotation_resolve` 支持任何实体逐条处理（记 `resolved_by=manual`），正文批注也可先在面板手动处理再重写；`annotation_update` 支持重开（status=open 时清除判决记录）。
 
-**蒸馏泛化**：`distill_lessons` 从"只吃正文 accepted 批注"扩为 `distill_lessons_from(project_id, scope)`：
+**蒸馏泛化（已落地编辑路径）**：批注之外，用户在**世界观/人物志/大纲/细纲/正文**上的保存修改也会进入经验累计：
+- 保存命令（save_world / save_characters / save_outline_arcs / upsert_chapter）在后端 diff 旧值，把变化采样为 `EditSample`（scope + 实体标签 + 改前/改后摘要，同实体只留最新）；
+- 样本入 `pending_edit_samples`（项目级持久化，上限 200 条）；
+- 批注中心的「编辑修改样本」区块一键蒸馏为 `WritingLesson`（`WritingLesson.scope` 记录来源环节 chapter/outline/world/character），合并进经验库注入后续审查；
+- 经验合并复用 `merge_lessons`（分类 + 问题近似去重，count 累计），零 LLM 成本的修改采样自动完成，蒸馏是唯一手动触发的 LLM 调用。
+
+`distill_lessons` 后续仍可扩为 `distill_lessons_from(project_id, scope)`：
 
 | scope | 批注来源 | 经验去向 |
 |---|---|---|

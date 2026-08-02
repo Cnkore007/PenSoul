@@ -144,7 +144,7 @@ pub async fn upsert_chapter(
         .map_err(|e| format!("非法章节状态: {e}"))?;
     let now = chrono::Utc::now().to_rfc3339();
 
-    {
+    let edit_sample = {
         let mut ontology = state.ontology.write();
         // 卷不存在时自动补建（标题由 save_volumes 后续覆盖）
         if !ontology.volumes.iter().any(|v| v.volume_id == vid) {
@@ -155,8 +155,9 @@ pub async fn upsert_chapter(
                 summary: String::new(),
             });
         }
-        match ontology.chapters.iter_mut().find(|ch| ch.chapter_id == id) {
+        let edit_result = match ontology.chapters.iter_mut().find(|ch| ch.chapter_id == id) {
             Some(ch) => {
+                let old = ch.clone();
                 ch.title = title;
                 ch.volume_id = vid;
                 ch.summary = summary;
@@ -167,6 +168,12 @@ pub async fn upsert_chapter(
                 }
                 ch.word_count = ch.content.chars().count() as u32;
                 ch.updated_at = now;
+                Some(crate::edits::chapter_diff_samples(
+                    &old,
+                    &ch.title,
+                    &ch.summary,
+                    &ch.content,
+                ))
             }
             None => {
                 let word_count = content.chars().count() as u32;
@@ -194,8 +201,9 @@ pub async fn upsert_chapter(
                     annotations: Vec::new(),
                     revisions: Vec::new(),
                 });
+                None
             }
-        }
+        };
         // 同步卷的章节列表（先分组再写回，避免经由锁守卫的交叉借用）
         let mut by_volume: std::collections::HashMap<String, Vec<ChapterId>> =
             std::collections::HashMap::new();
@@ -210,6 +218,10 @@ pub async fn upsert_chapter(
                 vol.chapter_ids = ids.clone();
             }
         }
+        edit_result
+    };
+    if let Some(samples) = edit_sample {
+        crate::edits::record_edit_samples(&state, samples);
     }
 
     // 注册并发版本，后续 save_chapter 走乐观锁才不会误报冲突

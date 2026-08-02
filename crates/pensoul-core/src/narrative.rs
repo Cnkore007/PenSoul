@@ -143,4 +143,24 @@ pub struct WritingLesson {
     pub count: u32,
     #[serde(default)]
     pub created_at: String,
+    /// 经验来源环节：chapter / outline / world / character（旧数据缺省为 chapter）
+    #[serde(default)]
+    pub scope: String,
+}
+
+/// 编辑修改样本 —— 用户对创作内容的保存修改记录，待沉淀为写作经验
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct EditSample {
+    pub sample_id: String,
+    /// 来源环节：chapter / outline / world / character
+    #[serde(default)]
+    pub scope: String,
+    /// 实体标签（如「人物：林晚」/「世界观·地点：幽谷」）
+    pub label: String,
+    /// 修改前摘要
+    pub before: String,
+    /// 修改后摘要
+    pub after: String,
+    #[serde(default)]
+    pub created_at: String,
 }

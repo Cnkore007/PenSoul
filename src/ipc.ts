@@ -53,6 +53,25 @@ export async function annotationsExport(): Promise<string> {
   return await invoke<string>("annotations_export");
 }
 
+// ── 编辑经验沉淀（修改 → 样本 → WritingLesson） ──
+
+export interface EditSample {
+  sample_id: string;
+  scope: "chapter" | "outline" | "world" | "character" | string;
+  label: string;
+  before: string;
+  after: string;
+  created_at?: string;
+}
+
+export async function getPendingEdits(): Promise<EditSample[]> {
+  return await invoke<EditSample[]>("get_pending_edits");
+}
+
+export async function distillPendingLessons(): Promise<WritingLesson[]> {
+  return await invoke<WritingLesson[]>("distill_pending_lessons");
+}
+
 // ── 项目管理 ──
 
 export async function createProject(title: string): Promise<string> {

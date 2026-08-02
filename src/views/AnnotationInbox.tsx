@@ -1,7 +1,13 @@
 // 批注中心 —— 聚合全部实体的批注，统一处理与跳转
 import { useCallback, useEffect, useState } from "react";
 import { MessageSquarePlus, Navigation } from "lucide-react";
-import { annotationResolve, annotationsAll } from "../ipc";
+import {
+  annotationResolve,
+  annotationsAll,
+  distillPendingLessons,
+  getPendingEdits,
+} from "../ipc";
+import type { EditSample } from "../ipc";
 import type { ChapterAnnotation, ViewType } from "../types";
 
 interface AnnotationGroup {
@@ -26,12 +32,17 @@ function viewForTarget(target: string): ViewType {
 
 export function AnnotationInbox({ onNavigate }: { onNavigate: (v: ViewType) => void }) {
   const [groups, setGroups] = useState<AnnotationGroup[]>([]);
+  const [edits, setEdits] = useState<EditSample[]>([]);
   const [loading, setLoading] = useState(true);
+  const [distilling, setDistilling] = useState(false);
+  const [distillMsg, setDistillMsg] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      setGroups(await annotationsAll());
+      const [g, e] = await Promise.all([annotationsAll(), getPendingEdits()]);
+      setGroups(g);
+      setEdits(e);
     } catch (e) {
       console.error("加载批注汇总失败:", e);
     } finally {
@@ -52,6 +63,27 @@ export function AnnotationInbox({ onNavigate }: { onNavigate: (v: ViewType) => v
     }
   }
 
+  async function handleDistill() {
+    setDistilling(true);
+    setDistillMsg(null);
+    try {
+      const lessons = await distillPendingLessons();
+      setDistillMsg(lessons.length > 0 ? `已沉淀 ${lessons.length} 条经验` : "没有可沉淀的修改");
+      await load();
+    } catch (e) {
+      setDistillMsg("沉淀失败：" + ((e as Error)?.message ?? e));
+    } finally {
+      setDistilling(false);
+    }
+  }
+
+  const SCOPE_LABEL: Record<string, string> = {
+    chapter: "正文",
+    outline: "大纲",
+    world: "世界观",
+    character: "人物志",
+  };
+
   const totalOpen = groups.reduce(
     (n, g) => n + g.annotations.filter(a => a.status === "open").length,
     0
@@ -64,10 +96,53 @@ export function AnnotationInbox({ onNavigate }: { onNavigate: (v: ViewType) => v
         <span style={{ fontSize: "var(--text-xs)", color: "var(--color-ink-3)" }}>
           {totalOpen > 0 ? `${totalOpen} 条待处理` : "全部处理完毕"}
         </span>
+        {edits.length > 0 && (
+          <span style={{ fontSize: "var(--text-xs)", color: "var(--color-ochre)" }}>
+            · {edits.length} 条修改待沉淀
+          </span>
+        )}
         <button className="btn btn-secondary" style={{ marginLeft: "auto" }} onClick={load}>
           刷新
         </button>
       </div>
+
+      {edits.length > 0 && (
+        <div className="card" style={{ marginBottom: 16, padding: "var(--space-sm) var(--space-md)" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+            <span style={{ fontWeight: 600, fontSize: "var(--text-sm)" }}>编辑修改样本</span>
+            <span style={{ fontSize: "var(--text-2xs)", color: "var(--color-ink-3)" }}>
+              你在各环节保存的修改会自动进入此队列，沉淀为写作经验注入后续审查
+            </span>
+            <span style={{ marginLeft: "auto", display: "flex", gap: 6, alignItems: "center" }}>
+              {distillMsg && <span style={{ fontSize: "var(--text-2xs)", color: "var(--color-ink-3)" }}>{distillMsg}</span>}
+              <button
+                className="btn btn-primary"
+                style={{ padding: "3px 12px", fontSize: "var(--text-xs)" }}
+                onClick={handleDistill}
+                disabled={distilling}
+              >
+                {distilling ? "沉淀中…" : `沉淀为经验（${edits.length}）`}
+              </button>
+            </span>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 220, overflowY: "auto" }}>
+            {edits.map(e => (
+              <div key={e.sample_id} style={{ fontSize: "var(--text-2xs)", lineHeight: 1.6, padding: "5px 8px", borderRadius: "var(--radius-sm)", background: "var(--color-paper-warm)" }}>
+                <span style={{ fontWeight: 600 }}>{e.label}</span>
+                <span style={{ marginLeft: 6, color: "var(--color-ink-3)" }}>
+                  [{SCOPE_LABEL[e.scope] ?? e.scope}]
+                </span>
+                <div style={{ color: "var(--color-ink-3)", marginTop: 2 }}>
+                  <span style={{ color: "var(--color-error)" }}>改前：</span>{e.before}
+                </div>
+                <div style={{ color: "var(--color-ink-3)" }}>
+                  <span style={{ color: "var(--color-jade)" }}>改后：</span>{e.after}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {loading ? (
         <div className="empty-state">

@@ -17,10 +17,15 @@ pub async fn save_world(
 ) -> Result<(), String> {
     let layer: pensoul_core::WorldLayer =
         serde_json::from_value(world).map_err(|e| e.to_string())?;
+    let samples = {
+        let onto = state.ontology.read();
+        crate::edits::world_diff_samples(&onto.world, &layer)
+    };
     {
         let mut ontology = state.ontology.write();
         ontology.world = layer;
     }
+    crate::edits::record_edit_samples(&state, samples);
     state.save().map_err(|e| e.to_string())
 }
 
@@ -41,10 +46,15 @@ pub async fn save_characters(
 ) -> Result<(), String> {
     let layer: pensoul_core::CharacterLayer =
         serde_json::from_value(characters).map_err(|e| e.to_string())?;
+    let samples = {
+        let onto = state.ontology.read();
+        crate::edits::characters_diff_samples(&onto.characters, &layer)
+    };
     {
         let mut ontology = state.ontology.write();
         ontology.characters = layer;
     }
+    crate::edits::record_edit_samples(&state, samples);
     state.save().map_err(|e| e.to_string())
 }
 

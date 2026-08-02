@@ -249,3 +249,10 @@
 - **设计取舍**：批注数据分散挂在本体实体上、展示走后端 IPC，前端状态结构零污染；判决标签 `resolved_by` 区分 manual 与 rewrite_plan，为后续标注集分层加权做准备；批注中心先做跳转不做锚点滚动定位（滚动留待后续）。
 - **状态**：已完成并提交（3 个提交）。cargo test 全绿（含新增批注定位单元测试），tsc + vite build 通过。
 - **下次待办**：用户人工验收后合并到 main；P2 补核心概念/萌芽批注；批注中心锚点滚动定位；`distill_lessons_from` 泛化接 EVOLVE-DESIGN L0。
+
+## 2026-08-02：编辑经验累计（修改也进经验库）
+
+- **改动范围**：新增 `crates/pensoul-app/src/edits.rs`（diff 采样 + 蒸馏）；`WritingLesson` 加 `scope`（chapter/outline/world/character）；`NovelOntology` 加 `pending_edit_samples`；保存命令（save_world / save_characters / save_outline_arcs / upsert_chapter）自动对比旧值采集修改样本；批注中心新增「编辑修改样本」区块，一键蒸馏为经验；`merge_lessons` 提为 pub(crate) 复用并透传 scope。
+- **设计取舍**：修改采样零 LLM 成本（后端 diff + 摘要截断），蒸馏是唯一手动触发的 LLM 调用（避免每次保存都调 LLM 造成延迟与费用）；同实体同标签样本只保留最新一条，防止反复编辑刷屏；正文修改同样进样本（diff 定位首个变化区）。
+- **状态**：已完成。cargo test 全绿（含 diff/采样/去重单测），tsc 通过，clippy 无新增警告。
+- **下次待办**：用户验收；蒸馏入口后续可在笔耕页与经验管理页复用。

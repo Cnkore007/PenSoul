@@ -34,10 +34,15 @@ pub async fn save_outline_arcs(
     state: tauri::State<'_, AppState>,
     arcs: Vec<OutlineArc>,
 ) -> Result<(), String> {
+    let samples = {
+        let onto = state.ontology.read();
+        crate::edits::outline_arcs_diff_samples(&onto.outline_arcs, &arcs)
+    };
     {
         let mut ontology = state.ontology.write();
         ontology.outline_arcs = arcs;
     }
+    crate::edits::record_edit_samples(&state, samples);
     state.save().map_err(|e| e.to_string())
 }
 

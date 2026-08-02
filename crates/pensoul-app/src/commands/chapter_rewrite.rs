@@ -58,14 +58,16 @@ struct PlanPayload {
     summary: String,
 }
 
-/// 经验条目（LLM 归类产物）
+/// 经验条目（LLM 归类产物；scope 供编辑经验复用，批注路径缺省 chapter）
 #[derive(Debug, Default, Deserialize)]
-struct LessonItem {
+pub(crate) struct LessonItem {
     #[serde(default)]
-    category: String,
-    problem: String,
+    pub(crate) category: String,
+    pub(crate) problem: String,
     #[serde(default)]
-    fix: String,
+    pub(crate) fix: String,
+    #[serde(default)]
+    pub(crate) scope: String,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -535,7 +537,11 @@ async fn distill_lessons(
 }
 
 /// 合并经验到项目库：同类（分类 + 问题近似）累计次数，否则新增
-fn merge_lessons(existing: &mut Vec<WritingLesson>, new: Vec<LessonItem>, example: &str) -> Vec<WritingLesson> {
+pub(crate) fn merge_lessons(
+    existing: &mut Vec<WritingLesson>,
+    new: Vec<LessonItem>,
+    example: &str,
+) -> Vec<WritingLesson> {
     let ts = now();
     let mut out = Vec::new();
     for item in new {
@@ -554,6 +560,9 @@ fn merge_lessons(existing: &mut Vec<WritingLesson>, new: Vec<LessonItem>, exampl
                 && (l.problem == problem || l.problem.contains(problem) || problem.contains(&l.problem))
         }) {
             l.count += 1;
+            if !item.scope.is_empty() {
+                l.scope = item.scope.clone();
+            }
             if !fix.is_empty() {
                 l.fix = fix;
             }
@@ -570,6 +579,11 @@ fn merge_lessons(existing: &mut Vec<WritingLesson>, new: Vec<LessonItem>, exampl
                 example: example.to_string(),
                 count: 1,
                 created_at: ts.clone(),
+                scope: if item.scope.is_empty() {
+                    "chapter".to_string()
+                } else {
+                    item.scope.clone()
+                },
             };
             out.push(l.clone());
             existing.push(l);
@@ -691,16 +705,19 @@ mod tests {
                 category: "措辞".to_string(),
                 problem: "重复使用「不禁」".to_string(),
                 fix: "换成具体动作".to_string(),
+                scope: String::new(),
             },
             LessonItem {
                 category: "措辞".to_string(),
                 problem: "重复使用「不禁」".to_string(),
                 fix: "换成具体动作".to_string(),
+                scope: String::new(),
             },
             LessonItem {
                 category: "节奏".to_string(),
                 problem: "开篇铺垫过长".to_string(),
                 fix: "300字内出钩子".to_string(),
+                scope: String::new(),
             },
         ];
         let out = merge_lessons(&mut existing, new, "第 1 章");

@@ -25,6 +25,7 @@ pub use crate::sprout::{
     DiscussionRecord, DiscussionSynthesis, NamedDesc, OutlineBeat, RelationItem, SproutData,
     TimelineItem,
 };
+pub use crate::narrative::EditSample;
 pub use crate::workflow::*;
 pub use crate::world::*;
 

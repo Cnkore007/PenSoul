@@ -47,6 +47,9 @@ pub struct NovelOntology {
     /// 项目写作经验库：批注重写沉淀的错误经验，注入章节审查 prompt
     #[serde(default)]
     pub writing_lessons: Vec<crate::narrative::WritingLesson>,
+    /// 待沉淀的编辑修改样本（保存修改时自动收集，蒸馏成 WritingLesson 后清空）
+    #[serde(default)]
+    pub pending_edit_samples: Vec<crate::narrative::EditSample>,
 }
 
 impl NovelOntology {
@@ -105,6 +108,7 @@ impl NovelOntology {
             workflow_skills: serde_json::Value::Null,
             workflow_ref: serde_json::Value::Null,
             writing_lessons: Vec::new(),
+            pending_edit_samples: Vec::new(),
         }
     }
 

@@ -1,4 +1,5 @@
 pub mod commands;
+pub mod edits;
 /// PenSoul App — Tauri 桌面应用后端
 ///
 /// 提供 IPC 命令、全局状态管理与章节连写管线编排。
