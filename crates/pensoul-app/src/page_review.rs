@@ -623,6 +623,9 @@ pub async fn undo_page_change(
         .iter()
         .rposition(|s| s.page == page)
         .ok_or_else(|| "该页面没有可撤回的保存".to_string())?;
+    // 清掉该页残留的「编辑前」快照：撤回后状态已回退，
+    // 旧 edit_before 会让下一轮受控保存的 before 指向错误版本
+    onto.page_edit_before.remove(&page);
     let snap = onto.page_snapshots.remove(idx);
     match page.as_str() {
         "world" => {
@@ -647,14 +650,18 @@ pub async fn undo_page_change(
     }
 }
 
-/// 该页面是否有可撤回的受控保存快照
+/// 该页面剩余可撤回的受控保存快照数
 #[tauri::command]
 pub async fn page_undo_available(
     state: tauri::State<'_, AppState>,
     page: String,
-) -> Result<bool, String> {
+) -> Result<usize, String> {
     let onto = state.ontology.read();
-    Ok(onto.page_snapshots.iter().any(|s| s.page == page))
+    Ok(onto
+        .page_snapshots
+        .iter()
+        .filter(|s| s.page == page)
+        .count())
 }
 
 pub(crate) fn extract_block(raw: &str, begin: &str, end: &str) -> String {

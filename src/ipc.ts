@@ -107,8 +107,8 @@ export async function undoPageChange(page: "world" | "character"): Promise<unkno
   return await invoke("undo_page_change", { page });
 }
 
-export async function pageUndoAvailable(page: "world" | "character"): Promise<boolean> {
-  return await invoke<boolean>("page_undo_available", { page });
+export async function pageUndoAvailable(page: "world" | "character"): Promise<number> {
+  return await invoke<number>("page_undo_available", { page });
 }
 
 export async function reviewChapterChanges(

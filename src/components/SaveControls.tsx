@@ -29,7 +29,7 @@ export function SaveControls({ type, contentJson, apply, disabled }: SaveControl
   const [verdicts, setVerdicts] = useState<Record<string, string>>({});
   const [analyzing, setAnalyzing] = useState(false);
   const [applying, setApplying] = useState(false);
-  const [canUndo, setCanUndo] = useState(false);
+  const [undoCount, setUndoCount] = useState(0);
   const [msg, setMsg] = useState("");
 
   useEffect(() => {
@@ -38,7 +38,7 @@ export function SaveControls({ type, contentJson, apply, disabled }: SaveControl
       const first = ms.find(m => m.is_available) || ms[0];
       if (first) setModelId(first.model_id);
     }).catch(() => {});
-    pageUndoAvailable(type).then(setCanUndo).catch(() => {});
+    pageUndoAvailable(type).then(setUndoCount).catch(() => {});
   }, [type]);
 
   function flash(m: string, isError = false) {
@@ -70,7 +70,8 @@ export function SaveControls({ type, contentJson, apply, disabled }: SaveControl
       const result = await applyPageReview(type, contentJson, confirmations);
       apply(JSON.parse(contentJson));
       setReview(null);
-      setCanUndo(result.can_undo);
+      const count = await pageUndoAvailable(type).catch(() => 0);
+      setUndoCount(result.can_undo ? Math.max(count, 1) : count);
       flash(`已保存并沉淀 ${result.lessons.length} 条经验，可撤回`);
     } catch (e) {
       flash("应用失败：" + ((e as Error)?.message ?? e), true);
@@ -84,7 +85,9 @@ export function SaveControls({ type, contentJson, apply, disabled }: SaveControl
     try {
       const before = await undoPageChange(type);
       apply(before);
-      setCanUndo(false);
+      // 快照栈可能还有更早版本，重新查询以支持连续回退
+      const more = await pageUndoAvailable(type).catch(() => 0);
+      setUndoCount(more);
       flash("已撤回上次受控保存");
     } catch (e) {
       flash("撤回失败：" + ((e as Error)?.message ?? e), true);
@@ -116,9 +119,9 @@ export function SaveControls({ type, contentJson, apply, disabled }: SaveControl
       <button className="btn btn-primary" onClick={handleAnalyze} disabled={analyzing || applying || disabled} title="分析本页批注与修改，判定有效性并评估对全文影响">
         {analyzing ? <Loader2 size={15} className="spinning" /> : <Save size={15} />} 保存并审核
       </button>
-      {canUndo && (
-        <button className="btn btn-secondary" style={{ padding: "4px 10px", fontSize: "var(--text-xs)" }} onClick={handleUndo} disabled={analyzing || applying} title="恢复到上次受控保存之前">
-          <Undo2 size={13} /> 撤回
+      {undoCount > 0 && (
+        <button className="btn btn-secondary" style={{ padding: "4px 10px", fontSize: "var(--text-xs)" }} onClick={handleUndo} disabled={analyzing || applying} title={`恢复到上次受控保存之前（还可撤回 ${undoCount} 次）`}>
+          <Undo2 size={13} /> 撤回{undoCount > 1 ? `（${undoCount}）` : ""}
         </button>
       )}
 
