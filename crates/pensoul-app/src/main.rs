@@ -82,6 +82,7 @@ fn main() {
             pensoul_app::commands::deai_rewrite::rewrite_chapter_deai,
             pensoul_app::commands::chapter::save_volumes,
             pensoul_app::commands::chapter::get_volumes,
+            pensoul_app::commands::chapter::smart_volume_split,
             pensoul_app::commands::chapter::delete_chapter,
             pensoul_app::commands::chapter::delete_volume,
             pensoul_app::commands::harness::start_harness_stage,

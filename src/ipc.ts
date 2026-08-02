@@ -244,6 +244,16 @@ export async function getVolumes(): Promise<any[]> {
   return await invoke<any[]>("get_volumes");
 }
 
+// 智能分卷：按基础设定中的卷数均分章节到各卷
+export async function smartVolumeSplit(): Promise<{
+  volumes: number;
+  chapters_per_volume: number;
+  total_chapters: number;
+  message: string;
+}> {
+  return await invoke("smart_volume_split");
+}
+
 // ── 情节脉络（大纲规划层） ──
 
 export async function listOutlineArcs(): Promise<import("./types").OutlineArc[]> {

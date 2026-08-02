@@ -316,6 +316,118 @@ pub async fn get_volumes(
     Ok(volumes)
 }
 
+/// 智能分卷：按基础设定中的卷数（target_volumes）把全部章节均分到各卷，
+/// 卷标题为「第一卷 / 第二卷 …」，每卷可折叠、内含章节细纲。
+/// 设定未填卷数（0）时不自动分卷，保留导入/手动的卷名。
+#[tauri::command]
+pub async fn smart_volume_split(state: tauri::State<'_, AppState>) -> Result<serde_json::Value, String> {
+    let target_volumes = {
+        let ontology = state.ontology.read();
+        ontology.settings.target_volumes
+    };
+    if target_volumes == 0 {
+        return Err("基础设定未填写「预计卷数」，保持导入的卷名，不执行智能分卷".to_string());
+    }
+
+    let (numbered_chapters, total) = {
+        let ontology = state.ontology.read();
+        // 只按有章号的章节分配（_default 隐式卷也参与，章号是全局序）
+        let mut chapters: Vec<_> = ontology
+            .chapters
+            .iter()
+            .filter(|c| c.chapter_no > 0)
+            .map(|c| (c.chapter_id.clone(), c.chapter_no))
+            .collect();
+        chapters.sort_by_key(|(_, no)| *no);
+        let total = chapters.len();
+        (chapters, total)
+    };
+    if numbered_chapters.is_empty() {
+        return Err("还没有可分卷的章节（需要有章节序号），请先展开细纲或添加章节".to_string());
+    }
+
+    // 卷数不超过章节数；每卷至少一章，按序均分
+    let n = (target_volumes as usize).min(numbered_chapters.len());
+    let per = numbered_chapters.len().div_ceil(n);
+    let mut volumes = Vec::with_capacity(n);
+    for i in 0..n {
+        volumes.push(Volume {
+            volume_id: VolumeId::new(format!("smart-vol-{}", i + 1)),
+            title: format!("第{}卷", chinese_num(i + 1)),
+            chapter_ids: Vec::new(),
+            summary: String::new(),
+            expanded: true,
+        });
+    }
+
+    {
+        let mut ontology = state.ontology.write();
+        // 分配章节到各卷
+        for (idx, (cid, _)) in numbered_chapters.iter().enumerate() {
+            let vol_idx = (idx / per).min(n - 1);
+            let vid = volumes[vol_idx].volume_id.clone();
+            if let Some(c) = ontology
+                .chapters
+                .iter_mut()
+                .find(|c| c.chapter_id == *cid)
+            {
+                c.volume_id = vid.clone();
+                volumes[vol_idx].chapter_ids.push(cid.clone());
+            }
+        }
+        ontology.volumes = volumes;
+        // 同步其它章节（无章号）归入默认卷
+        let mut by_volume: std::collections::HashMap<String, Vec<ChapterId>> =
+            std::collections::HashMap::new();
+        for ch in &ontology.chapters {
+            by_volume
+                .entry(ch.volume_id.as_str().to_string())
+                .or_default()
+                .push(ch.chapter_id.clone());
+        }
+        for vol in ontology.volumes.iter_mut() {
+            if let Some(ids) = by_volume.get(vol.volume_id.as_str()) {
+                vol.chapter_ids = ids.clone();
+            }
+        }
+    }
+    state.save().map_err(|e| e.to_string())?;
+
+    Ok(serde_json::json!({
+        "volumes": n,
+        "chapters_per_volume": per,
+        "total_chapters": total,
+        "message": format!(
+            "已按基础设定卷数（{} 卷）智能分卷：共 {} 章，每卷约 {} 章",
+            n, total, per
+        ),
+    }))
+}
+
+/// 中文数字（1-99，智能分卷标题用）
+fn chinese_num(n: usize) -> String {
+    const DIGITS: [&str; 10] = ["零", "一", "二", "三", "四", "五", "六", "七", "八", "九"];
+    if n == 0 {
+        return "零".to_string();
+    }
+    if n < 10 {
+        return DIGITS[n].to_string();
+    }
+    if n == 10 {
+        return "十".to_string();
+    }
+    if n < 20 {
+        return format!("十{}", DIGITS[n % 10]);
+    }
+    let tens = DIGITS[n / 10];
+    let ones = n % 10;
+    if ones == 0 {
+        format!("{tens}十")
+    } else {
+        format!("{tens}十{}", DIGITS[ones])
+    }
+}
+
 /// 删除章节（同时从所属卷的章节列表移除）
 #[tauri::command]
 pub async fn delete_chapter(

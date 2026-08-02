@@ -281,9 +281,14 @@ pub fn build_writing_prompt(
             concept.central_conflict
         ));
     }
+    // 字数硬约束：目标字数 ±15%（上下浮动不破坏剧情，超出即视为不合格）
+    let low = (target_words as f64 * 0.85).round() as u32;
+    let high = (target_words as f64 * 1.15).round() as u32;
     user.push_str(&format!(
-        "【本章任务】\n第 {} 章《{}》，目标约 {} 字。\n本章梗概：{}\n\n",
-        chapter.chapter_no, chapter.title, target_words, chapter.summary
+        "【本章任务】\n第 {} 章《{}》。\n本章梗概：{}\n\n\
+         【字数硬约束】本章正文必须控制在 {}～{} 字之间（目标 {} 字，允许 ±15% 浮动以不破坏剧情）。\n\
+         严禁为了凑字数注水扩写；也严禁压缩到低于下限。字数不达标属于不合格输出。\n\n",
+        chapter.chapter_no, chapter.title, chapter.summary, low, high, target_words
     ));
     if !beat_plan.trim().is_empty() {
         user.push_str(&format!("【本章节拍表】\n{beat_plan}\n\n"));
@@ -308,8 +313,8 @@ pub fn build_writing_prompt(
         user.push('\n');
     }
     user.push_str(&format!(
-        "现在请撰写第 {} 章正文，约 {} 字，直接开始正文第一段。",
-        chapter.chapter_no, target_words
+        "现在请撰写第 {} 章正文（{}～{} 字，目标 {} 字，±15% 硬约束），直接开始正文第一段。",
+        chapter.chapter_no, low, high, target_words
     ));
 
     StagePrompt {
@@ -424,6 +429,21 @@ pub fn build_review_prompt(
             "【本书历史写作经验（必须重点检查本章是否重犯同类错误，发现即计入 issues）】\n{lessons}\n\n"
         ));
     }
+    // 字数硬约束：与写作阶段同一标准（目标 ±15%），超出即记入 issues
+    let target_words = if onto.settings.chapter_target_words > 0 {
+        onto.settings.chapter_target_words
+    } else {
+        3000
+    };
+    let low = (target_words as f64 * 0.85).round() as u32;
+    let high = (target_words as f64 * 1.15).round() as u32;
+    let actual = chapter.content.chars().count();
+    user.push_str(&format!(
+        "【字数硬约束】本章目标 {} 字（±15% 允许区间 {}～{} 字）。\n\
+         当前正文约 {} 字：低于下限视为内容不完整，超出上限视为注水拖沓，\n\
+         两种情况都必须计入 issues 并给出 rewrite 建议（除非剧情必要且已在 300 字内交代完整）。\n\n",
+        target_words, low, high, actual
+    ));
     user.push_str(&format!(
         "【待审章节】第 {} 章《{}》（梗概：{}）\n正文：\n{}",
         chapter.chapter_no,

@@ -164,7 +164,33 @@ pub(super) async fn execute_stage(
                 &style_block,
             );
             let raw = call_interruptible(state, ctx, &ctx.review_model, &prompt, 0.3).await?;
-            let (signal, report) = stages::parse_review_output(&raw)?;
+            let (mut signal, report) = stages::parse_review_output(&raw)?;
+            // 引擎级字数硬门禁：超出目标 ±15% 直接拦截重写（不依赖 LLM 自觉）
+            let target_words = if onto.settings.chapter_target_words > 0 {
+                onto.settings.chapter_target_words
+            } else {
+                3000
+            };
+            let low = (target_words as f64 * 0.85).round() as u32;
+            let high = (target_words as f64 * 1.15).round() as u32;
+            let actual = chapter.content.chars().count() as u32;
+            if actual < low || actual > high {
+                let wc_issue = if actual < low {
+                    format!("字数不达标：当前 {actual} 字，低于下限 {low} 字（目标 {target_words} ±15%），内容不完整")
+                } else {
+                    format!("字数超标：当前 {actual} 字，超出上限 {high} 字（目标 {target_words} ±15%），注水拖沓")
+                };
+                signal.issues.push(wc_issue.clone());
+                signal.score = 0.0; // 门控不通过，强制重写
+                emit_simple(
+                    app,
+                    state,
+                    &chapter,
+                    stage,
+                    "llm_output",
+                    wc_issue,
+                );
+            }
             emit(
                 app,
                 state,

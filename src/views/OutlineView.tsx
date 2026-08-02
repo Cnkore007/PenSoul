@@ -1,10 +1,10 @@
 import { useState, useEffect } from "react";
-import { ChevronRight, ChevronDown, FileText, Plus, Edit3, Trash2, Check, X, GitBranch, Wand2 } from "lucide-react";
+import { ChevronRight, ChevronDown, FileText, Plus, Edit3, Trash2, Check, X, GitBranch, Wand2, Layers } from "lucide-react";
 import type { ProjectData, VolumeWithChapters, Chapter, OutlineArc, LlmModel } from "../types";
-import { deleteChapter, deleteVolume, expandOutlineArcAll, getOutlineExpandState, cancelOutlineExpand, saveOutlineArcs, listModels } from "../ipc";
+import { deleteChapter, deleteVolume, expandOutlineArcAll, getOutlineExpandState, cancelOutlineExpand, saveOutlineArcs, listModels, smartVolumeSplit } from "../ipc";
 import { listen } from "@tauri-apps/api/event";
 import { EntityAnnotations } from "../components/EntityAnnotations";
-import { confirmDialog } from "../dialogs";
+import { confirmDialog, messageDialog } from "../dialogs";
 
 interface OutlineViewProps {
   projectData: ProjectData;
@@ -232,6 +232,24 @@ export function OutlineView({ projectData, persistProjectData, onRefresh }: Outl
     deleteVolume(vol.volume_id).catch(err => console.error("删除卷失败:", err));
   }
 
+  // 智能分卷：按基础设定卷数均分全部章节到各卷
+  async function handleSmartVolumeSplit() {
+    const target = projectData.settings.targetVolumes;
+    if (target <= 0) {
+      setArcError("智能分卷需要先在基础设定中填写「预计卷数」");
+      return;
+    }
+    const ok = await confirmDialog(`按基础设定卷数（${target} 卷）智能分卷？\n全部章节将按顺序均分到「第一卷/第二卷…」，原有卷结构会被替换。`);
+    if (!ok) return;
+    try {
+      const res = await smartVolumeSplit();
+      await onRefresh?.();
+      await messageDialog(res.message);
+    } catch (e: any) {
+      setArcError(typeof e === "string" ? e : e?.message || String(e));
+    }
+  }
+
   // ── 章节：新建 / 编辑（标题 + 梗概）/ 删除 ──
 
   function addChapter(volId: string) {
@@ -362,6 +380,13 @@ export function OutlineView({ projectData, persistProjectData, onRefresh }: Outl
           结构与梗概在此维护 · 正文由工作流在笔耕细写
         </span>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+          <button className="btn btn-secondary" onClick={handleSmartVolumeSplit}
+            title={projectData.settings.targetVolumes > 0
+              ? `按基础设定卷数（${projectData.settings.targetVolumes} 卷）智能分卷：把全部章节按顺序均分到各卷`
+              : "智能分卷需要先在基础设定中填写「预计卷数」；未填写时保留导入的卷名"}
+            disabled={projectData.settings.targetVolumes <= 0}>
+            <Layers size={15} /> 智能分卷
+          </button>
           <button className="btn btn-primary" onClick={() => setShowNewVolume(true)}>
             <Plus size={15} /> 新建卷
           </button>

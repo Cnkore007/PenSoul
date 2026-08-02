@@ -910,10 +910,10 @@ body::after {
   padding: 2px;
   border: none;
   background: transparent;
-  color: var(--color-ink-faint);
+  color: var(--color-ink-3);
   border-radius: var(--radius-sm);
   cursor: pointer;
-  opacity: 0;
+  opacity: 0.55;
   transition: opacity var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out);
 }
 .writing-nav-chapter:hover .writing-nav-ch-del {
