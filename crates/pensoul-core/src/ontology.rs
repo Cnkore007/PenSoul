@@ -53,6 +53,10 @@ pub struct NovelOntology {
     /// 页面受控保存快照栈（每次应用保存前记录，撤回时恢复；上限 10 条/页）
     #[serde(default)]
     pub page_snapshots: Vec<crate::narrative::PageSnapshot>,
+    /// 页面「编辑前」快照：即时保存检测到内容变化时记录（每页一条），
+    /// 受控保存确认时作为 before 入快照栈——否则撤回会回到修改后的值（即时保存已落库）
+    #[serde(default)]
+    pub page_edit_before: std::collections::HashMap<String, serde_json::Value>,
 }
 
 impl NovelOntology {
@@ -113,6 +117,7 @@ impl NovelOntology {
             writing_lessons: Vec::new(),
             pending_edit_samples: Vec::new(),
             page_snapshots: Vec::new(),
+            page_edit_before: std::collections::HashMap::new(),
         }
     }
 

@@ -250,6 +250,51 @@ pub(crate) fn merge_character_annotations(
     }
 }
 
+/// 后端完整层 → 前端扁平结构（与 store.ts transformWorldData 对齐，供撤回写回）
+fn world_to_frontend(layer: &pensoul_core::WorldLayer) -> serde_json::Value {
+    serde_json::json!({
+        "locations": layer.spatial_model.locations.iter().map(|l| serde_json::json!({
+            "id": l.id, "name": l.name, "description": l.description, "spatial_tags": l.spatial_tags,
+        })).collect::<Vec<_>>(),
+        "timeline_events": layer.timeline.events.iter().map(|e| serde_json::json!({
+            "event_id": e.event_id, "story_time": e.story_time, "description": e.description,
+        })).collect::<Vec<_>>(),
+        "setting_rules": layer.setting_rules.iter().map(|r| serde_json::json!({
+            "rule_id": r.rule_id, "category": r.category, "title": r.title,
+            "description": r.description, "constraints": r.constraints,
+        })).collect::<Vec<_>>(),
+    })
+}
+
+/// 后端完整层 → 前端 CharacterData[]（关系按角色名分发，与 transformCharacters 对齐）
+fn characters_to_frontend(layer: &pensoul_core::CharacterLayer) -> serde_json::Value {
+    serde_json::json!(layer
+        .characters
+        .iter()
+        .map(|c| {
+            let rels: Vec<serde_json::Value> = layer
+                .relationships
+                .iter()
+                .filter(|r| r.from.as_str() == c.name || r.to.as_str() == c.name)
+                .map(|r| {
+                    serde_json::json!({
+                        "from": r.from, "to": r.to,
+                        "relation_type": r.relation_type, "strength": r.strength,
+                    })
+                })
+                .collect();
+            serde_json::json!({
+                "id": c.id,
+                "name": c.name,
+                "personality_traits": c.core_personality.traits.iter()
+                    .map(|(t, s)| serde_json::json!([t, s])).collect::<Vec<_>>(),
+                "current_mood": c.current_mood.primary,
+                "relationships": rels,
+            })
+        })
+        .collect::<Vec<_>>())
+}
+
 /// 收集页面批注（open）+ 修改样本（scope 匹配）
 fn collect_page_items(onto: &pensoul_core::NovelOntology, page: &str) -> Vec<PageItem> {
     let mut out = Vec::new();
@@ -416,12 +461,24 @@ pub async fn apply_page_review(
         }
     }
 
+    // 快照优先取「编辑前」完整数据（即时保存机制下，当前层已是修改后的值）
     let before = {
-        let onto = state.ontology.read();
-        match page.as_str() {
-            "world" => serde_json::to_value(&onto.world).map_err(|e| e.to_string())?,
-            "character" => serde_json::to_value(&onto.characters).map_err(|e| e.to_string())?,
-            other => return Err(format!("不支持的页面类型: {other}")),
+        let edit_before = {
+            let mut onto = state.ontology.write();
+            onto.page_edit_before.remove(&page)
+        };
+        match edit_before {
+            Some(b) => b,
+            None => {
+                let onto = state.ontology.read();
+                match page.as_str() {
+                    "world" => serde_json::to_value(&onto.world).map_err(|e| e.to_string())?,
+                    "character" => {
+                        serde_json::to_value(&onto.characters).map_err(|e| e.to_string())?
+                    }
+                    other => return Err(format!("不支持的页面类型: {other}")),
+                }
+            }
         }
     };
     let after: serde_json::Value =
@@ -571,19 +628,23 @@ pub async fn undo_page_change(
         "world" => {
             let layer: pensoul_core::WorldLayer =
                 serde_json::from_value(snap.before.clone()).map_err(|e| e.to_string())?;
+            let frontend = world_to_frontend(&layer);
             onto.world = layer;
+            drop(onto);
+            state.save().map_err(|e| e.to_string())?;
+            return Ok(frontend);
         }
         "character" => {
             let layer: pensoul_core::CharacterLayer =
                 serde_json::from_value(snap.before.clone()).map_err(|e| e.to_string())?;
+            let frontend = characters_to_frontend(&layer);
             onto.characters = layer;
+            drop(onto);
+            state.save().map_err(|e| e.to_string())?;
+            return Ok(frontend);
         }
         other => return Err(format!("不支持的页面类型: {other}")),
     }
-    let before = snap.before;
-    drop(onto);
-    state.save().map_err(|e| e.to_string())?;
-    Ok(before)
 }
 
 /// 该页面是否有可撤回的受控保存快照

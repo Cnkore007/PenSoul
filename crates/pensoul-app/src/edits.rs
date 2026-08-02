@@ -118,6 +118,16 @@ pub fn world_diff_samples(
         if o.id != n.id {
             continue;
         }
+        if o.name != n.name
+            && let Some(s) = capture_edit_sample(
+                "world",
+                &format!("世界观·地点名称「{}」→「{}」", o.name, n.name),
+                &o.name,
+                &n.name,
+            )
+        {
+            out.push(s);
+        }
         if let Some(s) = capture_edit_sample(
             "world",
             &format!("世界观·地点「{}」", n.name),
@@ -143,6 +153,16 @@ pub fn world_diff_samples(
     for (o, n) in old.setting_rules.iter().zip(new.setting_rules.iter()) {
         if o.rule_id != n.rule_id {
             continue;
+        }
+        if o.title != n.title
+            && let Some(s) = capture_edit_sample(
+                "world",
+                &format!("世界观·设定规则名称《{}》→《{}》", o.title, n.title),
+                &o.title,
+                &n.title,
+            )
+        {
+            out.push(s);
         }
         if let Some(s) = capture_edit_sample(
             "world",

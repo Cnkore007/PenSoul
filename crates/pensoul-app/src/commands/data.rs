@@ -23,6 +23,13 @@ pub async fn save_world(
     };
     {
         let mut ontology = state.ontology.write();
+        // 即时保存已生效：内容变化时记录「编辑前」完整快照（每页只记第一轮编辑前），
+        // 供受控保存撤回使用——否则撤回会回到修改后的值
+        let old_json = serde_json::to_value(&ontology.world).unwrap_or_default();
+        let new_json = serde_json::to_value(&layer).unwrap_or_default();
+        if old_json != new_json && !ontology.page_edit_before.contains_key("world") {
+            ontology.page_edit_before.insert("world".to_string(), old_json);
+        }
         // 前端保存不带批注字段，覆盖时合并旧实体批注（防批注丢失）
         crate::page_review::merge_world_annotations(&ontology.world, &mut layer);
         ontology.world = layer;
@@ -60,6 +67,13 @@ pub async fn save_characters(
     };
     {
         let mut ontology = state.ontology.write();
+        let old_json = serde_json::to_value(&ontology.characters).unwrap_or_default();
+        let new_json = serde_json::to_value(&layer).unwrap_or_default();
+        if old_json != new_json && !ontology.page_edit_before.contains_key("character") {
+            ontology
+                .page_edit_before
+                .insert("character".to_string(), old_json);
+        }
         crate::page_review::merge_character_annotations(&ontology.characters, &mut layer);
         ontology.characters = layer;
     }

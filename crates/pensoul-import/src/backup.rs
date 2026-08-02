@@ -210,6 +210,7 @@ mod tests {
             writing_lessons: Vec::new(),
             pending_edit_samples: Vec::new(),
             page_snapshots: Vec::new(),
+            page_edit_before: std::collections::HashMap::new(),
         }
     }
 
