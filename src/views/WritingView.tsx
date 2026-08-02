@@ -58,7 +58,7 @@ export function WritingView({ projectData, persistProjectData, chapterId, onWord
     lessons: WritingLesson[];
   } | null>(null);
   const [revisions, setRevisions] = useState<ChapterRevision[]>([]);
-  const [showRevisions, setShowRevisions] = useState(false);
+  const [showRevisions, setShowRevisions] = useState(true);
   // 项目写作经验库（批注重写沉淀，注入审查）
   const [lessons, setLessons] = useState<WritingLesson[]>([]);
   const [showLessons, setShowLessons] = useState(false);
@@ -226,6 +226,13 @@ export function WritingView({ projectData, persistProjectData, chapterId, onWord
       setChapter(updated);
       setReview(null);
       setContent(applyAnnotations(toHtml(plainText), annotations));
+      // 刷新版本历史（受控保存已把旧版入快照，前端本地列表需同步）
+      try {
+        const revs = await listChapterRevisions(chapter.chapter_id);
+        setRevisions(revs ?? []);
+      } catch {
+        // 版本列表刷新失败不阻塞保存流程
+      }
       const report = await analyzeChapterImpact(chapter.chapter_id);
       setImpact(report);
       const nAffected = Array.isArray(report.affected) ? report.affected.length : 0;
@@ -414,6 +421,13 @@ export function WritingView({ projectData, persistProjectData, chapterId, onWord
     }
   }
 
+  // 顶部「撤回上一版」：回滚到最近一次历史快照
+  function handleUndoLatest() {
+    if (!chapter || revisions.length === 0) return;
+    const latest = revisions[revisions.length - 1];
+    void handleRollback(latest);
+  }
+
   function toggleVolume(volId: string) {
     setExpandedVolumes(prev => ({ ...prev, [volId]: !prev[volId] }));
   }
@@ -480,6 +494,11 @@ export function WritingView({ projectData, persistProjectData, chapterId, onWord
             {chapter && openAnnoCount > 0 && (
               <button className="btn btn-accent" onClick={handleRewrite} disabled={rewriting}>
                 {rewriting ? <><Loader2 size={15} className="spinning" /> 重写中…</> : <><Wand2 size={15} /> 按批注重写本章（{openAnnoCount}）</>}
+              </button>
+            )}
+            {chapter && revisions.length > 0 && (
+              <button className="btn btn-secondary" onClick={handleUndoLatest} disabled={saving || rewriting} title={`撤回最近一次保存（版本历史共 ${revisions.length} 条）`}>
+                <RotateCcw size={15} /> 撤回上一版
               </button>
             )}
             <button className={"btn btn-primary" + (saving || !chapter ? " btn-disabled" : "")} onClick={handleSave} disabled={saving || !chapter} title="审核本章批注与修改后保存">
