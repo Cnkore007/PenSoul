@@ -8,7 +8,7 @@ import {
   UserCheck,
 } from "lucide-react";
 import { listen } from "@tauri-apps/api/event";
-import { loadSprout, loadExperts, listModels, discussConcept, getDiscussionState, saveOutlineArcs } from "../ipc";
+import { loadSprout, loadExperts, listModels, discussConcept, getDiscussionState, saveOutlineArcs, clearDiscussionResult } from "../ipc";
 import { pickDefaultModel } from "../store";
 import { DiscussionPanel, type SelectedResults } from "../components/DiscussionPanel";
 
@@ -428,6 +428,28 @@ export function ConceptView({ projectData, persistProjectData }: ConceptViewProp
     setGenerated(true);
   }, [persistProjectData]);
 
+  // 单独提交作者意见（不触发生成）：保存到 sprout.lastDiscussion.authorFeedback
+  const handleSubmitFeedback = useCallback((feedback: string) => {
+    updateSprout(prev => ({
+      ...prev,
+      lastDiscussion: prev.lastDiscussion
+        ? { ...prev.lastDiscussion, authorFeedback: feedback }
+        : { turns: [], synthesis: { summary: "", locations: [], timeline_events: [], setting_rules: [], characters: [], outline_beats: [] }, authorFeedback: feedback },
+    }));
+  }, [updateSprout]);
+
+  // 重新讨论：清空当前讨论结果与生成状态，回到初始
+  const handleRestartDiscussion = useCallback(() => {
+    setTurns([]);
+    setSynthesis(null);
+    setLiveEvents({});
+    setGenerated(false);
+    setDiscussionError(null);
+    updateSprout(prev => ({ ...prev, lastDiscussion: undefined }));
+    // 后端同步清空，避免 save_sprout 的「None 保留旧结果」保护把旧成果带回来
+    clearDiscussionResult().catch(e => console.error("清空讨论结果失败:", e));
+  }, [updateSprout]);
+
   const hasIdea = sprout.ideaDescription.trim().length > 0;
 
   return (
@@ -747,6 +769,8 @@ export function ConceptView({ projectData, persistProjectData }: ConceptViewProp
           synthesis={synthesis}
           discussing={discussing}
           onConfirmGenerate={handleConfirmGenerate}
+          onSubmitFeedback={handleSubmitFeedback}
+          onRestartDiscussion={handleRestartDiscussion}
           generated={generated}
         />
       )}

@@ -6,12 +6,15 @@
 //! - 「章节细纲」（Chapter.summary）：脉络节点按范围分批展开生成，
 //!   造化工坊只对真正的章节写作。
 //!
-//! `expand_outline_arc` 每次展开一批（默认 20 章），多次点击逐步展开，
-//! 让作者在每个故事段内按自己的节奏推进，而不是一次吞下几百章。
+//! `expand_outline_arc_all` 在后台任务中按批展开该节点的全部剩余章节
+//! （默认每批 20 章，批间携带已展开章节作为上下文衔接），实时推送进度事件，
+//! 支持取消与页面切换后重连（控制面缓冲 + get_outline_expand_state）。
 use crate::state::AppState;
 use pensoul_core::workflow::WorkflowRef;
 use pensoul_core::{Chapter, ChapterId, ChapterStatus, OutlineArc, VolumeId};
 use serde::Deserialize;
+use std::sync::atomic::{AtomicBool, Ordering};
+use tauri::Emitter;
 
 use super::json_fix;
 use super::llm_helper as lh;
@@ -75,7 +78,19 @@ pub async fn expand_outline_arc(
     batch: Option<i64>,
     skill_cards: Option<Vec<String>>,
 ) -> Result<ExpandResult, String> {
-    lh::ensure_api_keys_loaded(&state);
+    expand_batch(&state, &arc_id, model, batch, skill_cards).await
+}
+
+/// 单批展开（内部复用）：取节点快照 → 组装上下文 → 调 LLM → 落库更新进度。
+/// 供单批命令与「全部展开」后台任务共用。
+async fn expand_batch(
+    state: &AppState,
+    arc_id: &str,
+    model: Option<String>,
+    batch: Option<i64>,
+    skill_cards: Option<Vec<String>>,
+) -> Result<ExpandResult, String> {
+    lh::ensure_api_keys_loaded(state);
 
     // 取节点快照并计算本批范围
     let (arc, from, to) = {
@@ -111,7 +126,8 @@ pub async fn expand_outline_arc(
             "类型：{}；目标总章数：{} 章；每章目标字数：{} 字",
             s.genre, s.target_chapters, s.chapter_target_words
         );
-        // 衔接：本批起点之前最近 2 章的梗概，保证剧情连续
+        // 上下文衔接：本批起点之前的章节梗概（取最近 12 章，保证剧情连续；
+        // 跨节点时前面节点的已展开章节也自然包含在内，因章节号全局连续）
         let prev_tail: String = ontology
             .chapters
             .iter()
@@ -119,7 +135,7 @@ pub async fn expand_outline_arc(
             .collect::<Vec<_>>()
             .iter()
             .rev()
-            .take(2)
+            .take(12)
             .rev()
             .map(|ch| format!("第{}章《{}》：{}", ch.chapter_no, ch.title, ch.summary))
             .collect::<Vec<_>>()
@@ -134,7 +150,7 @@ pub async fn expand_outline_arc(
         (concept_brief, settings_brief, prev_tail, volume_id)
     };
 
-    let model_id = resolve_expand_model(&state, model)?;
+    let model_id = resolve_expand_model(state, model)?;
     let count = to - from + 1;
     let mut system = "你是小说大纲规划师。你的任务是把一段剧情脉络拆解为逐章细纲，输出严格 JSON。\
         不评论、不解释，只输出 JSON 数组。"
@@ -142,7 +158,7 @@ pub async fn expand_outline_arc(
     // 工作流为细纲展开绑定的技法卡（结构/人物/张力/类型维度），注入为方法手册。
     // 显式参数优先，缺省时按「项目覆盖 → 模板绑定」解析（与造化工坊同一套规则）
     let cards_block =
-        super::book_distill::load_writing_cards(&state, &resolve_expand_cards(&state, skill_cards));
+        super::book_distill::load_writing_cards(state, &resolve_expand_cards(state, skill_cards));
     if !cards_block.is_empty() {
         system.push_str(&format!(
             "\n\n【写作技法卡】\n\
@@ -177,8 +193,8 @@ pub async fn expand_outline_arc(
     );
 
     let (provider_id, api_key, api_base) = {
-        let models = lh::load_models(&state);
-        let providers = lh::load_providers(&state);
+        let models = lh::load_models(state);
+        let providers = lh::load_providers(state);
         let m2p = lh::build_model_to_provider(&models);
         let bases = lh::build_provider_api_bases(&providers);
         let keys = state.api_keys.read().clone();
@@ -321,6 +337,243 @@ fn resolve_expand_model(state: &AppState, model: Option<String>) -> Result<Strin
             keys.contains_key(provider_id).then_some(model_id)
         })
         .ok_or_else(|| "未配置可用模型。请先在「模型设置」添加模型并配置 API Key。".to_string())
+}
+
+// ── 全部展开：后台任务控制面 ──
+
+/// 细纲展开进度事件 —— 实时推送给前端（同时入控制面缓冲供重连重放）
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct OutlineExpandEvent {
+    pub arc_id: String,
+    /// running / progress / done / error / cancelled
+    pub phase: String,
+    pub expanded: i64,
+    pub total: i64,
+    pub message: String,
+}
+
+/// 细纲展开控制面（挂 AppState）：运行旗标 + 当前节点 + 进度 + 取消旗标 + 事件缓冲，
+/// 支持页面切换后通过 `get_outline_expand_state` 重连恢复。
+pub struct OutlineExpandControl {
+    pub running: AtomicBool,
+    pub arc_id: parking_lot::Mutex<Option<String>>,
+    pub cancel: AtomicBool,
+    pub progress: parking_lot::RwLock<Option<(i64, i64)>>,
+    pub events: parking_lot::RwLock<Vec<OutlineExpandEvent>>,
+}
+
+impl OutlineExpandControl {
+    pub fn new() -> Self {
+        Self {
+            running: AtomicBool::new(false),
+            arc_id: parking_lot::Mutex::new(None),
+            cancel: AtomicBool::new(false),
+            progress: parking_lot::RwLock::new(None),
+            events: parking_lot::RwLock::new(Vec::new()),
+        }
+    }
+
+    fn record(&self, ev: &OutlineExpandEvent) {
+        let mut buf = self.events.write();
+        if buf.len() >= 200 {
+            buf.remove(0);
+        }
+        buf.push(ev.clone());
+    }
+}
+
+impl Default for OutlineExpandControl {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// 一键展开脉络节点的全部剩余细纲：后台任务按批循环（每批默认 20 章），
+/// 批间携带已展开章节作为上下文衔接，进度经 `outline-expand-phase` 事件推送；
+/// 前端切换页面后可调用 `get_outline_expand_state` 重连恢复。
+#[tauri::command]
+pub async fn expand_outline_arc_all(
+    app_handle: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    arc_id: String,
+    model: Option<String>,
+    skill_cards: Option<Vec<String>>,
+) -> Result<(), String> {
+    if state.outline_expand.running.swap(true, Ordering::SeqCst) {
+        return Err("已有细纲展开任务正在进行，请等待完成或先取消".to_string());
+    }
+
+    // 校验节点存在并计算总数
+    let (total, already) = {
+        let ontology = state.ontology.read();
+        let arc = ontology
+            .outline_arcs
+            .iter()
+            .find(|a| a.arc_id == arc_id)
+            .cloned()
+            .ok_or_else(|| "脉络节点不存在".to_string())?;
+        (
+            arc.chapter_end - arc.chapter_start + 1,
+            if arc.expanded_until <= 0 {
+                0
+            } else {
+                (arc.expanded_until - arc.chapter_start + 1).max(0)
+            },
+        )
+    };
+    if already >= total {
+        state.outline_expand.running.store(false, Ordering::SeqCst);
+        return Err("该节点已全部展开为细纲".to_string());
+    }
+
+    state
+        .outline_expand
+        .arc_id
+        .lock()
+        .replace(arc_id.clone());
+    state.outline_expand.cancel.store(false, Ordering::SeqCst);
+    *state.outline_expand.progress.write() = Some((already, total));
+    state.outline_expand.events.write().clear();
+
+    // 后台循环展开（命令立刻返回，前端通过事件与状态查询跟进）
+    let state_owned = state.inner().clone();
+    let app_owned = app_handle.clone();
+    tauri::async_runtime::spawn(async move {
+        let result = expand_all_loop(&app_owned, &state_owned, &arc_id, model, skill_cards).await;
+        state_owned.outline_expand.running.store(false, Ordering::SeqCst);
+        if let Err(e) = result {
+            let ev = OutlineExpandEvent {
+                arc_id: arc_id.clone(),
+                phase: "error".to_string(),
+                expanded: state_owned
+                    .outline_expand
+                    .progress
+                    .read()
+                    .map(|p| p.0)
+                    .unwrap_or(0),
+                total,
+                message: e,
+            };
+            emit_expand_event(&app_owned, &state_owned, &ev);
+        }
+    });
+    Ok(())
+}
+
+/// 全部展开主循环：逐批调用单批展开，直到节点完成或用户取消
+async fn expand_all_loop(
+    app_handle: &tauri::AppHandle,
+    state: &AppState,
+    arc_id: &str,
+    model: Option<String>,
+    skill_cards: Option<Vec<String>>,
+) -> Result<(), String> {
+    let total = {
+        let ontology = state.ontology.read();
+        let arc = ontology
+            .outline_arcs
+            .iter()
+            .find(|a| a.arc_id == arc_id)
+            .cloned()
+            .ok_or_else(|| "脉络节点不存在".to_string())?;
+        arc.chapter_end - arc.chapter_start + 1
+    };
+
+    let mut batches = 0u32;
+    loop {
+        if state.outline_expand.cancel.load(Ordering::SeqCst) {
+            let ev = OutlineExpandEvent {
+                arc_id: arc_id.to_string(),
+                phase: "cancelled".to_string(),
+                expanded: current_expanded(state, arc_id),
+                total,
+                message: "已取消展开，已生成部分保留".to_string(),
+            };
+            emit_expand_event(app_handle, state, &ev);
+            return Ok(());
+        }
+
+        match expand_batch(state, arc_id, model.clone(), None, skill_cards.clone()).await {
+            Ok(res) => {
+                let expanded = current_expanded(state, arc_id);
+                *state.outline_expand.progress.write() = Some((expanded, total));
+                let ev = OutlineExpandEvent {
+                    arc_id: arc_id.to_string(),
+                    phase: if res.arc_done { "done" } else { "progress" }.to_string(),
+                    expanded,
+                    total,
+                    message: if res.arc_done {
+                        "全部细纲展开完成".to_string()
+                    } else {
+                        format!("已展开 {expanded}/{total} 章（本批第 {}-{} 章）", res.from, res.to)
+                    },
+                };
+                emit_expand_event(app_handle, state, &ev);
+                if res.arc_done {
+                    return Ok(());
+                }
+            }
+            Err(e) if e.contains("已全部展开") => return Ok(()),
+            Err(e) => return Err(e),
+        }
+
+        batches += 1;
+        if batches >= 200 {
+            return Err("展开批次数超过上限已自动停止，可再次点击继续".to_string());
+        }
+    }
+}
+
+fn current_expanded(state: &AppState, arc_id: &str) -> i64 {
+    let ontology = state.ontology.read();
+    ontology
+        .outline_arcs
+        .iter()
+        .find(|a| a.arc_id == arc_id)
+        .map(|a| {
+            if a.expanded_until <= 0 {
+                0
+            } else {
+                (a.expanded_until - a.chapter_start + 1).max(0)
+            }
+        })
+        .unwrap_or(0)
+}
+
+/// 发射细纲展开事件：先入控制面缓冲（供页面重连重放），再推送前端
+fn emit_expand_event(
+    app_handle: &tauri::AppHandle,
+    state: &AppState,
+    ev: &OutlineExpandEvent,
+) {
+    state.outline_expand.record(ev);
+    let _ = app_handle.emit("outline-expand-phase", ev);
+}
+
+/// 查询细纲展开状态（页面切换后重连恢复进度）
+#[tauri::command]
+pub async fn get_outline_expand_state(
+    state: tauri::State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    let running = state.outline_expand.running.load(Ordering::SeqCst);
+    let arc_id = state.outline_expand.arc_id.lock().clone();
+    let progress = *state.outline_expand.progress.read();
+    let events = state.outline_expand.events.read().clone();
+    Ok(serde_json::json!({
+        "running": running,
+        "arc_id": arc_id,
+        "progress": progress.map(|(e, t)| serde_json::json!({ "expanded": e, "total": t })),
+        "events": events,
+    }))
+}
+
+/// 取消当前细纲展开任务（已生成部分保留，可再次点击继续）
+#[tauri::command]
+pub async fn cancel_outline_expand(
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    state.outline_expand.cancel.store(true, Ordering::SeqCst);
+    Ok(())
 }
 
 /// 从项目工作流引用解析细纲展开的技法卡：显式参数 > 项目覆盖 > 模板绑定 > 空

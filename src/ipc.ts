@@ -270,6 +270,34 @@ export async function expandOutlineArc(
   });
 }
 
+// 一键展开脉络节点的全部剩余细纲（后台任务按批自动续展，进度经事件推送）
+export async function expandOutlineArcAll(
+  arcId: string,
+  modelId: string | null,
+  skillCards?: string[] | null
+): Promise<void> {
+  await invoke("expand_outline_arc_all", {
+    arcId,
+    model: modelId,
+    skillCards: skillCards ?? null,
+  });
+}
+
+// 查询细纲展开任务状态（页面切换后重连恢复进度）
+export async function getOutlineExpandState(): Promise<{
+  running: boolean;
+  arc_id: string | null;
+  progress: { expanded: number; total: number } | null;
+  events: Array<{ arc_id: string; phase: string; expanded: number; total: number; message: string }>;
+}> {
+  return await invoke("get_outline_expand_state");
+}
+
+// 取消当前细纲展开任务（已生成部分保留）
+export async function cancelOutlineExpand(): Promise<void> {
+  await invoke("cancel_outline_expand");
+}
+
 export async function deleteChapter(chapterId: string): Promise<void> {
   await invoke("delete_chapter", { chapterId });
 }
@@ -410,6 +438,11 @@ export async function discussConcept(ideaDescription: string, settingsContext: s
 // 讨论状态查询（运行旗标 + 事件缓冲），切换页面后重连恢复进度用
 export async function getDiscussionState(): Promise<import("./types").DiscussionState> {
   return await invoke<import("./types").DiscussionState>("get_discussion_state");
+}
+
+// 清空最近一次讨论结果（重新讨论前调用，避免旧成果残留）
+export async function clearDiscussionResult(): Promise<void> {
+  await invoke("clear_discussion_result");
 }
 
 // ── 页面内容优化（世界观/人物志） ──

@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { Bot, CheckCircle2, Loader2, XCircle, MapPin, Clock, BookOpen, Users, Sparkles, ListOrdered, Scale, PenLine } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Bot, CheckCircle2, Loader2, XCircle, MapPin, Clock, BookOpen, Users, Sparkles, ListOrdered, Scale, PenLine, RotateCcw, Send } from "lucide-react";
 import type { DiscussionTurn, DiscussionSynthesis, DiscussionEvent, AgentDiscussionConfig } from "../types";
 
 interface DiscussionPanelProps {
@@ -9,6 +9,10 @@ interface DiscussionPanelProps {
   synthesis: DiscussionSynthesis | null;
   discussing: boolean;
   onConfirmGenerate: (selected: SelectedResults, authorFeedback: string) => void;
+  // 单独提交作者意见（不触发生成），供后续确认生成时一并记录
+  onSubmitFeedback: (feedback: string) => void;
+  // 清空当前讨论结果，重新发起讨论
+  onRestartDiscussion: () => void;
   generated: boolean;
 }
 
@@ -68,7 +72,7 @@ function TurnCard({ agent, turn, live }: {
   );
 }
 
-export function DiscussionPanel({ agents, turns, liveEvents, synthesis, discussing, onConfirmGenerate, generated }: DiscussionPanelProps) {
+export function DiscussionPanel({ agents, turns, liveEvents, synthesis, discussing, onConfirmGenerate, onSubmitFeedback, onRestartDiscussion, generated }: DiscussionPanelProps) {
   const enabledAgents = agents.filter(a => a.enabled);
   const rounds = [1, 2];
 
@@ -77,6 +81,17 @@ export function DiscussionPanel({ agents, turns, liveEvents, synthesis, discussi
   // 作者确认：是否同意讨论结果 / 补充意见（两者至少其一）
   const [agreed, setAgreed] = useState(false);
   const [feedback, setFeedback] = useState("");
+  const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
+
+  // 重新讨论/结果被清空时，重置勾选与意见状态
+  useEffect(() => {
+    if (!synthesis) {
+      setChecked({});
+      setAgreed(false);
+      setFeedback("");
+      setFeedbackSubmitted(false);
+    }
+  }, [synthesis]);
 
   const groups = useMemo(() => {
     if (!synthesis) return [];
@@ -105,6 +120,14 @@ export function DiscussionPanel({ agents, turns, liveEvents, synthesis, discussi
       characters: pick("characters", synthesis.characters),
       outline_beats: pick("outline_beats", synthesis.outline_beats ?? []),
     }, agreed ? (feedback.trim() || "同意讨论结果") : feedback.trim());
+  };
+
+  // 提交意见：保存到萌芽数据（不生成），提示后仍可继续确认生成
+  const handleSubmitFeedback = () => {
+    const text = feedback.trim();
+    if (!text) return;
+    onSubmitFeedback(text);
+    setFeedbackSubmitted(true);
   };
 
   const hasAnyTurn = turns.length > 0 || Object.keys(liveEvents).length > 0;
@@ -184,6 +207,11 @@ export function DiscussionPanel({ agents, turns, liveEvents, synthesis, discussi
             <span style={{ marginLeft: "auto", fontSize: "var(--text-2xs)", color: "var(--color-ink-3)" }}>
               勾选要采纳的条目，确认后写入世界观、人物志与大纲
             </span>
+            <button className="btn btn-secondary" style={{ padding: "4px 10px", fontSize: "var(--text-xs)" }}
+              onClick={onRestartDiscussion} disabled={discussing}
+              title="清空本次讨论结果，重新发起讨论">
+              <RotateCcw size={12} style={{ marginRight: 4, verticalAlign: -1 }} /> 重新讨论
+            </button>
           </div>
 
           {synthesis.summary && (
@@ -288,6 +316,23 @@ export function DiscussionPanel({ agents, turns, liveEvents, synthesis, discussi
                     onChange={e => setFeedback(e.target.value)}
                     style={{ minHeight: 56, fontSize: "var(--text-xs)", lineHeight: 1.7 }}
                   />
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6 }}>
+                    <button
+                      className="btn btn-secondary"
+                      style={{ padding: "4px 12px", fontSize: "var(--text-xs)" }}
+                      onClick={handleSubmitFeedback}
+                      disabled={!feedback.trim() || feedbackSubmitted}
+                      title="先保存补充意见；后续点「确认生成」时意见会随成果一并写入"
+                    >
+                      <Send size={11} style={{ marginRight: 4, verticalAlign: -1 }} />
+                      {feedbackSubmitted ? "意见已提交" : "提交意见"}
+                    </button>
+                    {feedbackSubmitted && (
+                      <span style={{ fontSize: "var(--text-2xs)", color: "var(--color-jade)" }}>
+                        意见已保存，可继续勾选条目后确认生成
+                      </span>
+                    )}
+                  </div>
                   {!canConfirm && (
                     <div style={{ fontSize: "var(--text-2xs)", color: "var(--color-ink-3)", marginTop: 4 }}>
                       至少勾选「我同意」或填写补充意见后才能生成

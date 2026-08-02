@@ -249,7 +249,7 @@ async fn extract_dimension(
             system,
             &next_prompt,
             0.3,
-            8192,
+            16_384,
             ctx.model_to_provider,
             ctx.provider_api_bases,
             ctx.api_keys,
@@ -473,84 +473,106 @@ async fn adjudicate(
         &format!("共 {} 项分歧待裁决", open.len()),
     );
 
-    let open_json = serde_json::to_string_pretty(&open).unwrap_or_default();
     let system = "你是创作设定的独立裁判。你负责对讨论中未收敛的分歧做出最终裁决，\
         输出严格 JSON。不评论、不解释，只输出 JSON。";
-    let user_prompt = format!(
-        "【故事构思】\n{}\n\n\
-         【创作设定】\n{}\n\n\
-         【全部讨论记录（供核对依据）】\n{all_turns}\n\n\
-         【待裁决分歧】\n{open_json}\n\n\
-         对每条分歧给出裁决，输出：\n\
-         {{\"verdicts\": [{{\"topic\": \"议题（必须与输入完全一致）\", \
-         \"verdict\": \"采纳哪一方或折中方案（一句话）\", \
-         \"rationale\": \"裁决理由（引用讨论中的具体依据）\", \
-         \"final_text\": \"可直接采用的最终设定文字（100-200字，供作者直接使用）\"}}]}}\n\
-         要求：\n\
-         1. 裁决必须有利于故事的整体一致性，不能只偏向一方\n\
-         2. final_text 要写成可直接落地的设定文字，不要「建议」「可以」式措辞\n\
-         3. 全部内容用中文\n\
-         用 ===VERDICT_BEGIN=== 与 ===VERDICT_END=== 包裹纯 JSON。",
-        ctx.idea_description, ctx.settings_context,
-    );
-
-    let mut next_prompt = user_prompt.clone();
-    let mut last_err = String::new();
-    for attempt in 1..=2u8 {
-        let text = match call_with_system(
-            &adjudicator.model,
-            system,
-            &next_prompt,
-            0.2,
-            4096,
-            ctx.model_to_provider,
-            ctx.provider_api_bases,
-            ctx.api_keys,
-        )
-        .await
-        {
-            Ok(t) => t,
-            Err(msg) => {
-                last_err = msg;
-                continue;
-            }
-        };
-        let json_str = extract_block(&text, "===VERDICT_BEGIN===", "===VERDICT_END===");
-        let parsed = serde_json::from_str::<AdjudicationResult>(json_str).or_else(|strict_err| {
-            json_fix::repair_to_value(json_str)
-                .ok()
-                .and_then(|v| serde_json::from_value::<AdjudicationResult>(v).ok())
-                .ok_or(strict_err)
+    // 逐条裁决：每条分歧独立调用（单条输出短，不会因预算截断而整批失败），
+    // 全部讨论记录每次都带上，供裁判核对各方依据。
+    let mut verdicts: Vec<(String, Verdict)> = Vec::new();
+    for (i, d) in open.iter().enumerate() {
+        emit_discussion(
+            ctx.app_handle,
+            ctx.state,
+            "adjudicator",
+            "分歧裁决",
+            3,
+            "running",
+            &format!("裁决中（{}/{}）：{}", i + 1, open.len(), d.topic),
+        );
+        let one = serde_json::json!({
+            "topic": d.topic,
+            "dimension": d.dimension,
+            "sides": d.sides,
         });
-        match parsed {
-            Ok(r) => {
-                emit_discussion(
-                    ctx.app_handle,
-                    ctx.state,
-                    "adjudicator",
-                    "分歧裁决",
-                    3,
-                    "done",
-                    &format!("完成 {} 项裁决", r.verdicts.len()),
-                );
-                return r
-                    .verdicts
-                    .into_iter()
-                    .map(|v| (v.topic.clone(), v))
-                    .collect();
-            }
-            Err(e) => {
-                last_err = e.to_string();
-                if attempt < 2 {
-                    let head: String = text.chars().take(200).collect();
-                    next_prompt = format!(
-                        "{user_prompt}\n\n\
-                         ⚠️ 你上一次的输出无法解析为 JSON（错误：{last_err}），开头内容是：\n\
-                         「{head}…」\n这一次请只输出纯 JSON，不要任何额外文字。",
-                    );
+        let user_prompt = format!(
+            "【故事构思】\n{}\n\n\
+             【创作设定】\n{}\n\n\
+             【全部讨论记录（供核对依据）】\n{all_turns}\n\n\
+             【待裁决分歧（仅此一条）】\n{}\n\n\
+             对这条分歧给出裁决，输出：\n\
+             {{\"verdicts\": [{{\"topic\": \"议题（必须与输入完全一致）\", \
+             \"verdict\": \"采纳哪一方或折中方案（一句话）\", \
+             \"rationale\": \"裁决理由（引用讨论中的具体依据）\", \
+             \"final_text\": \"可直接采用的最终设定文字（100-200字，供作者直接使用）\"}}]}}\n\
+             要求：\n\
+             1. 裁决必须有利于故事的整体一致性，不能只偏向一方\n\
+             2. final_text 要写成可直接落地的设定文字，不要「建议」「可以」式措辞\n\
+             3. 只输出这一条分歧的裁决，不要输出其他内容\n\
+             4. 全部内容用中文\n\
+             用 ===VERDICT_BEGIN=== 与 ===VERDICT_END=== 包裹纯 JSON。",
+            ctx.idea_description, ctx.settings_context, one
+        );
+
+        let mut next_prompt = user_prompt.clone();
+        let mut last_err = String::new();
+        for attempt in 1..=2u8 {
+            let text = match call_with_system(
+                &adjudicator.model,
+                system,
+                &next_prompt,
+                0.2,
+                8192,
+                ctx.model_to_provider,
+                ctx.provider_api_bases,
+                ctx.api_keys,
+            )
+            .await
+            {
+                Ok(t) => t,
+                Err(msg) => {
+                    last_err = msg;
+                    continue;
+                }
+            };
+            let json_str = extract_block(&text, "===VERDICT_BEGIN===", "===VERDICT_END===");
+            let parsed = serde_json::from_str::<AdjudicationResult>(json_str).or_else(|strict_err| {
+                json_fix::repair_to_value(json_str)
+                    .ok()
+                    .and_then(|v| serde_json::from_value::<AdjudicationResult>(v).ok())
+                    .ok_or(strict_err)
+            });
+            match parsed {
+                Ok(r) => {
+                    if let Some(v) = r.verdicts.into_iter().next() {
+                        verdicts.push((v.topic.clone(), v));
+                    }
+                    break;
+                }
+                Err(e) => {
+                    last_err = e.to_string();
+                    if attempt < 2 {
+                        let head: String = text.chars().take(200).collect();
+                        next_prompt = format!(
+                            "{user_prompt}\n\n\
+                             ⚠️ 你上一次的输出无法解析为 JSON（错误：{last_err}），开头内容是：\n\
+                             「{head}…」\n这一次请只输出纯 JSON，不要任何额外文字。",
+                        );
+                    }
                 }
             }
         }
+        if last_err.is_empty() {
+            continue;
+        }
+        // 单条裁决失败：记录错误事件但继续裁决其余分歧，避免一条失败拖垮整批
+        emit_discussion(
+            ctx.app_handle,
+            ctx.state,
+            "adjudicator",
+            "分歧裁决",
+            3,
+            "error",
+            &format!("第 {}/{} 条裁决失败: {last_err}", i + 1, open.len()),
+        );
     }
     emit_discussion(
         ctx.app_handle,
@@ -558,10 +580,10 @@ async fn adjudicate(
         "adjudicator",
         "分歧裁决",
         3,
-        "error",
-        &format!("裁决失败: {last_err}"),
+        "done",
+        &format!("完成 {} 项裁决", verdicts.len()),
     );
-    Vec::new()
+    verdicts
 }
 
 /// 合并各维度结果与分歧，组装最终成果

@@ -153,6 +153,16 @@ pub async fn get_discussion_state(
     }))
 }
 
+/// 清空最近一次讨论结果（重新讨论前调用，避免旧成果残留）
+#[tauri::command]
+pub async fn clear_discussion_result(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    {
+        let mut onto = state.ontology.write();
+        onto.sprout.last_discussion = None;
+    }
+    state.save().map_err(|e| e.to_string())
+}
+
 /// 讨论主流程（两轮交锋 + 成果提炼）
 async fn discuss_inner(
     app_handle: &tauri::AppHandle,

@@ -97,6 +97,9 @@ pub struct AppState {
     pub pipeline: Arc<crate::pipeline::PipelineControl>,
     /// 概念讨论控制面（运行旗标 + 事件缓冲，支持页面切换后重连）
     pub discussion: Arc<crate::commands::discussion::DiscussionControl>,
+    /// 细纲展开控制面（后台全部展开任务：运行旗标 + 进度 + 取消 + 事件缓冲，
+    /// 支持页面切换后重连与一键展开全部章节）
+    pub outline_expand: Arc<crate::commands::outline::OutlineExpandControl>,
     /// 蒸馏控制面（书籍/方法论/专家蒸馏共用，支持页面切换后重连）
     pub distills: Arc<crate::commands::expert_distill::DistillControl>,
     /// 反 AI 味规则配置（全局，墨韵页可编辑，注入工作流）
@@ -129,6 +132,7 @@ impl AppState {
             consistency_checker: Arc::new(RwLock::new(IncrementalChecker::new())),
             pipeline: Arc::new(crate::pipeline::PipelineControl::new()),
             discussion: Arc::new(crate::commands::discussion::DiscussionControl::new()),
+            outline_expand: Arc::new(crate::commands::outline::OutlineExpandControl::new()),
             distills: Arc::new(crate::commands::expert_distill::DistillControl::new()),
             anti_ai: Arc::new(RwLock::new(anti_ai_cfg)),
             style_fp: Arc::new(RwLock::new(None)),
@@ -170,6 +174,7 @@ impl AppState {
             consistency_checker: Arc::new(RwLock::new(IncrementalChecker::new())),
             pipeline: Arc::new(crate::pipeline::PipelineControl::new()),
             discussion: Arc::new(crate::commands::discussion::DiscussionControl::new()),
+            outline_expand: Arc::new(crate::commands::outline::OutlineExpandControl::new()),
             distills: Arc::new(crate::commands::expert_distill::DistillControl::new()),
             style_fp: Arc::new(RwLock::new(None)),
         };
