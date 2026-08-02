@@ -232,6 +232,7 @@ pub fn build_writing_prompt(
     beat_plan: &str,
     cards: &str,
     anti_ai: &str,
+    style_block: &str,
 ) -> StagePrompt {
     let target_words = if onto.settings.chapter_target_words > 0 {
         onto.settings.chapter_target_words
@@ -246,6 +247,9 @@ pub fn build_writing_prompt(
         标记之外不得出现任何内容——不输出英文规划、不输出场景说明、不输出思考过程、不输出节拍表复述。"
         .to_string();
     system.push_str(&format!("\n\n{anti_ai}"));
+    if !style_block.trim().is_empty() {
+        system.push_str(&format!("\n\n{style_block}"));
+    }
     // 开篇黄金三章：前 3 章用「立刻出事 → 给期待 → 给爽点」节奏
     if chapter.chapter_no <= 3 {
         system.push_str(
@@ -323,6 +327,7 @@ pub fn build_writing_prompt(
 /// `cards` 为审查环节绑定的技法卡（通常是文风卡），审查时对照其边界检查文风偏离。
 /// `golden` 为真时启用「黄金三章」硬门控：SIGNAL 必须额外输出 hook/payoff 两个
 /// 0-10 子分数，引擎按 `score >= 阈值 && hook >= 8 && payoff >= 8` 判定。
+#[allow(clippy::too_many_arguments)] // prompt 组装函数参数多属正常，保持显式便于调用点对齐
 pub fn build_review_prompt(
     onto: &NovelOntology,
     chapter: &Chapter,
@@ -331,11 +336,12 @@ pub fn build_review_prompt(
     cards: &str,
     golden: bool,
     anti_ai: &str,
+    style_block: &str,
 ) -> StagePrompt {
     let signal_schema = if golden {
-        "{\"score\": 0到100的整数, \"hook\": 0到10的整数, \"payoff\": 0到10的整数, \"issues\": [\"问题1\", \"问题2\"]}"
+        "{\"score\": 0到100的整数, \"hook\": 0到10的整数, \"payoff\": 0到10的整数, \"issues\": [\"问题1\", \"问题2\"], \"diagnosis\": [{\"family\": \"问题族\", \"trigger\": \"触发点（命中的词/句子）\", \"action\": \"建议动作\", \"rewrite\": true}]}"
     } else {
-        "{\"score\": 0到100的整数, \"issues\": [\"问题1\", \"问题2\"]}"
+        "{\"score\": 0到100的整数, \"issues\": [\"问题1\", \"问题2\"], \"diagnosis\": [{\"family\": \"问题族\", \"trigger\": \"触发点（命中的词/句子）\", \"action\": \"建议动作\", \"rewrite\": true}]}"
     };
     let mut system = format!(
         "你是一位极其严谨的网文编辑，负责章节质量审查。按七维加权打分：\n\
@@ -363,6 +369,15 @@ pub fn build_review_prompt(
         ===REPORT_END===\n\
         评分参考：90+ 优秀可直接通过；80-89 基本合格；低于 80 存在必须修正的问题。"
     );
+    system.push_str(
+        "\n\n【诊断报告要求】\n\
+        issues 只写问题本身（一句一个）；diagnosis 给每条实质性问题附四字段诊断：\n\
+        - family：问题族（如 人物一致性 / 设定矛盾 / 断章钩子 / 结构骨架 / 翻译腔 / 文笔套话 / 节奏问题）；\n\
+        - trigger：触发点，必须引用原文具体词、句式或局部句子（不超过 40 字），不得泛泛而谈；\n\
+        - action：建议动作（删掉 / 换成具体表达 / 补充前文信息 / 调整结构 / 保持不动等），必须可执行；\n\
+        - rewrite：是否建议改写（布尔）。\n\
+        没有实质问题可留空数组；每章诊断最多 8 条，按严重度排序。",
+    );
     if golden {
         system.push_str(
             "\n\n【黄金三章硬门控（前 3 章强制）】\n\
@@ -383,7 +398,12 @@ pub fn build_review_prompt(
         ));
     }
     if !anti_ai.trim().is_empty() {
-        system.push_str(&format!("\n\n【语言铁律（反 AI 味，项目配置）】\n{anti_ai}"));
+        system.push_str(&format!(
+            "\n\n【语言铁律（反 AI 味，项目配置）】\n{anti_ai}"
+        ));
+    }
+    if !style_block.trim().is_empty() {
+        system.push_str(&format!("\n\n{style_block}"));
     }
 
     let mut user = String::new();
@@ -493,6 +513,7 @@ mod tests {
             "",
             "",
             crate::anti_ai::DEFAULT_PROMPT,
+            "",
         );
         assert!(prompt.user.contains("测试高概念"));
         assert!(prompt.user.contains("本章梗概内容"));
@@ -510,6 +531,7 @@ mod tests {
             "",
             "",
             crate::anti_ai::DEFAULT_PROMPT,
+            "",
         );
         assert!(retry.user.contains("时间线矛盾"));
         // 携带节拍表
@@ -522,6 +544,7 @@ mod tests {
             "{\"章节目标\": \"脱困\"}",
             "",
             crate::anti_ai::DEFAULT_PROMPT,
+            "",
         );
         assert!(planned.user.contains("【本章节拍表】"));
         // 前 3 章注入黄金三章规则
@@ -551,6 +574,7 @@ mod tests {
             "",
             "── 技能卡「x/style」──\n卡内容",
             crate::anti_ai::DEFAULT_PROMPT,
+            "",
         );
         assert!(prompt.system.contains("写作技法卡"));
         assert!(prompt.system.contains("卡内容"));
@@ -591,6 +615,7 @@ mod tests {
             "",
             false,
             crate::anti_ai::DEFAULT_PROMPT,
+            "",
         );
         assert!(prompt.system.contains("SIGNAL_BEGIN"));
         assert!(prompt.system.contains("REPORT_BEGIN"));
@@ -604,11 +629,29 @@ mod tests {
     fn test_review_prompt_golden_gate() {
         let onto = NovelOntology::new(ProjectId::new("p"), String::new());
         let chapter = make_chapter(1, "梗概", "正文内容");
-        let golden = build_review_prompt(&onto, &chapter, "", "", "", true, crate::anti_ai::DEFAULT_PROMPT);
+        let golden = build_review_prompt(
+            &onto,
+            &chapter,
+            "",
+            "",
+            "",
+            true,
+            crate::anti_ai::DEFAULT_PROMPT,
+            "",
+        );
         assert!(golden.system.contains("黄金三章硬门控"));
         assert!(golden.system.contains("\"hook\""));
         assert!(golden.system.contains("\"payoff\""));
-        let normal = build_review_prompt(&onto, &chapter, "", "", "", false, crate::anti_ai::DEFAULT_PROMPT);
+        let normal = build_review_prompt(
+            &onto,
+            &chapter,
+            "",
+            "",
+            "",
+            false,
+            crate::anti_ai::DEFAULT_PROMPT,
+            "",
+        );
         assert!(!normal.system.contains("黄金三章硬门控"));
         assert!(!normal.system.contains("\"hook\""));
     }

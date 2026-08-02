@@ -111,6 +111,14 @@ export interface StyleMetrics {
   dialogue_ratio: number;
   pace_score: number;
   ai_pattern_score: number;
+  sentence_var: number;
+  avg_paragraph_length: number;
+  paragraph_uniformity: number;
+  connector_per_1k: number;
+  dash_per_1k: number;
+  colon_per_1k: number;
+  quote_style: string;
+  sampled_chapters: number;
 }
 
 // 章节修改后的影响分析（analyze_chapter_impact 命令返回）
@@ -498,6 +506,7 @@ export interface PipelineEvent {
     | 'stage_start'
     | 'llm_output'
     | 'review_report'
+    | 'review_diagnosis'
     | 'gate'
     | 'effect'
     | 'chapter_done'
@@ -525,4 +534,20 @@ export interface PipelineState {
 export interface DiscussionState {
   running: boolean;
   events?: DiscussionEvent[];
+}
+
+// 文风指纹（本书已有章节的确定性统计基线，注入写作/审查 prompt）
+export interface StyleFingerprint {
+  sampled_chapters: number;
+  sampled_chars: number;
+  avg_sentence_length: number;
+  sentence_var: number;
+  avg_paragraph_length: number;
+  paragraph_uniformity: number;
+  connector_per_1k: number;
+  dash_per_1k: number;
+  colon_per_1k: number;
+  quote_style: string;
+  dialogue_ratio: number;
+  vocabulary_richness: number;
 }

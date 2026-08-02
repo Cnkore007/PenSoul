@@ -353,8 +353,12 @@ export async function getWarmMemory(): Promise<any> {
 
 // ── 文风 ──
 
-export async function getStyleMetrics(): Promise<any> {
-  return await invoke<any>("get_style_metrics");
+export async function getStyleMetrics(): Promise<import("./types").StyleMetrics> {
+  return await invoke<import("./types").StyleMetrics>("get_style_metrics");
+}
+
+export async function getStyleFingerprint(): Promise<import("./types").StyleFingerprint> {
+  return await invoke<import("./types").StyleFingerprint>("get_style_fingerprint");
 }
 
 // ── LLM 管理 ──

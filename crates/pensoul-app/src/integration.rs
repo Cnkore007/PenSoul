@@ -84,6 +84,9 @@ pub fn on_chapter_saved(state: &AppState, chapter_id: &ChapterId) {
         let _ = memory.update(num, &content);
     }
 
+    // 文风指纹缓存失效（下次组装 prompt / 查询时重算）
+    *state.style_fp.write() = None;
+
     // 并发版本：同步最新版本号
     {
         let concurrency = state.concurrency.read();

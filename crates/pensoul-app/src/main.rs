@@ -142,6 +142,7 @@ fn main() {
             pensoul_app::commands::ai_flavor::analyze_ai_flavor,
             pensoul_app::commands::ai_flavor::get_anti_ai_rules,
             pensoul_app::commands::ai_flavor::save_anti_ai_rules,
+            pensoul_app::style_fingerprint::get_style_fingerprint,
             pensoul_app::commands::workflow_templates::list_workflow_templates,
             pensoul_app::commands::workflow_templates::save_workflow_templates,
             pensoul_app::commands::workflow_templates::reset_workflow_templates,

@@ -518,6 +518,45 @@ function EventRow({ ev }: { ev: PipelineEvent }) {
       );
     }
 
+    case "review_diagnosis": {
+      let items: Array<{ family?: string; trigger?: string; action?: string; rewrite?: boolean }> = [];
+      try {
+        const parsed = JSON.parse(ev.content);
+        if (Array.isArray(parsed)) items = parsed;
+      } catch {
+        // 非 JSON 时按文本展示
+      }
+      return (
+        <div style={{ padding: "3px 0 3px 4px" }}>
+          {stageBadge}
+          <div
+            style={{
+              marginTop: 4,
+              padding: "8px 10px",
+              borderRadius: 6,
+              border: "1px solid rgba(124,108,240,0.4)",
+              fontSize: 12,
+              lineHeight: 1.7,
+            }}
+          >
+            <ShieldCheck size={12} style={{ verticalAlign: -2, marginRight: 4 }} />
+            {items.length === 0 ? (
+              ev.content
+            ) : (
+              <ul style={{ margin: 0, paddingLeft: 16 }}>
+                {items.map((d, i) => (
+                  <li key={i} style={{ marginBottom: 2 }}>
+                    <b>{d.family ?? "问题"}</b>：{d.trigger}
+                    {d.action && <span style={{ opacity: 0.75 }}> → {d.action}</span>}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      );
+    }
+
     case "gate":
       return (
         <div style={{ padding: "2px 0 2px 4px", fontSize: 12, opacity: 0.75 }}>

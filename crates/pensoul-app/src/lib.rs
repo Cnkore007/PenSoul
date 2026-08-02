@@ -1,6 +1,6 @@
 pub mod anti_ai;
-pub mod commands;
 pub mod chapter_review;
+pub mod commands;
 pub mod edits;
 /// PenSoul App — Tauri 桌面应用后端
 ///
@@ -12,6 +12,8 @@ pub mod page_review;
 /// 章节连写管线编排器（写作 → 审查 → 回灌闭环）
 pub mod pipeline;
 pub mod state;
+/// 文风指纹：本书文风基线的确定性统计与 prompt 注入
+pub mod style_fingerprint;
 
 // 重新导出公共类型
 pub use state::AppState;

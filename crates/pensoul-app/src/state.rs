@@ -101,6 +101,8 @@ pub struct AppState {
     pub distills: Arc<crate::commands::expert_distill::DistillControl>,
     /// 反 AI 味规则配置（全局，墨韵页可编辑，注入工作流）
     pub anti_ai: Arc<RwLock<AntiAiRuleConfig>>,
+    /// 文风指纹缓存（章节变更后置 None 触发重算）
+    pub style_fp: Arc<RwLock<Option<crate::style_fingerprint::StyleFingerprint>>>,
 }
 
 impl AppState {
@@ -129,6 +131,7 @@ impl AppState {
             discussion: Arc::new(crate::commands::discussion::DiscussionControl::new()),
             distills: Arc::new(crate::commands::expert_distill::DistillControl::new()),
             anti_ai: Arc::new(RwLock::new(anti_ai_cfg)),
+            style_fp: Arc::new(RwLock::new(None)),
         }
     }
 
@@ -168,6 +171,7 @@ impl AppState {
             pipeline: Arc::new(crate::pipeline::PipelineControl::new()),
             discussion: Arc::new(crate::commands::discussion::DiscussionControl::new()),
             distills: Arc::new(crate::commands::expert_distill::DistillControl::new()),
+            style_fp: Arc::new(RwLock::new(None)),
         };
         crate::integration::rebuild_derived_state(&state);
         // 回填/迁移过的数据立即落盘，避免下次启动重复处理

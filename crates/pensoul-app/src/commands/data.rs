@@ -28,7 +28,9 @@ pub async fn save_world(
         let old_json = serde_json::to_value(&ontology.world).unwrap_or_default();
         let new_json = serde_json::to_value(&layer).unwrap_or_default();
         if old_json != new_json && !ontology.page_edit_before.contains_key("world") {
-            ontology.page_edit_before.insert("world".to_string(), old_json);
+            ontology
+                .page_edit_before
+                .insert("world".to_string(), old_json);
         }
         // 前端保存不带批注字段，覆盖时合并旧实体批注（防批注丢失）
         crate::page_review::merge_world_annotations(&ontology.world, &mut layer);
@@ -86,9 +88,9 @@ pub async fn save_characters(
 pub async fn get_style_metrics(
     state: tauri::State<'_, AppState>,
 ) -> Result<serde_json::Value, String> {
+    let fp = crate::style_fingerprint::cached_or_compute(&state);
     let ontology = state.ontology.read();
     let aesthetic = &ontology.aesthetic;
-    let fp = &aesthetic.style_fingerprint;
     let pm = &aesthetic.pacing_model;
 
     // 从反 AI 规则数计算 ai_pattern_score（规则数 / 最大可能值）
@@ -96,11 +98,19 @@ pub async fn get_style_metrics(
     let ai_pattern_score = (rule_count / 10.0).min(1.0);
 
     let metrics = serde_json::json!({
-        "avg_sentence_length": fp.sentence_length_avg,
+        "avg_sentence_length": fp.avg_sentence_length,
         "vocabulary_richness": fp.vocabulary_richness,
         "dialogue_ratio": fp.dialogue_ratio,
         "pace_score": pm.action_ratio,
         "ai_pattern_score": ai_pattern_score,
+        "sentence_var": fp.sentence_var,
+        "avg_paragraph_length": fp.avg_paragraph_length,
+        "paragraph_uniformity": fp.paragraph_uniformity,
+        "connector_per_1k": fp.connector_per_1k,
+        "dash_per_1k": fp.dash_per_1k,
+        "colon_per_1k": fp.colon_per_1k,
+        "quote_style": fp.quote_style,
+        "sampled_chapters": fp.sampled_chapters,
     });
     Ok(metrics)
 }

@@ -77,6 +77,9 @@ pub(super) async fn execute_stage(
                 .unwrap_or("")
                 .to_string();
             let anti_ai = state.anti_ai.read().prompt.clone();
+            let style_block = crate::style_fingerprint::fingerprint_block(
+                &crate::style_fingerprint::cached_or_compute(state),
+            );
             let prompt = context::build_writing_prompt(
                 &onto,
                 &memo_ctx,
@@ -86,6 +89,7 @@ pub(super) async fn execute_stage(
                 &beat_plan,
                 &ctx.writing_cards,
                 &anti_ai,
+                &style_block,
             );
             let raw = call_interruptible(state, ctx, &ctx.writing_model, &prompt, 0.85).await?;
             let content = stages::parse_writing_output(&raw);
@@ -146,6 +150,9 @@ pub(super) async fn execute_stage(
             // 黄金三章硬门控：模板声明 + 前 3 章生效
             let golden = ctx.golden_review && chapter.chapter_no <= 3;
             let anti_ai = state.anti_ai.read().prompt.clone();
+            let style_block = crate::style_fingerprint::fingerprint_block(
+                &crate::style_fingerprint::cached_or_compute(state),
+            );
             let prompt = context::build_review_prompt(
                 &onto,
                 &chapter,
@@ -154,6 +161,7 @@ pub(super) async fn execute_stage(
                 &ctx.review_cards,
                 golden,
                 &anti_ai,
+                &style_block,
             );
             let raw = call_interruptible(state, ctx, &ctx.review_model, &prompt, 0.3).await?;
             let (signal, report) = stages::parse_review_output(&raw)?;
@@ -172,7 +180,32 @@ pub(super) async fn execute_stage(
                     attempt: 0,
                 },
             );
-            let issues = signal.issues.clone();
+            // 诊断报告（四字段）单独推送，供前端结构化展示
+            if !signal.diagnosis.is_empty() {
+                let diag_json = serde_json::to_string(&signal.diagnosis).unwrap_or_default();
+                emit(
+                    app,
+                    state,
+                    PipelineEvent {
+                        seq: 0,
+                        chapter_id: chapter.chapter_id.to_string(),
+                        chapter_title: chapter.title.clone(),
+                        stage: stage.to_string(),
+                        kind: "review_diagnosis".to_string(),
+                        status: "info".to_string(),
+                        content: diag_json,
+                        score: None,
+                        attempt: 0,
+                    },
+                );
+            }
+            let mut issues = signal.issues.clone();
+            // 把结构化诊断并入 issues，写手阶段按「问题族+触发点+动作」修正
+            for d in &signal.diagnosis {
+                if d.rewrite {
+                    issues.push(format!("【{}】{}。建议：{}", d.family, d.trigger, d.action));
+                }
+            }
             let mut sig = serde_json::json!({"score": signal.score, "issues": signal.issues});
             if let Some(h) = signal.hook_score {
                 sig["hook"] = serde_json::json!(h);

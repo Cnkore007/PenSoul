@@ -154,10 +154,26 @@ pub const CHAPTER_END: &str = "===CHAPTER_END===";
 pub struct ReviewSignal {
     pub score: f64,
     pub issues: Vec<String>,
+    /// 诊断报告（四字段：问题族/触发点/建议动作/是否建议改写），
+    /// 供前端展示与写手阶段按诊断修正
+    pub diagnosis: Vec<DiagnosisItem>,
     /// 黄金三章门控子分数：开场钩子（0-10，仅前 3 章审查输出）
     pub hook_score: Option<f64>,
     /// 黄金三章门控子分数：爽点/情绪释放（0-10，仅前 3 章审查输出）
     pub payoff_score: Option<f64>,
+}
+
+/// 审查诊断条目 —— 对应「去 AI 味」评审的 annotation mode 四字段
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct DiagnosisItem {
+    /// 问题族：如 结构骨架 / 翻译腔 / 人物一致性 / 断章钩子
+    pub family: String,
+    /// 触发点：命中的词、结构或局部句子
+    pub trigger: String,
+    /// 建议动作：删掉 / 换成具体表达 / 补充信息 / 保持不动
+    pub action: String,
+    /// 是否建议改写
+    pub rewrite: bool,
 }
 
 /// 截取两个标记之间的文本
@@ -292,6 +308,51 @@ pub fn parse_review_output(text: &str) -> Result<(ReviewSignal, String), String>
                 .collect()
         })
         .unwrap_or_default();
+    let diagnosis = json
+        .get("diagnosis")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|item| {
+                    if let Some(s) = item.as_str() {
+                        // 字符串形态兜底：只给问题族
+                        Some(DiagnosisItem {
+                            family: s.to_string(),
+                            trigger: String::new(),
+                            action: String::new(),
+                            rewrite: true,
+                        })
+                    } else {
+                        let family = item
+                            .get("family")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or_default()
+                            .to_string();
+                        if family.is_empty() {
+                            return None;
+                        }
+                        Some(DiagnosisItem {
+                            family,
+                            trigger: item
+                                .get("trigger")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or_default()
+                                .to_string(),
+                            action: item
+                                .get("action")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or_default()
+                                .to_string(),
+                            rewrite: item
+                                .get("rewrite")
+                                .and_then(|v| v.as_bool())
+                                .unwrap_or(true),
+                        })
+                    }
+                })
+                .collect()
+        })
+        .unwrap_or_default();
     let hook_score = json.get("hook").and_then(|v| v.as_f64());
     let payoff_score = json.get("payoff").and_then(|v| v.as_f64());
 
@@ -302,6 +363,7 @@ pub fn parse_review_output(text: &str) -> Result<(ReviewSignal, String), String>
         ReviewSignal {
             score,
             issues,
+            diagnosis,
             hook_score,
             payoff_score,
         },
@@ -456,6 +518,25 @@ mod tests {
         let (signal, _) = parse_review_output(text).unwrap();
         assert_eq!(signal.score, 60.0);
         assert_eq!(signal.issues, vec!["节奏拖沓"]);
+        assert!(signal.diagnosis.is_empty()); // 旧格式向后兼容
+    }
+
+    #[test]
+    fn test_parse_review_diagnosis() {
+        let text = r#"===SIGNAL_BEGIN===
+{"score": 72, "issues": ["断章钩子不足"], "diagnosis": [
+  {"family": "断章钩子", "trigger": "结尾写成「他转身离开」", "action": "改成停在疑问或危机上", "rewrite": true},
+  {"family": "翻译腔", "trigger": "基于此，使得故事得以推进", "action": "拆成主动短句", "rewrite": true}
+]}
+===SIGNAL_END===
+===REPORT_BEGIN===
+报告
+===REPORT_END==="#;
+        let (signal, _) = parse_review_output(text).unwrap();
+        assert_eq!(signal.diagnosis.len(), 2);
+        assert_eq!(signal.diagnosis[0].family, "断章钩子");
+        assert_eq!(signal.diagnosis[1].trigger, "基于此，使得故事得以推进");
+        assert!(signal.diagnosis[0].rewrite);
     }
 
     #[test]
