@@ -12,10 +12,8 @@ use crate::commands::book_distill::load_writing_cards;
 use crate::commands::json_fix;
 use crate::commands::llm_helper as lh;
 use crate::llm_profile::LlmTask;
-use crate::pipeline::runner::{
-    resolve_project_workflow, resolve_stage_cards, resolve_stage_model,
-};
-use crate::pipeline::stages::{parse_writing_output, STAGE_WRITING};
+use crate::pipeline::runner::{resolve_project_workflow, resolve_stage_cards, resolve_stage_model};
+use crate::pipeline::stages::{STAGE_WRITING, parse_writing_output};
 use crate::state::AppState;
 use pensoul_core::{Chapter, ChapterAnnotation, ChapterId, ChapterRevision, WritingLesson};
 use serde::Deserialize;
@@ -107,7 +105,9 @@ pub async fn rewrite_chapter_with_annotations(
         let prev_tail: String = onto
             .chapters
             .iter()
-            .filter(|ch| ch.chapter_no > 0 && ch.chapter_no < chapter.chapter_no && !ch.summary.is_empty())
+            .filter(|ch| {
+                ch.chapter_no > 0 && ch.chapter_no < chapter.chapter_no && !ch.summary.is_empty()
+            })
             .collect::<Vec<_>>()
             .iter()
             .rev()
@@ -122,10 +122,18 @@ pub async fn rewrite_chapter_with_annotations(
             3000
         };
         let template = resolve_project_workflow(&state);
-        let model_id = resolve_stage_model(&state, template.as_ref(), model.as_deref(), STAGE_WRITING)
-            .or_else(|| first_available_model(&state))
-            .ok_or_else(|| "未配置可用模型。请先在「模型设置」添加模型并配置 API Key。".to_string())?;
-        let cards = resolve_stage_cards(&state, template.as_ref(), skill_cards.as_ref(), STAGE_WRITING);
+        let model_id =
+            resolve_stage_model(&state, template.as_ref(), model.as_deref(), STAGE_WRITING)
+                .or_else(|| first_available_model(&state))
+                .ok_or_else(|| {
+                    "未配置可用模型。请先在「模型设置」添加模型并配置 API Key。".to_string()
+                })?;
+        let cards = resolve_stage_cards(
+            &state,
+            template.as_ref(),
+            skill_cards.as_ref(),
+            STAGE_WRITING,
+        );
         let cards_block = load_writing_cards(&state, &cards);
         (
             chapter,
@@ -153,7 +161,8 @@ pub async fn rewrite_chapter_with_annotations(
     let m2p = lh::build_model_to_provider(&models);
     let bases = lh::build_provider_api_bases(&providers);
     let api_keys = state.api_keys.read().clone();
-    let (provider_id, api_key, api_base) = lh::resolve_provider(&model_id, &m2p, &bases, &api_keys)?;
+    let (provider_id, api_key, api_base) =
+        lh::resolve_provider(&model_id, &m2p, &bases, &api_keys)?;
     let auth = lh::ProviderAuth {
         provider_id: &provider_id,
         api_key: &api_key,
@@ -161,7 +170,17 @@ pub async fn rewrite_chapter_with_annotations(
     };
 
     // ── 3. 修改计划（显式化处理每条批注）──
-    let plan = build_plan(&auth, &model_id, &chapter, &concept_brief, &settings_brief, &prev_tail, &cards_block, &open_annos).await?;
+    let plan = build_plan(
+        &auth,
+        &model_id,
+        &chapter,
+        &concept_brief,
+        &settings_brief,
+        &prev_tail,
+        &cards_block,
+        &open_annos,
+    )
+    .await?;
 
     // ── 4. 按计划重写正文 ──
     let anti_ai = state.anti_ai.read().prompt.clone();
@@ -186,11 +205,20 @@ pub async fn rewrite_chapter_with_annotations(
     // ── 5. 经验沉淀（best-effort，失败不影响重写）──
     let accepted_annos: Vec<&ChapterAnnotation> = open_annos
         .iter()
-        .filter(|a| plan_decision(plan.plan.iter().find(|p| p.annotation_id == a.annotation_id)).is_some())
+        .filter(|a| {
+            plan_decision(
+                plan.plan
+                    .iter()
+                    .find(|p| p.annotation_id == a.annotation_id),
+            )
+            .is_some()
+        })
         .copied()
         .collect();
     let example = format!("第 {} 章《{}》", chapter.chapter_no, chapter.title);
-    let lesson_items = distill_lessons(&auth, &model_id, &accepted_annos, &plan.plan, &example).await.unwrap_or_default();
+    let lesson_items = distill_lessons(&auth, &model_id, &accepted_annos, &plan.plan, &example)
+        .await
+        .unwrap_or_default();
 
     // ── 6. 落库：快照旧版 → 新正文 → 批注状态流转 → 经验合并 → 派生状态同步 ──
     let (new_version, accepted_ids, rejected_ids, untouched_ids) = {
@@ -222,7 +250,11 @@ pub async fn rewrite_chapter_with_annotations(
             if anno.status != "open" {
                 continue;
             }
-            match plan.plan.iter().find(|p| p.annotation_id == anno.annotation_id) {
+            match plan
+                .plan
+                .iter()
+                .find(|p| p.annotation_id == anno.annotation_id)
+            {
                 Some(p) if p.decision == "reject" => {
                     anno.status = "rejected".to_string();
                     anno.processed_in_version = new_version;
@@ -325,7 +357,9 @@ pub async fn rollback_chapter(
 
 /// 项目写作经验库
 #[tauri::command]
-pub async fn get_writing_lessons(state: tauri::State<'_, AppState>) -> Result<Vec<WritingLesson>, String> {
+pub async fn get_writing_lessons(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<WritingLesson>, String> {
     let onto = state.ontology.read();
     Ok(onto.writing_lessons.clone())
 }
@@ -552,7 +586,9 @@ pub(crate) fn merge_lessons(
         let fix = item.fix.trim().to_string();
         if let Some(l) = existing.iter_mut().find(|l| {
             l.category == category
-                && (l.problem == problem || l.problem.contains(problem) || problem.contains(&l.problem))
+                && (l.problem == problem
+                    || l.problem.contains(problem)
+                    || problem.contains(&l.problem))
         }) {
             l.count += 1;
             if !item.scope.is_empty() {
@@ -620,7 +656,7 @@ fn plan_decision(item: Option<&PlanItem>) -> Option<String> {
 }
 
 /// 第一个「供应商有 Key」的可用模型
-fn first_available_model(state: &AppState) -> Option<String> {
+pub(crate) fn first_available_model(state: &AppState) -> Option<String> {
     let models = lh::load_models(state);
     let keys = state.api_keys.read().clone();
     models.iter().find_map(|m| {
@@ -631,7 +667,7 @@ fn first_available_model(state: &AppState) -> Option<String> {
 }
 
 /// 按字符截断（不切坏 UTF-8）
-fn cap_chars(text: &str, max: usize) -> String {
+pub(crate) fn cap_chars(text: &str, max: usize) -> String {
     if text.chars().count() <= max {
         return text.to_string();
     }
@@ -639,12 +675,12 @@ fn cap_chars(text: &str, max: usize) -> String {
     format!("{truncated}…")
 }
 
-fn now() -> String {
+pub(crate) fn now() -> String {
     chrono::Utc::now().to_rfc3339()
 }
 
 /// 提取标记之间的内容
-fn extract_between<'a>(text: &'a str, begin: &str, end: &str) -> Option<&'a str> {
+pub(crate) fn extract_between<'a>(text: &'a str, begin: &str, end: &str) -> Option<&'a str> {
     let b = text.find(begin)? + begin.len();
     let e = text.rfind(end)?;
     if e <= b {
@@ -654,7 +690,7 @@ fn extract_between<'a>(text: &'a str, begin: &str, end: &str) -> Option<&'a str>
 }
 
 /// 从模型输出提取 JSON 块：优先标记包裹内容，剥围栏，再截最外层花括号
-fn extract_block<'a>(text: &'a str, begin: &str, end: &str) -> &'a str {
+pub(crate) fn extract_block<'a>(text: &'a str, begin: &str, end: &str) -> &'a str {
     let inner = extract_between(text, begin, end).unwrap_or(text);
     let cleaned = inner
         .trim()
@@ -677,13 +713,19 @@ mod tests {
     #[test]
     fn test_extract_block_with_markers() {
         let text = "前言\n===PLAN_BEGIN===\n{\"summary\": \"x\"}\n===PLAN_END===\n后缀";
-        assert_eq!(extract_block(text, "===PLAN_BEGIN===", "===PLAN_END==="), "{\"summary\": \"x\"}");
+        assert_eq!(
+            extract_block(text, "===PLAN_BEGIN===", "===PLAN_END==="),
+            "{\"summary\": \"x\"}"
+        );
     }
 
     #[test]
     fn test_extract_block_without_markers() {
         let text = "好的：\n```json\n{\"plan\": []}\n```\n完。";
-        assert_eq!(extract_block(text, "===PLAN_BEGIN===", "===PLAN_END==="), "{\"plan\": []}");
+        assert_eq!(
+            extract_block(text, "===PLAN_BEGIN===", "===PLAN_END==="),
+            "{\"plan\": []}"
+        );
     }
 
     #[test]
