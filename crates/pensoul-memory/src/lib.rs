@@ -8,8 +8,7 @@
 /// - 记忆包 (packet)：构建最终产物
 /// - 记忆管道 (pipeline)：8 步更新流程
 pub mod archive;
-pub mod cold;
-pub mod hot;
+pub mod layers;
 pub mod narrative;
 pub mod packet;
 pub mod pipeline;
@@ -17,8 +16,7 @@ pub mod warm;
 
 // Re-export 所有公有类型
 pub use archive::ArchiveMemory;
-pub use cold::ColdMemory;
-pub use hot::HotMemory;
+pub use layers::{ColdMemory, HotMemory};
 pub use narrative::NarrativeMemory;
 pub use packet::{
     BudgetRatio, ChapterSummary, EditingMode, MemoryPacket, NarrativeCategory, NarrativeDetail,

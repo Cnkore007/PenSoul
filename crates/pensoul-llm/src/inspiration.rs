@@ -2,8 +2,7 @@
 ///
 /// 根据创作上下文类型生成创意建议。
 /// 优先使用 LLM 生成，LLM 不可用时返回精选的灵感卡片。
-use crate::model::ModelConfig;
-use crate::provider::LlmProvider;
+use crate::config::{LlmProvider, ModelConfig};
 
 /// 灵感建议
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

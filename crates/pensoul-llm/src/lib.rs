@@ -1,15 +1,14 @@
 /// PenSoul LLM crate - LLM 模型管理
-pub mod comparison;
+pub mod config;
 pub mod inspiration;
-pub mod model;
-pub mod provider;
 pub mod router;
 
 // 重新导出主要类型
-pub use comparison::{ComparisonResult, ModelComparison, compare_models};
+pub use config::{
+    AnthropicProvider, ComparisonResult, LlmProvider, ModelComparison, ModelConfig, OpenAiProvider,
+    RoutingResult, TaskType, compare_models,
+};
 pub use inspiration::{InspirationItem, generate_inspiration};
-pub use model::{ModelConfig, RoutingResult, TaskType};
-pub use provider::{AnthropicProvider, LlmProvider, OpenAiProvider};
 pub use router::ModelRouter;
 
 #[cfg(test)]

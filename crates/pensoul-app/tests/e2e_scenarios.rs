@@ -5,9 +5,9 @@
 /// - #73: 端到端 — 联动传播
 /// - #74: 端到端 — 崩溃恢复
 /// - #75: 端到端 — 记忆注入
-use pensoul_cda::edge::{EdgeRelation, ImpactEdge};
+use pensoul_cda::types::{EdgeRelation, ImpactEdge};
 use pensoul_cda::graph::ImpactGraph;
-use pensoul_cda::node::{ImpactNode, NodeType};
+use pensoul_cda::types::{ImpactNode, NodeType};
 use pensoul_consistency::checker::IncrementalChecker;
 use pensoul_consistency::entity_state::{EntityState, EntityType};
 use pensoul_core::chapter::{Chapter, ChapterStatus};
@@ -15,8 +15,8 @@ use pensoul_core::id::{ChapterId, ProjectId, StageName, VolumeId};
 use pensoul_core::ontology::NovelOntology;
 use pensoul_harness::engine::HarnessEngine;
 use pensoul_harness::stage::{GateType, RunnerType, Stage};
-use pensoul_memory::cold::ColdMemory;
-use pensoul_memory::hot::HotMemory;
+use pensoul_memory::layers::ColdMemory;
+use pensoul_memory::layers::HotMemory;
 use pensoul_memory::narrative::NarrativeMemory;
 use pensoul_memory::packet::{ChapterSummary, NarrativeCategory, NarrativeDetail};
 use pensoul_memory::warm::WarmMemory;
@@ -306,15 +306,15 @@ fn test_change_propagation() {
         match item.node_id.as_str() {
             "ch3_foreshadow" => {
                 // 深度1，章节距离1 (|2-3|=1 <= 2)，应该是 Direct
-                assert_eq!(item.severity, pensoul_cda::node::ImpactSeverity::Direct);
+                assert_eq!(item.severity, pensoul_cda::types::ImpactSeverity::Direct);
             }
             "ch4_foreshadow_ref" => {
                 // 深度2，章节距离2 (|2-4|=2 <= 2)，应该是 Direct
-                assert_eq!(item.severity, pensoul_cda::node::ImpactSeverity::Direct);
+                assert_eq!(item.severity, pensoul_cda::types::ImpactSeverity::Direct);
             }
             "ch5_ending" => {
                 // 深度2，章节距离3 (|2-5|=3 > 2)，应该是 Indirect
-                assert_eq!(item.severity, pensoul_cda::node::ImpactSeverity::Indirect);
+                assert_eq!(item.severity, pensoul_cda::types::ImpactSeverity::Indirect);
             }
             _ => {}
         }

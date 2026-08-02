@@ -21,7 +21,6 @@ pub mod runner;
 /// | `HarnessEngine` | 引擎核心，驱动整个创作流程 |
 /// | `CrashRecovery` | 基于 WAL 的崩溃恢复 |
 pub mod stage;
-pub mod tools;
 pub mod wal;
 
 // ── 重导出公有类型 ────────────────────────────────────────────────────────
@@ -32,14 +31,11 @@ pub use stage::{GateResult, GateType, RunnerType, Stage, StageInstance, StageSta
 // gate.rs
 pub use gate::GateEvaluator;
 
-// tools.rs
-pub use tools::ToolWhitelist;
-
 // wal.rs
 pub use wal::{WalAction, WalEntry, WalManager};
 
 // memo.rs
-pub use memo::RollingMemo;
+pub use memo::{RollingMemo, ToolWhitelist};
 
 // engine.rs
 pub use engine::{EngineState, HarnessEngine};

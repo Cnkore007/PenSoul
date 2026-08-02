@@ -3,7 +3,7 @@ use pensoul_core::PensoulError;
 use pensoul_core::Result;
 use std::collections::HashMap;
 
-use crate::message::{AgentMessage, ChannelType};
+use crate::protocol::{AgentMessage, ChannelType};
 
 /// 处理器类型 — 闭包 trait
 type Handler = Box<dyn Fn(&AgentMessage) -> Result<()> + Send + Sync>;

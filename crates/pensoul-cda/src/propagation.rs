@@ -1,8 +1,8 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use crate::edge::EdgeRelation;
+use crate::types::EdgeRelation;
 use crate::graph::AffectedItem;
-use crate::node::{ImpactNode, ImpactSeverity};
+use crate::types::{ImpactNode, ImpactSeverity};
 
 /// BFS 变更传播算法
 ///
@@ -158,7 +158,7 @@ fn suggest_action_for_neighbor(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::node::NodeType;
+    use crate::types::NodeType;
 
     fn make_node(id: &str, node_type: NodeType, chapter: u32) -> ImpactNode {
         ImpactNode::new(id, node_type, chapter, format!("hash_{id}"))

@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use crate::gate::GateEvaluator;
 use crate::memo::RollingMemo;
 use crate::stage::{GateType, Stage, StageInstance, StageStatus};
-use crate::tools::ToolWhitelist;
+use crate::memo::ToolWhitelist;
 use crate::wal::{WalAction, WalManager};
 use pensoul_core::{PensoulError, Result, StageName};
 

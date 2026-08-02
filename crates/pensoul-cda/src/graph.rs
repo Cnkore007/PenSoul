@@ -1,15 +1,15 @@
 use std::collections::HashMap;
 
 /// 反向邻接表：(目标节点ID, 关系类型, 权重)
-type ReverseAdjacency = HashMap<String, Vec<(String, crate::edge::EdgeRelation, f64)>>;
+type ReverseAdjacency = HashMap<String, Vec<(String, crate::types::EdgeRelation, f64)>>;
 
 use petgraph::graph::{DiGraph, NodeIndex};
 use serde::{Deserialize, Serialize};
 
-use crate::edge::ImpactEdge;
-use crate::node::ImpactNode;
+use crate::types::ImpactEdge;
+use crate::types::ImpactNode;
 use crate::propagation::bfs_find_affected;
-use crate::stats::{Stats, compute_stats};
+use crate::types::{Stats, compute_stats};
 
 /// 受影响项——传播算法的输出
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -19,7 +19,7 @@ pub struct AffectedItem {
     /// 受影响节点所在章节
     pub chapter_id: u32,
     /// 影响严重程度
-    pub severity: crate::node::ImpactSeverity,
+    pub severity: crate::types::ImpactSeverity,
     /// 影响原因描述
     pub reason: String,
     /// 建议操作
@@ -135,7 +135,7 @@ impl ImpactGraph {
 
     /// 构建反向邻接表和节点映射，供 BFS 使用
     fn build_adjacency(&self) -> (ReverseAdjacency, HashMap<String, ImpactNode>) {
-        let mut reverse_edges: HashMap<String, Vec<(String, crate::edge::EdgeRelation, f64)>> =
+        let mut reverse_edges: HashMap<String, Vec<(String, crate::types::EdgeRelation, f64)>> =
             HashMap::new();
         let mut node_map: HashMap<String, ImpactNode> = HashMap::new();
 
@@ -173,8 +173,8 @@ impl Default for ImpactGraph {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::edge::EdgeRelation;
-    use crate::node::{ImpactSeverity, NodeType};
+    use crate::types::EdgeRelation;
+    use crate::types::{ImpactSeverity, NodeType};
 
     fn make_node(id: &str, chapter: u32) -> ImpactNode {
         ImpactNode::new(id, NodeType::Entity, chapter, format!("hash_{id}"))

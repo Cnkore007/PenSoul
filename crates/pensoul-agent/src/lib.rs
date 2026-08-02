@@ -3,13 +3,14 @@ pub mod agents;
 ///
 /// 实现双通道通信协议（signal/report）、6 个预置 Agent 定义、通道路由器。
 /// 信号通道仅引擎可见（结构化 JSON），报告通道仅用户可见（自然语言）。
-pub mod message;
 pub mod protocol;
 pub mod router;
 
 pub use agents::{AgentDefinition, AgentType};
-pub use message::{AgentMessage, ChannelType, MessageMetadata, SeverityLevels, SignalPayload};
-pub use protocol::{agent_message_schema, validate_message};
+pub use protocol::{
+    AgentMessage, ChannelType, MessageMetadata, SeverityLevels, SignalPayload,
+    agent_message_schema, validate_message,
+};
 pub use router::ChannelRouter;
 
 #[cfg(test)]

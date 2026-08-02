@@ -3,8 +3,7 @@ use std::collections::HashMap;
 use pensoul_core::{ChapterId, Result};
 
 use crate::archive::ArchiveMemory;
-use crate::cold::ColdMemory;
-use crate::hot::HotMemory;
+use crate::layers::{ColdMemory, HotMemory};
 use crate::narrative::NarrativeMemory;
 use crate::packet::{
     BudgetRatio, ChapterSummary, EditingMode, MemoryPacket, NarrativeCategory, NarrativeDetail,

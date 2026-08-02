@@ -12,7 +12,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use pensoul_core::{PensoulError, Result};
 
-use crate::model::{ModelConfig, RoutingResult, TaskType};
+use crate::config::{ModelConfig, RoutingResult, TaskType};
 
 /// 模型路由器
 pub struct ModelRouter {
