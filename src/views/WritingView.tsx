@@ -383,18 +383,12 @@ export function WritingView({ projectData, persistProjectData, chapterId, onWord
   // ── 版本回滚 ──
   async function handleRollback(rev: ChapterRevision) {
     if (!chapter) return;
-    const ok = await confirmDialog(`回滚到第 ${rev.version} 版？当前版会存入版本历史。`);
+    const ok = await confirmDialog(`回滚到第 ${rev.version} 版？当前版不保留。`);
     if (!ok) return;
     try {
-      const newVersion = await rollbackChapter(chapter.chapter_id, rev.version);
-      const curRev: ChapterRevision = {
-        version: chapter.version,
-        content: chapter.content,
-        word_count: chapter.word_count,
-        created_at: new Date().toISOString(),
-        reason: `回滚前快照（回滚到第 ${rev.version} 版）`,
-      };
-      const nextRevs = [...(chapter.revisions ?? []).filter(r => r.version !== rev.version), curRev].slice(-30);
+      const res = await rollbackChapter(chapter.chapter_id, rev.version);
+      const newVersion = res.new_version;
+      const nextRevs = res.revisions;
       const updated: Chapter = {
         ...chapter,
         content: rev.content,
@@ -414,7 +408,7 @@ export function WritingView({ projectData, persistProjectData, chapterId, onWord
       }));
       const report = await analyzeChapterImpact(chapter.chapter_id);
       setImpact(report);
-      setSaveMsg(`已回滚到第 ${rev.version} 版（当前为第 ${newVersion} 版）`);
+      setSaveMsg(`已回滚到第 ${newVersion} 版`);
       setTimeout(() => setSaveMsg(null), 4000);
     } catch (e: any) {
       await messageDialog("回滚失败：\n" + (typeof e === "string" ? e : e?.message || String(e)));

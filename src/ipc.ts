@@ -203,9 +203,15 @@ export async function listChapterRevisions(chapterId: string): Promise<ChapterRe
   return await invoke<ChapterRevision[]>("list_chapter_revisions", { chapterId });
 }
 
-// 回滚到指定版本（当前版进历史）
-export async function rollbackChapter(chapterId: string, targetVersion: number): Promise<number> {
-  return await invoke<number>("rollback_chapter", { chapterId, targetVersion });
+// 回滚到指定版本（返回新版本号与最新版本历史）
+export async function rollbackChapter(
+  chapterId: string,
+  targetVersion: number
+): Promise<{ new_version: number; revisions: ChapterRevision[] }> {
+  return await invoke<{ new_version: number; revisions: ChapterRevision[] }>(
+    "rollback_chapter",
+    { chapterId, targetVersion }
+  );
 }
 
 // 项目写作经验库

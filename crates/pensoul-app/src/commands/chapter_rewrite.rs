@@ -282,7 +282,7 @@ pub async fn rollback_chapter(
     state: tauri::State<'_, AppState>,
     chapter_id: String,
     target_version: i32,
-) -> Result<i32, String> {
+) -> Result<serde_json::Value, String> {
     let id = ChapterId::new(chapter_id);
     let (rollback_content, rollback_words) = {
         let onto = state.ontology.read();
@@ -297,36 +297,29 @@ pub async fn rollback_chapter(
         (rev.content.clone(), rev.word_count)
     };
 
-    let new_version = {
+    let (new_version, revisions) = {
         let mut onto = state.ontology.write();
         let ch = onto
             .chapters
             .iter_mut()
             .find(|ch| ch.chapter_id == id)
             .ok_or_else(|| format!("章节 {} 不存在", id))?;
-        // 当前版进历史，保留回滚线索
-        ch.revisions.push(ChapterRevision {
-            version: ch.version,
-            content: ch.content.clone(),
-            word_count: ch.word_count,
-            created_at: now(),
-            reason: format!("回滚前快照（回滚到第 {target_version} 版）"),
-        });
-        if ch.revisions.len() > MAX_REVISIONS {
-            let excess = ch.revisions.len() - MAX_REVISIONS;
-            ch.revisions.drain(..excess);
-        }
-        let new_version = ch.version + 1;
+        // 消费目标快照：回滚后该版本即当前状态，版本号回到目标版本，
+        // 不再递增（否则「撤回一次版本号反而更高」，且历史会无限膨胀）
+        ch.revisions.retain(|r| r.version != target_version);
         ch.content = rollback_content;
         ch.word_count = rollback_words;
-        ch.version = new_version;
+        ch.version = target_version;
         ch.updated_at = now();
-        new_version
+        (ch.version, ch.revisions.clone())
     };
 
     crate::integration::on_chapter_saved(&state, &id);
     state.save().map_err(|e| format!("回滚落盘失败: {e}"))?;
-    Ok(new_version)
+    Ok(serde_json::json!({
+        "new_version": new_version,
+        "revisions": revisions,
+    }))
 }
 
 /// 项目写作经验库
