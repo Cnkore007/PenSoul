@@ -86,7 +86,7 @@ jobs:
         id: changelog
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          awk -v ver="[$VERSION]" '
+          awk -v ver="$VERSION" '
             $0 ~ ("## \\[" ver "\\]") { capture=1; next }
             capture && /^## / { exit }
             capture { print }
