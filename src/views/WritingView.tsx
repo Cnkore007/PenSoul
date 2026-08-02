@@ -10,6 +10,7 @@ import {
   rewriteChapterWithAnnotations,
   listChapterRevisions,
   rollbackChapter,
+  deleteChapter,
   getWritingLessons,
   saveWritingLessons,
   rewriteChapterDeai,
@@ -488,6 +489,29 @@ export function WritingView({ projectData, persistProjectData, chapterId, onWord
     }
   }
 
+  // 删除章节：笔耕导航内直接删除（正文一并删除，不可恢复）
+  async function handleDeleteChapter(ch: Chapter) {
+    const hint = ch.word_count > 0
+      ? `删除章节「${ch.title}」？已写入的 ${ch.word_count} 字正文将一并删除，不可恢复。`
+      : `删除章节「${ch.title}」？`;
+    if (!(await confirmDialog(hint))) return;
+    const volId = projectData.volumes.find(v => v.chapters.some(c => c.chapter_id === ch.chapter_id))?.volume_id;
+    if (!volId) return;
+    persistProjectData(prev => ({
+      ...prev,
+      volumes: prev.volumes.map(v => v.volume_id === volId
+        ? { ...v, chapters: v.chapters.filter(c => c.chapter_id !== ch.chapter_id), chapter_count: v.chapters.length - 1 }
+        : v),
+    }));
+    if (selectedId === ch.chapter_id) {
+      setSelectedId(null);
+      setChapter(null);
+      setContent("");
+      setAnnotations([]);
+    }
+    deleteChapter(ch.chapter_id).catch(err => console.error("删除章节失败:", err));
+  }
+
   function toggleVolume(volId: string) {
     setExpandedVolumes(prev => ({ ...prev, [volId]: !prev[volId] }));
   }
@@ -518,6 +542,13 @@ export function WritingView({ projectData, persistProjectData, chapterId, onWord
                     <FileText size={12} />
                     <span className="writing-nav-ch-title">{ch.title}</span>
                     <span className="writing-nav-ch-words">{ch.word_count.toLocaleString()}</span>
+                    <button
+                      className="writing-nav-ch-del"
+                      title="删除章节"
+                      onClick={e => { e.stopPropagation(); handleDeleteChapter(ch); }}
+                    >
+                      <Trash2 size={11} />
+                    </button>
                   </div>
                 ))}
               </div>
@@ -551,11 +582,9 @@ export function WritingView({ projectData, persistProjectData, chapterId, onWord
             {chapter && <span className={`badge badge-${chapter.status.toLowerCase()}`}>{chapter.status}</span>}
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            {chapter && (
-              <button className="btn btn-secondary" onClick={handleDeaiRewrite} disabled={deaiRewriting || saving} title="保真账本 + 有界改写 + 两步回读，整句空话进建议删除清单">
-                {deaiRewriting ? <><Loader2 size={15} className="spinning" /> 去AI味中…</> : <><Wand2 size={15} /> 去AI味重写</>}
-              </button>
-            )}
+            <button className="btn btn-secondary" onClick={handleDeaiRewrite} disabled={!chapter || deaiRewriting || saving} title="保真账本 + 有界改写 + 两步回读，整句空话进建议删除清单">
+              {deaiRewriting ? <><Loader2 size={15} className="spinning" /> 去AI味中…</> : <><Wand2 size={15} /> 去AI味重写</>}
+            </button>
             {chapter && openAnnoCount > 0 && (
               <button className="btn btn-accent" onClick={handleRewrite} disabled={rewriting}>
                 {rewriting ? <><Loader2 size={15} className="spinning" /> 重写中…</> : <><Wand2 size={15} /> 按批注重写本章（{openAnnoCount}）</>}

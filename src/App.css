@@ -903,6 +903,26 @@ body::after {
   color: var(--color-ink-faint);
   flex-shrink: 0;
 }
+.writing-nav-ch-del {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  border: none;
+  background: transparent;
+  color: var(--color-ink-faint);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out);
+}
+.writing-nav-chapter:hover .writing-nav-ch-del {
+  opacity: 1;
+}
+.writing-nav-ch-del:hover {
+  color: var(--color-error);
+  background: oklch(92% 0.06 24 / 0.15);
+}
 
 /* =========================================
    Outline View
