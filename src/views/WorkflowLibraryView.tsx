@@ -97,7 +97,7 @@ function defaultStages(): WorkflowStageDef[] {
     {
       stage: "chapter_writing",
       display_name: "章节写作",
-      prompt_hint: "严格按节拍表撰写正文：冲突先行、对话优先、结尾断章钩子，遵守反 AI 味铁律。",
+      prompt_hint: "严格按节拍表撰写正文：场景之间用细节自然钩连，叙述、对话与动作按叙事需要交织，允许长句铺陈，结尾断章钩子，遵守反 AI 味铁律。",
       gate: "auto",
       on_fail: null,
       max_retries: 2,

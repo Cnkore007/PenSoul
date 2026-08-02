@@ -136,7 +136,7 @@ pub fn builtin_workflow_templates() -> Vec<WorkflowTemplate> {
                 WorkflowStageDef {
                     stage: "chapter_writing".to_string(),
                     display_name: "章节写作".to_string(),
-                    prompt_hint: "严格按「章前策划」节拍表撰写正文：开场 300 字内出现冲突或悬念；每个场景必须有目标、阻碍与状态变化；对话优先于叙述，行动优先于形容；结尾必须断在钩子处。语言铁律（反 AI 味）：删除「不禁/仿佛/映入眼帘/心中暗道/嘴角微扬」等套话，每千字弱化副词不超过 3 个，不用排比三连，不用「与此同时/从而/一方面…另一方面」等书面语；用具体动作和感知代替情绪直说；长短句交替制造节奏。".to_string(),
+                    prompt_hint: "严格按「章前策划」节拍表撰写正文，但场景之间要用上一场留下的细节、动作或感知自然钩连，禁止逐条机械展开；开场 300 字内出现冲突或悬念；每个场景必须有目标、阻碍与状态变化；叙述、对话与动作按叙事需要交织，保留心理与氛围描写作缓冲；结尾必须断在钩子处。语言铁律（反 AI 味）：删除「不禁/仿佛/映入眼帘/心中暗道/嘴角微扬」等套话，每千字弱化副词不超过 3 个，不用排比三连，不用「与此同时/从而/一方面…另一方面」等套话级连接词但允许自然过渡（然而/随后/片刻后）；用具体动作和感知代替情绪直说；节奏有起伏，允许长句铺陈，禁止把场景拆成孤立短碎片。".to_string(),
                     gate: "auto".to_string(),
                     on_fail: None,
                     max_retries: 2,
@@ -202,7 +202,7 @@ pub fn builtin_workflow_templates() -> Vec<WorkflowTemplate> {
                 WorkflowStageDef {
                     stage: "chapter_writing".to_string(),
                     display_name: "章节写作".to_string(),
-                    prompt_hint: "根据本章梗概与前文承接撰写正文：人物动机先行，冲突从人物目标自然生长；文风稳定克制，段落不超过五行，展示而非讲述。".to_string(),
+                    prompt_hint: "根据本章梗概与前文承接撰写正文：人物动机先行，冲突从人物目标自然生长；文风稳定克制，段落一般不超过五行但允许成段心理与氛围描写；场景之间用细节自然钩连，展示而非讲述。".to_string(),
                     gate: "auto".to_string(),
                     on_fail: None,
                     max_retries: 2,
