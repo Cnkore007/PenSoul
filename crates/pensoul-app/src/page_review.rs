@@ -643,7 +643,7 @@ pub async fn undo_page_change(
             state.save().map_err(|e| e.to_string())?;
             Ok(frontend)
         }
-        other => return Err(format!("不支持的页面类型: {other}")),
+        other => Err(format!("不支持的页面类型: {other}")),
     }
 }
 
