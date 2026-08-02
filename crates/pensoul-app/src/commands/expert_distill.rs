@@ -425,28 +425,6 @@ fn skill_file_candidates(state: &AppState) -> Vec<std::path::PathBuf> {
         candidates.push(cwd.join(SKILL_RELATIVE_PATH));
     }
 
-    // 用户技能目录（~/.codex/skills、~/.agents/skills）下的 PenSoul-skill-Experts：
-    // 目录名可能是 nuwa-skill 等任意名字，按 SKILL.md frontmatter 的 name 匹配。
-    // 固定路径与全量扫描都加入，保证换目录名后仍能找到。
-    if let Some(home) = dirs::home_dir() {
-        for base in [home.join(".codex").join("skills"), home.join(".agents").join("skills")] {
-            candidates.push(base.join("nuwa-skill").join("SKILL.md"));
-            if let Ok(entries) = std::fs::read_dir(&base) {
-                for entry in entries.flatten() {
-                    let skill_md = entry.path().join("SKILL.md");
-                    if !skill_md.is_file() {
-                        continue;
-                    }
-                    if let Ok(content) = std::fs::read_to_string(&skill_md)
-                        && content.lines().any(|l| l.trim() == "name: PenSoul-skill-Experts")
-                    {
-                        candidates.push(skill_md);
-                    }
-                }
-            }
-        }
-    }
-
     candidates
 }
 
