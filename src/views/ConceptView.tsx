@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { listen } from "@tauri-apps/api/event";
 import { loadSprout, loadExperts, listModels, discussConcept, getDiscussionState, saveOutlineArcs } from "../ipc";
+import { pickDefaultModel } from "../store";
 import { DiscussionPanel, type SelectedResults } from "../components/DiscussionPanel";
 
 interface ConceptViewProps {
@@ -42,7 +43,7 @@ export function ConceptView({ projectData, persistProjectData }: ConceptViewProp
       // 模型加载后，将 Agent 中不存在的模型自动替换为第一个可用模型
       if (models.length > 0 && persistProjectData) {
         const validIds = new Set(models.map((m: LlmModel) => m.model_id));
-        const firstModelId = models[0].model_id;
+        const firstModelId = pickDefaultModel(models)?.model_id ?? models[0].model_id;
         persistProjectData(prev => ({
           ...prev,
           sprout: {
@@ -145,7 +146,7 @@ export function ConceptView({ projectData, persistProjectData }: ConceptViewProp
 
   // 添加 Agent（预置模式下：预置自动消失）
   const addAgent = useCallback(() => {
-    const defaultModel = availableModels.length > 0 ? availableModels[0].model_id : "gpt-4o";
+    const defaultModel = pickDefaultModel(availableModels)?.model_id ?? "gpt-4o";
     const newAgent: AgentDiscussionConfig = {
       id: "agent-" + Date.now(),
       name: "新评审员",
@@ -236,7 +237,11 @@ export function ConceptView({ projectData, persistProjectData }: ConceptViewProp
       setDiscussing(false);
       updateSprout(prev => ({
         ...prev,
-        lastDiscussion: { turns: rec.turns ?? [], synthesis: rec.synthesis },
+        lastDiscussion: {
+          turns: rec.turns ?? [],
+          synthesis: rec.synthesis,
+          authorFeedback: rec.author_feedback ?? "",
+        },
       }));
     } catch { /* 拉取失败时下次进入页面再恢复 */ }
   }, [updateSprout]);
@@ -331,7 +336,7 @@ export function ConceptView({ projectData, persistProjectData }: ConceptViewProp
   }, [agents, sprout.ideaDescription, settingsContext, updateSprout, applyDiscussionEvent]);
 
   // 确认生成：把勾选的成果写入世界观与人物志（按名称去重）
-  const handleConfirmGenerate = useCallback((selected: SelectedResults) => {
+  const handleConfirmGenerate = useCallback((selected: SelectedResults, authorFeedback: string) => {
     persistProjectData?.(prev => {
       const existingLoc = new Set(prev.world.locations.map(l => l.name));
       const existingEvt = new Set(prev.world.timeline_events.map(e => `${e.story_time}-${e.description}`));
@@ -401,6 +406,23 @@ export function ConceptView({ projectData, persistProjectData }: ConceptViewProp
         },
         characters: [...prev.characters, ...newCharacters],
         outlineArcs: [...prev.outlineArcs, ...newArcs],
+          sprout: {
+            ...prev.sprout,
+            lastDiscussion: {
+              ...(prev.sprout.lastDiscussion ?? {
+                turns: [],
+                synthesis: {
+                  summary: "",
+                  locations: [],
+                  timeline_events: [],
+                  setting_rules: [],
+                  characters: [],
+                  outline_beats: [],
+                },
+              }),
+              authorFeedback,
+            },
+          },
       };
     });
     setGenerated(true);

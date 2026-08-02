@@ -171,7 +171,7 @@ export function MethodologyDistillPanel({ models, onDistilled, onClose }: Method
           onChange={(e) => setModel(e.target.value)}
           disabled={running}
         >
-          <option value="">自动（第一个可用模型）</option>
+          <option value="">自动（默认模型）</option>
           {availableModels.map((m) => (
             <option key={m.model_id} value={m.model_id}>
               {m.display_name || m.model_id}

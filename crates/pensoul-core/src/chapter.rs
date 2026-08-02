@@ -126,4 +126,11 @@ pub struct Volume {
     pub chapter_ids: Vec<ChapterId>,
     /// 卷摘要
     pub summary: String,
+    /// 大纲页是否展开该卷（前端视图状态，持久化避免切页回弹）
+    #[serde(default = "default_true")]
+    pub expanded: bool,
+}
+
+fn default_true() -> bool {
+    true
 }

@@ -92,6 +92,7 @@ function transformSprout(raw: any) {
       ? {
           turns: raw.last_discussion.turns ?? [],
           synthesis: raw.last_discussion.synthesis ?? null,
+          authorFeedback: raw.last_discussion.author_feedback ?? "",
         }
       : undefined,
   };
@@ -114,7 +115,11 @@ function toBackendSprout(s: any) {
     })),
     presets_dismissed: s.presetsDismissed ?? false,
     last_discussion: s.lastDiscussion
-      ? { turns: s.lastDiscussion.turns ?? [], synthesis: s.lastDiscussion.synthesis ?? null }
+      ? {
+          turns: s.lastDiscussion.turns ?? [],
+          synthesis: s.lastDiscussion.synthesis ?? null,
+          author_feedback: s.lastDiscussion.authorFeedback ?? "",
+        }
       : null,
   };
 }
@@ -277,13 +282,18 @@ async function fetchProjectData(projectId: string): Promise<ProjectData> {
       version: ch.version || 1,
       status: ch.status || "Draft",
     });
-    const toVolume = (volId: string, chs: any[]) => ({
-      volume_id: volId,
-      title: volTitleMap.get(volId) || (volId === "_default" ? "默认卷" : volId),
-      chapter_count: chs.length,
-      expanded: true,
-      chapters: chs.map(ch => mapChapter(ch, volId)),
-    });
+    const volMetaMap = new Map<string, any>((volumesMeta ?? []).map((v: any) => [v.volume_id as string, v]));
+    const toVolume = (volId: string, chs: any[]) => {
+      const meta = volMetaMap.get(volId) as any;
+      return {
+        volume_id: volId,
+        title: meta?.title || volTitleMap.get(volId) || (volId === "_default" ? "默认卷" : volId),
+        chapter_count: chs.length,
+        // 卷展开状态持久化（后端 Volume.expanded），缺省展开
+        expanded: meta?.expanded ?? true,
+        chapters: chs.map(ch => mapChapter(ch, volId)),
+      };
+    };
 
     // 卷顺序：先按后端卷列表，再补上只有章节没有元数据的卷
     const orderedVolIds = [
@@ -396,8 +406,8 @@ export async function saveProjectData(data: ProjectData): Promise<void> {
     }
   }
   try {
-    // 保存卷元数据（标题）
-    await ipc.saveVolumes(data.volumes.map(v => ({ volume_id: v.volume_id, title: v.title })));
+    // 保存卷元数据（标题 + 展开状态，切页后不丢）
+    await ipc.saveVolumes(data.volumes.map(v => ({ volume_id: v.volume_id, title: v.title, expanded: v.expanded })));
     await ipc.saveProject();
   } catch (e) {
     errors.push(`项目落盘失败: ${e}`);
@@ -452,6 +462,15 @@ export async function loadModels(): Promise<LlmModel[]> {
 
 export async function saveModels(models: LlmModel[]): Promise<void> {
   await ipc.saveModels(models);
+}
+
+// 选取默认模型：优先「设为默认」且可用，其次第一个可用，最后第一个
+export function pickDefaultModel(models: LlmModel[]): LlmModel | undefined {
+  return (
+    models.find(m => m.is_default && m.is_available)
+    ?? models.find(m => m.is_available)
+    ?? models[0]
+  );
 }
 
 // ── API Keys ──

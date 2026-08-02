@@ -159,6 +159,9 @@ pub struct DiscussionRecord {
     pub turns: Vec<AgentTurn>,
     #[serde(default)]
     pub synthesis: DiscussionSynthesis,
+    /// 作者在确认生成前填写的补充意见（同意讨论结果时可为空）
+    #[serde(default)]
+    pub author_feedback: String,
 }
 
 /// 萌芽数据 — 核心想法 + 讨论 Agent 配置
@@ -380,6 +383,7 @@ mod tests {
                 }],
                 disagreements: vec![],
             },
+            author_feedback: String::new(),
         });
         let json = serde_json::to_string(&s).unwrap();
         let back: SproutData = serde_json::from_str(&json).unwrap();

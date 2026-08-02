@@ -153,6 +153,7 @@ pub async fn upsert_chapter(
                 title: vid.as_str().to_string(),
                 chapter_ids: Vec::new(),
                 summary: String::new(),
+                expanded: true,
             });
         }
         let edit_result = match ontology.chapters.iter_mut().find(|ch| ch.chapter_id == id) {
@@ -254,6 +255,12 @@ pub async fn save_volumes(
         title: String,
         #[serde(default)]
         summary: String,
+        #[serde(default = "default_volume_expanded")]
+        expanded: bool,
+    }
+
+    fn default_volume_expanded() -> bool {
+        true
     }
 
     let mut parsed = Vec::with_capacity(volumes.len());
@@ -286,6 +293,7 @@ pub async fn save_volumes(
                 title,
                 chapter_ids,
                 summary: input.summary,
+                expanded: input.expanded,
             });
         }
         ontology.volumes = volumes;

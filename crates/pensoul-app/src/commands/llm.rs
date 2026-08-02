@@ -15,11 +15,11 @@ fn built_in_providers() -> Vec<serde_json::Value> {
 /// 默认模型列表（首次启动时写入配置）
 fn built_in_models() -> Vec<serde_json::Value> {
     vec![
-        serde_json::json!({"model_id": "gpt-4o", "provider_id": "openai", "display_name": "GPT-4o", "max_tokens": 128000, "supports_tools": true, "cost_per_1k_tokens": 0.005, "avg_quality_score": 0.92, "avg_latency_ms": 1200, "is_available": false, "api_key_configured": false}),
-        serde_json::json!({"model_id": "claude-sonnet-4-20250514", "provider_id": "anthropic", "display_name": "Claude Sonnet 4", "max_tokens": 200000, "supports_tools": true, "cost_per_1k_tokens": 0.003, "avg_quality_score": 0.94, "avg_latency_ms": 1500, "is_available": false, "api_key_configured": false}),
-        serde_json::json!({"model_id": "deepseek-chat", "provider_id": "deepseek", "display_name": "DeepSeek V3", "max_tokens": 64000, "supports_tools": true, "cost_per_1k_tokens": 0.0002, "avg_quality_score": 0.88, "avg_latency_ms": 2000, "is_available": false, "api_key_configured": false}),
-        serde_json::json!({"model_id": "moonshot-v1-8k", "provider_id": "moonshot", "display_name": "Moonshot V1 8K", "max_tokens": 8000, "supports_tools": false, "cost_per_1k_tokens": 0.000012, "avg_quality_score": 0.85, "avg_latency_ms": 1000, "is_available": false, "api_key_configured": false}),
-        serde_json::json!({"model_id": "qwen-2.5-72b", "provider_id": "local", "display_name": "Qwen 2.5 72B (本地)", "max_tokens": 32000, "supports_tools": false, "cost_per_1k_tokens": 0.0, "avg_quality_score": 0.80, "avg_latency_ms": 3000, "is_available": false, "api_key_configured": false}),
+        serde_json::json!({"model_id": "gpt-4o", "provider_id": "openai", "display_name": "GPT-4o", "max_tokens": 128000, "supports_tools": true, "cost_per_1k_tokens": 0.005, "avg_quality_score": 0.92, "avg_latency_ms": 1200, "is_available": false, "is_default": false, "api_key_configured": false}),
+        serde_json::json!({"model_id": "claude-sonnet-4-20250514", "provider_id": "anthropic", "display_name": "Claude Sonnet 4", "max_tokens": 200000, "supports_tools": true, "cost_per_1k_tokens": 0.003, "avg_quality_score": 0.94, "avg_latency_ms": 1500, "is_available": false, "is_default": false, "api_key_configured": false}),
+        serde_json::json!({"model_id": "deepseek-chat", "provider_id": "deepseek", "display_name": "DeepSeek V3", "max_tokens": 64000, "supports_tools": true, "cost_per_1k_tokens": 0.0002, "avg_quality_score": 0.88, "avg_latency_ms": 2000, "is_available": false, "is_default": false, "api_key_configured": false}),
+        serde_json::json!({"model_id": "moonshot-v1-8k", "provider_id": "moonshot", "display_name": "Moonshot V1 8K", "max_tokens": 8000, "supports_tools": false, "cost_per_1k_tokens": 0.000012, "avg_quality_score": 0.85, "avg_latency_ms": 1000, "is_available": false, "is_default": false, "api_key_configured": false}),
+        serde_json::json!({"model_id": "qwen-2.5-72b", "provider_id": "local", "display_name": "Qwen 2.5 72B (本地)", "max_tokens": 32000, "supports_tools": false, "cost_per_1k_tokens": 0.0, "avg_quality_score": 0.80, "avg_latency_ms": 3000, "is_available": false, "is_default": false, "api_key_configured": false}),
     ]
 }
 
@@ -103,18 +103,55 @@ pub async fn list_models(
                 "api_key_configured".to_string(),
                 serde_json::Value::Bool(has_key),
             );
-            // 如果用户之前手动启用了该模型，保留；否则跟随 api_key 状态
-            let already_enabled = obj
+            // 用户手动开关过的模型（user_managed=true）以磁盘值为准，
+            // 避免「关闭的模型切页后又被 api_key 自动点亮」；
+            // 未手动管理过的模型跟随 api_key 状态自动启用。
+            let user_managed = obj
+                .get("user_managed")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            let stored_enabled = obj
                 .get("is_available")
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false);
             obj.insert(
                 "is_available".to_string(),
-                serde_json::Value::Bool(already_enabled || has_key),
+                serde_json::Value::Bool(if user_managed { stored_enabled } else { has_key }),
             );
+            // 默认模型标记缺省 false
+            obj.entry("is_default".to_string()).or_insert(serde_json::Value::Bool(false));
         }
     }
     Ok(models)
+}
+
+/// 设置全局默认模型（唯一，切换后其余模型取消默认标记）
+#[tauri::command]
+pub async fn set_default_model(
+    state: tauri::State<'_, AppState>,
+    model_id: String,
+) -> Result<(), String> {
+    let mut models = load_models_from_disk(&state);
+    let mut found = false;
+    for model in models.iter_mut() {
+        if let Some(obj) = model.as_object_mut() {
+            let is_target = obj
+                .get("model_id")
+                .and_then(|v| v.as_str())
+                == Some(model_id.as_str());
+            if is_target {
+                found = true;
+            }
+            obj.insert(
+                "is_default".to_string(),
+                serde_json::Value::Bool(is_target),
+            );
+        }
+    }
+    if !found {
+        return Err(format!("模型 {} 不存在", model_id));
+    }
+    save_models_to_disk(&state, &models)
 }
 
 /// 保存模型列表到磁盘

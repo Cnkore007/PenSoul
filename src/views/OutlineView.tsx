@@ -293,13 +293,15 @@ export function OutlineView({ projectData, persistProjectData, onRefresh }: Outl
             </span>
           )}
         </div>
-        <span style={{ display: "flex", gap: 2 }}>
+        <span className="chapter-actions">
           <EntityAnnotations target={`chapter:${ch.chapter_id}:summary`} title="细纲批注" />
           <button className="pv-icon-btn" title="编辑章节" onClick={() => startEditChapter(ch)}><Edit3 size={13} /></button>
           <button className="pv-icon-btn pv-icon-btn-danger" title="删除章节" onClick={() => handleDeleteChapter(volId, ch)}><Trash2 size={13} /></button>
         </span>
         <span className="chapter-words">{ch.word_count.toLocaleString()} 字</span>
-        <div className={"status-dot status-dot-" + ch.status.toLowerCase()} />
+        <span className={"chapter-status-badge badge-" + ch.status.toLowerCase()}>
+          {{ Draft: "草稿", Reviewing: "评审中", Reviewed: "已评审", Polished: "已精修", Published: "已发布" }[ch.status] ?? ch.status}
+        </span>
       </div>
     )
   );
@@ -497,7 +499,7 @@ export function OutlineView({ projectData, persistProjectData, onRefresh }: Outl
               ) : (
                 <>
                   <span className="volume-title">{volume.title}</span>
-                  <span style={{ display: "flex", gap: 2 }} onClick={e => e.stopPropagation()}>
+                  <span className="volume-actions" onClick={e => e.stopPropagation()}>
                     <button className="pv-icon-btn" title="重命名卷" onClick={() => startRenameVolume(volume)}><Edit3 size={13} /></button>
                     <button className="pv-icon-btn pv-icon-btn-danger" title="删除卷" onClick={() => handleDeleteVolume(volume)}><Trash2 size={13} /></button>
                   </span>

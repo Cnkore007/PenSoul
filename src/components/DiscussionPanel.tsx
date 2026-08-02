@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Bot, CheckCircle2, Loader2, XCircle, MapPin, Clock, BookOpen, Users, Sparkles, ListOrdered, Scale } from "lucide-react";
+import { Bot, CheckCircle2, Loader2, XCircle, MapPin, Clock, BookOpen, Users, Sparkles, ListOrdered, Scale, PenLine } from "lucide-react";
 import type { DiscussionTurn, DiscussionSynthesis, DiscussionEvent, AgentDiscussionConfig } from "../types";
 
 interface DiscussionPanelProps {
@@ -8,7 +8,7 @@ interface DiscussionPanelProps {
   liveEvents: Record<string, DiscussionEvent>; // key: `${agent_id}-${round}`
   synthesis: DiscussionSynthesis | null;
   discussing: boolean;
-  onConfirmGenerate: (selected: SelectedResults) => void;
+  onConfirmGenerate: (selected: SelectedResults, authorFeedback: string) => void;
   generated: boolean;
 }
 
@@ -24,6 +24,12 @@ export interface SelectedResults {
     relationships?: Array<{ from: string; to: string; relation_type: string; strength: number }>;
   }>;
   outline_beats: Array<{ title: string; description: string; chapter_hint?: string }>;
+}
+
+// 作者确认信息：同意标记 + 补充意见（至少其一才能生成）
+export interface AuthorConfirmation {
+  agreed: boolean;
+  feedback: string;
 }
 
 const ROUND_LABELS: Record<number, string> = { 1: "第一轮 · 立论", 2: "第二轮 · 交锋", 3: "第三轮 · 成果提炼" };
@@ -68,6 +74,9 @@ export function DiscussionPanel({ agents, turns, liveEvents, synthesis, discussi
 
   // 成果勾选状态：key = `${类别}-${序号}`
   const [checked, setChecked] = useState<Record<string, boolean>>({});
+  // 作者确认：是否同意讨论结果 / 补充意见（两者至少其一）
+  const [agreed, setAgreed] = useState(false);
+  const [feedback, setFeedback] = useState("");
 
   const groups = useMemo(() => {
     if (!synthesis) return [];
@@ -84,8 +93,10 @@ export function DiscussionPanel({ agents, turns, liveEvents, synthesis, discussi
   const uncheckedCount = Object.values(checked).filter(v => v === false).length;
   const selectedCount = totalItems - uncheckedCount;
 
+  const canConfirm = agreed || feedback.trim().length > 0;
+
   const handleConfirm = () => {
-    if (!synthesis) return;
+    if (!synthesis || !canConfirm) return;
     const pick = <T,>(key: string, items: T[]): T[] => items.filter((_, i) => checked[`${key}-${i}`] !== false);
     onConfirmGenerate({
       locations: pick("locations", synthesis.locations),
@@ -93,7 +104,7 @@ export function DiscussionPanel({ agents, turns, liveEvents, synthesis, discussi
       setting_rules: pick("setting_rules", synthesis.setting_rules),
       characters: pick("characters", synthesis.characters),
       outline_beats: pick("outline_beats", synthesis.outline_beats ?? []),
-    });
+    }, agreed ? (feedback.trim() || "同意讨论结果") : feedback.trim());
   };
 
   const hasAnyTurn = turns.length > 0 || Object.keys(liveEvents).length > 0;
@@ -250,7 +261,8 @@ export function DiscussionPanel({ agents, turns, liveEvents, synthesis, discussi
                 ))}
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: "var(--space-md)" }}>
-                <button className="btn btn-primary" onClick={handleConfirm} disabled={generated || selectedCount === 0}>
+                <button className="btn btn-primary" onClick={handleConfirm} disabled={generated || selectedCount === 0 || !canConfirm}
+                  title={!canConfirm ? "请先勾选同意讨论结果，或填写补充意见" : ""}>
                   <CheckCircle2 size={15} /> {generated ? "已生成" : `确认生成（${selectedCount} 项）`}
                 </button>
                 {generated && (
@@ -259,6 +271,30 @@ export function DiscussionPanel({ agents, turns, liveEvents, synthesis, discussi
                   </span>
                 )}
               </div>
+              {!generated && (
+                <div style={{ marginTop: "var(--space-md)", borderTop: "1px solid var(--color-rule-light)", paddingTop: "var(--space-md)" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "var(--text-xs)", fontWeight: 600, color: "var(--color-ink)", marginBottom: 6 }}>
+                    <PenLine size={14} style={{ color: "var(--color-accent)" }} /> 作者确认
+                  </div>
+                  <label style={{ display: "flex", alignItems: "center", gap: "var(--space-sm)", fontSize: "var(--text-xs)", color: "var(--color-ink-2)", marginBottom: "var(--space-sm)", cursor: "pointer" }}>
+                    <input type="checkbox" checked={agreed} onChange={e => setAgreed(e.target.checked)} style={{ accentColor: "var(--color-accent)" }} />
+                    我同意本次讨论结果
+                  </label>
+                  <textarea
+                    className="pm-textarea"
+                    rows={2}
+                    placeholder="补充意见（可选）：对讨论结果不满意的地方、希望调整的方向，将随成果一并记录"
+                    value={feedback}
+                    onChange={e => setFeedback(e.target.value)}
+                    style={{ minHeight: 56, fontSize: "var(--text-xs)", lineHeight: 1.7 }}
+                  />
+                  {!canConfirm && (
+                    <div style={{ fontSize: "var(--text-2xs)", color: "var(--color-ink-3)", marginTop: 4 }}>
+                      至少勾选「我同意」或填写补充意见后才能生成
+                    </div>
+                  )}
+                </div>
+              )}
             </>
           )}
         </div>

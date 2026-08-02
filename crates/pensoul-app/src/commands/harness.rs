@@ -97,27 +97,19 @@ pub async fn execute_harness_step(
     // 确保 API Key 已从磁盘加载
     lh::ensure_api_keys_loaded(&state);
 
-    let saved_providers = lh::load_providers(&state);
     let api_keys = { state.api_keys.read().clone() };
-
-    // 找第一个有 API Key 的供应商
-    let (provider_id, api_key, api_base) =
-        lh::find_any_available_provider(&saved_providers, &api_keys)
-            .ok_or_else(|| "未配置任何 LLM API Key，请在「模型设置」中配置".to_string())?;
-
-    // 从 models.json 找该供应商的模型；找不到则用默认
+    let saved_providers = lh::load_providers(&state);
     let saved_models = lh::load_models(&state);
-    let model_id = saved_models
-        .iter()
-        .find(|m| {
-            m.get("provider_id").and_then(|v| v.as_str()) == Some(&provider_id)
-                && m.get("is_available")
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(false)
-        })
-        .and_then(|m| m.get("model_id").and_then(|v| v.as_str()))
-        .unwrap_or("gpt-4o")
-        .to_string();
+
+    // 缺省模型：全局默认优先，其次任意可用模型
+    let model_id = lh::pick_default_model(&saved_models, &api_keys)
+        .ok_or_else(|| "未配置任何 LLM API Key，请在「模型设置」中配置".to_string())?;
+    let (provider_id, api_key, api_base) = lh::resolve_provider(
+        &model_id,
+        &lh::build_model_to_provider(&saved_models),
+        &lh::build_provider_api_bases(&saved_providers),
+        &api_keys,
+    )?;
 
     // 构建系统提示词
     let system_prompt = format!(

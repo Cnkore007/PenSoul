@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import type { Expert, LlmModel } from "../types";
 import { DEFAULT_DISCUSSION_AGENTS } from "../types";
 import { saveExperts, loadExperts, listModels, scanExpertsFolder, distillExpert, getExpertsFolder, deleteExpertSkill, getDistillState } from "../ipc";
+import { pickDefaultModel } from "../store";
 import { listen } from "@tauri-apps/api/event";
 import {
   Bot, Trash2, Edit3,
@@ -57,6 +58,9 @@ export function ExpertLibraryView() {
         createdAt: e.created_at, skillPath: e.skill_path, skillSummary: e.skill_summary,
       })));
       setModels(rawModels);
+      // 蒸馏缺省模型：跟随全局默认模型
+      const def = pickDefaultModel(rawModels);
+      if (def) setDistillModel(def.model_id);
       setLoading(false);
     });
   }, []);

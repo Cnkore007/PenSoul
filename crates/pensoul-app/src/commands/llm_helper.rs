@@ -65,6 +65,56 @@ pub(crate) fn build_model_to_provider(models: &[serde_json::Value]) -> HashMap<S
         .collect()
 }
 
+/// 模型是否可用：供应商已配置 API Key；用户手动关闭过的模型（user_managed=true）
+/// 以磁盘 is_available 为准，其余跟随 Key 自动可用。
+pub(crate) fn model_available(
+    model: &serde_json::Value,
+    provider_id: &str,
+    api_keys: &HashMap<String, String>,
+) -> bool {
+    if !api_keys.contains_key(provider_id) {
+        return false;
+    }
+    let user_managed = model
+        .get("user_managed")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    if user_managed {
+        model
+            .get("is_available")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+    } else {
+        true
+    }
+}
+
+/// 选取蒸馏缺省模型：优先「设为默认」且可用的模型，其次任意可用模型。
+/// 返回 None 表示没有任何可用模型。
+pub(crate) fn pick_default_model(
+    models: &[serde_json::Value],
+    api_keys: &HashMap<String, String>,
+) -> Option<String> {
+    models
+        .iter()
+        .find_map(|m| {
+            let mid = m.get("model_id")?.as_str()?.to_string();
+            let pid = m.get("provider_id")?.as_str()?;
+            let is_default = m
+                .get("is_default")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            (is_default && model_available(m, pid, api_keys)).then_some(mid)
+        })
+        .or_else(|| {
+            models.iter().find_map(|m| {
+                let mid = m.get("model_id")?.as_str()?.to_string();
+                let pid = m.get("provider_id")?.as_str()?;
+                model_available(m, pid, api_keys).then_some(mid)
+            })
+        })
+}
+
 // ── 供应商解析 ──
 
 /// 从模型名回退推断供应商 ID

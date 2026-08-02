@@ -2,10 +2,10 @@ import { useState, useEffect, useCallback } from "react";
 import {
   CheckCircle, XCircle, TestTube, Eye, EyeOff, Zap,
   Plus, Trash2, RefreshCw, Globe, Key, Loader2, Wifi, WifiOff,
-  ChevronDown, ChevronRight,
+  ChevronDown, ChevronRight, Star,
 } from "lucide-react";
 import type { LlmProvider, LlmModel } from "../types";
-import { listProviders, listModels, saveProviders, saveModels, saveApiKey, loadApiKeys, httpRequest } from "../ipc";
+import { listProviders, listModels, saveProviders, saveModels, saveApiKey, loadApiKeys, httpRequest, setDefaultModel } from "../ipc";
 
 interface ProviderForm {
   provider_id: string;
@@ -292,10 +292,24 @@ export default function LlmSettingsView() {
 
   // 切换模型启用
   const handleToggle = async (modelId: string, enabled: boolean) => {
-    const newModels = models.map(m => m.model_id === modelId ? { ...m, is_available: enabled } : m);
+    // user_managed=true：后端 list_models 不再因 api_key 存在而自动点亮该模型
+    const newModels = models.map(m => m.model_id === modelId ? { ...m, is_available: enabled, user_managed: true } : m);
     setModels(newModels);
     // 启用状态持久化到 models.json（全局唯一数据源，所有功能共享）
     saveModels(newModels).catch(e => console.error("保存模型列表失败:", e));
+  };
+
+  // 设为全局默认模型（唯一）
+  const handleSetDefault = async (modelId: string) => {
+    const newModels = models.map(m => ({ ...m, is_default: m.model_id === modelId }));
+    setModels(newModels);
+    try {
+      await setDefaultModel(modelId);
+      flashSave("已设为默认模型");
+    } catch (e) {
+      console.error("设置默认模型失败:", e);
+      loadFromBackend();
+    }
   };
 
   // 获取供应商对应的模型列表
@@ -621,6 +635,11 @@ export default function LlmSettingsView() {
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
                             <span style={{ fontWeight: 500, fontSize: "var(--text-sm)" }}>{model.display_name}</span>
+                            {model.is_default && (
+                              <span className="tag tag-success" style={{ fontSize: "9px", display: "inline-flex", alignItems: "center", gap: 3 }}>
+                                <Star size={9} /> 默认
+                              </span>
+                            )}
                             <span style={{
                               fontSize: "9px", padding: "1px 6px", borderRadius: "var(--radius-xs)",
                               background: providerTag(provider.provider_id).bg,
@@ -645,6 +664,16 @@ export default function LlmSettingsView() {
 
                         {/* 操作 */}
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <button
+                            className="btn btn-secondary"
+                            style={{ padding: "3px 8px", fontSize: "10px" }}
+                            onClick={() => handleSetDefault(model.model_id)}
+                            disabled={!!model.is_default}
+                            title={model.is_default ? "当前默认模型" : "设为全局默认模型（各环节未手动选择时优先使用）"}
+                          >
+                            <Star size={10} style={{ marginRight: 3, verticalAlign: -1 }} />
+                            {model.is_default ? "默认" : "设默认"}
+                          </button>
                           <button
                             className="btn btn-secondary"
                             style={{ padding: "4px 8px", fontSize: "11px" }}

@@ -927,54 +927,123 @@ body::after {
 /* =========================================
    Outline View
    ========================================= */
+.outline-card {
+  padding: 0;
+  overflow: hidden;
+}
+.outline-volume-group {
+  border-bottom: 1px solid var(--color-rule-light);
+  transition: background var(--dur-fast) var(--ease-out);
+}
+.outline-volume-group:last-child { border-bottom: none; }
 .volume-header {
   display: flex;
   align-items: center;
   gap: var(--space-xs);
-  padding: var(--space-md) var(--space-lg);
+  padding: var(--space-sm) var(--space-lg);
   cursor: pointer;
-  background: var(--color-paper-warm);
+  background: linear-gradient(180deg, var(--color-paper-warm), var(--color-paper));
   user-select: none;
   border-bottom: 1px solid var(--color-rule-light);
   transition: background var(--dur-fast) var(--ease-out);
 }
 .volume-header:hover { background: var(--color-paper-deep); }
 .volume-title {
-  font-weight: 400;
-  font-size: var(--text-sm);
+  font-weight: 600;
+  font-size: var(--text-md);
   font-family: var(--font-brush);
-  letter-spacing: 1px;
+  letter-spacing: 2px;
+  color: var(--color-ink);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.volume-count { font-size: var(--text-2xs); color: var(--color-ink-3); }
+.volume-expand-icon {
+  display: flex;
+  align-items: center;
+  color: var(--color-accent);
+  flex-shrink: 0;
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+.volume-count {
+  font-size: var(--text-2xs);
+  color: var(--color-ink-3);
+  background: var(--color-paper-deep);
+  border-radius: var(--radius-xs);
+  padding: 2px 10px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.volume-actions {
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease-out);
+  flex-shrink: 0;
+}
+.volume-header:hover .volume-actions { opacity: 1; }
+.volume-actions:focus-within { opacity: 1; }
 .chapter-list { padding: var(--space-2xs) 0; }
 .chapter-item {
   display: flex;
   align-items: center;
   gap: var(--space-sm);
-  padding: var(--space-sm) var(--space-lg) var(--space-sm) var(--space-2xl);
+  padding: var(--space-xs) var(--space-lg) var(--space-xs) var(--space-2xl);
   cursor: pointer;
+  border-left: 3px solid transparent;
   transition: background var(--dur-fast) var(--ease-out);
 }
-.chapter-item:hover { background: var(--color-paper-warm); }
+.chapter-item:hover {
+  background: var(--color-paper-warm);
+  border-left-color: var(--color-accent);
+}
 .chapter-item.active { background: var(--color-accent-wash); }
-.chapter-title { flex: 1; font-size: var(--text-sm); color: var(--color-ink-2); letter-spacing: 0.5px; }
+.chapter-item.active { border-left-color: var(--color-accent); }
+.chapter-title {
+  flex: 1;
+  font-size: var(--text-sm);
+  color: var(--color-ink-2);
+  letter-spacing: 0.5px;
+  line-height: 1.6;
+}
 .chapter-title.active { color: var(--color-accent); font-weight: 500; }
-.chapter-words { font-size: var(--text-2xs); color: var(--color-ink-3); }
-.outline-card { padding: 0; }
-.outline-volume-group { border-bottom: 1px solid var(--color-rule-light); }
-.outline-volume-group:last-child { border-bottom: none; }
-.volume-expand-icon { display: flex; align-items: center; color: var(--color-ink-3); flex-shrink: 0; }
+.chapter-actions {
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease-out);
+  flex-shrink: 0;
+}
+.chapter-item:hover .chapter-actions { opacity: 1; }
+.chapter-actions:focus-within { opacity: 1; }
+.chapter-words {
+  font-size: var(--text-2xs);
+  color: var(--color-ink-3);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
 .chapter-icon { color: var(--color-ink-3); flex-shrink: 0; }
 .outline-stats {
   display: flex;
   align-items: center;
-  gap: var(--space-sm);
-  padding: var(--space-md) 0;
-  font-size: var(--text-sm);
+  gap: var(--space-md);
+  padding: var(--space-md) var(--space-sm) 0;
+  font-size: var(--text-xs);
   color: var(--color-ink-3);
-  font-style: italic;
+  letter-spacing: 0.5px;
 }
 .outline-stat-sep { opacity: 0.3; }
+/* 章节状态徽标（大纲行内展示，与笔耕一致的语义配色） */
+.chapter-status-badge {
+  font-size: var(--text-2xs);
+  padding: 1px 8px;
+  border-radius: var(--radius-xs);
+  white-space: nowrap;
+  flex-shrink: 0;
+  letter-spacing: 0.5px;
+}
 
 /* =========================================
    Character View

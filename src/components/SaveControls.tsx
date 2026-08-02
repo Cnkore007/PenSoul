@@ -12,6 +12,7 @@ import {
   type PageReview,
 } from "../ipc";
 import { ReviewConfirmModal } from "./ReviewConfirmModal";
+import { pickDefaultModel } from "../store";
 
 interface SaveControlsProps {
   type: "world" | "character";
@@ -35,7 +36,7 @@ export function SaveControls({ type, contentJson, apply, disabled }: SaveControl
   useEffect(() => {
     listModels().then(ms => {
       setModels(ms);
-      const first = ms.find(m => m.is_available) || ms[0];
+      const first = pickDefaultModel(ms);
       if (first) setModelId(first.model_id);
     }).catch(() => {});
     pageUndoAvailable(type).then(setUndoCount).catch(() => {});

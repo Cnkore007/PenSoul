@@ -29,26 +29,13 @@ pub async fn optimize_content(
     let api_keys = { state.api_keys.read().clone() };
 
     // 模型选择：优先用前端指定的模型（经 resolve_provider 解析供应商），
-    // 否则取第一个有 API Key 的供应商下的第一个可用模型
+    // 否则取全局默认模型，其次任意可用模型
     let model_to_provider = lh::build_model_to_provider(&saved_models);
     let provider_api_bases = lh::build_provider_api_bases(&saved_providers);
     let chosen_model = match model_id.as_deref() {
         Some(mid) if !mid.is_empty() => mid.to_string(),
-        _ => {
-            let (pid, _, _) = lh::find_any_available_provider(&saved_providers, &api_keys)
-                .ok_or_else(|| "未配置任何 LLM API Key，请在模型设置中配置".to_string())?;
-            saved_models
-                .iter()
-                .find(|m| {
-                    m.get("provider_id").and_then(|v| v.as_str()) == Some(&pid)
-                        && m.get("is_available")
-                            .and_then(|v| v.as_bool())
-                            .unwrap_or(false)
-                })
-                .and_then(|m| m.get("model_id").and_then(|v| v.as_str()))
-                .unwrap_or("gpt-4o")
-                .to_string()
-        }
+        _ => lh::pick_default_model(&saved_models, &api_keys)
+            .ok_or_else(|| "未配置任何 LLM API Key，请在模型设置中配置".to_string())?,
     };
     let (_provider_id, api_key, api_base) = lh::resolve_provider(
         &chosen_model,

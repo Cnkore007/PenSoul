@@ -235,8 +235,8 @@ export async function upsertChapter(
   await invoke("upsert_chapter", { chapterId, volumeId, title, content, summary, status });
 }
 
-// 持久化卷列表（卷名等元数据）
-export async function saveVolumes(volumes: Array<{ volume_id: string; title: string; summary?: string }>): Promise<void> {
+// 持久化卷列表（卷名、展开状态等元数据）
+export async function saveVolumes(volumes: Array<{ volume_id: string; title: string; summary?: string; expanded?: boolean }>): Promise<void> {
   await invoke("save_volumes", { volumes });
 }
 
@@ -377,6 +377,10 @@ export async function listModels(): Promise<any[]> {
 
 export async function saveModels(models: any[]): Promise<void> {
   await invoke("save_models", { models });
+}
+
+export async function setDefaultModel(modelId: string): Promise<void> {
+  await invoke("set_default_model", { modelId });
 }
 
 export async function saveApiKey(providerId: string, apiKey: string): Promise<void> {

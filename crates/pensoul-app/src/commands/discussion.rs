@@ -122,6 +122,7 @@ pub async fn discuss_concept(
             onto.sprout.last_discussion = Some(DiscussionRecord {
                 turns: out.turns.clone(),
                 synthesis: out.synthesis.clone(),
+                author_feedback: String::new(),
             });
         }
         if let Err(e) = state.save() {

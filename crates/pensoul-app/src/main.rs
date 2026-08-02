@@ -124,6 +124,7 @@ fn main() {
             pensoul_app::commands::llm::save_providers,
             pensoul_app::commands::llm::list_models,
             pensoul_app::commands::llm::save_models,
+            pensoul_app::commands::llm::set_default_model,
             pensoul_app::commands::llm::save_api_key,
             pensoul_app::commands::llm::load_api_keys,
             pensoul_app::commands::discussion::discuss_concept,

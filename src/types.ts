@@ -201,6 +201,10 @@ export interface LlmModel {
   avg_latency_ms: number;
   is_available: boolean;
   api_key_configured: boolean;
+  // 全局默认模型（模型设置页可设，各环节未手动选择时优先用它）
+  is_default?: boolean;
+  // 用户是否手动开关过该模型（true 时 is_available 以磁盘为准，不被 api_key 自动点亮）
+  user_managed?: boolean;
 }
 
 // 情节脉络节点 —— 大纲规划层（覆盖一个章节范围的剧情规划，展开细纲后才生成可写章节）
@@ -393,6 +397,8 @@ export interface SproutData {
   lastDiscussion?: {
     turns: DiscussionTurn[];
     synthesis: DiscussionSynthesis;
+    // 作者在确认生成前填写的确认意见（同意讨论结果 / 补充意见）
+    authorFeedback?: string;
   };
 }
 

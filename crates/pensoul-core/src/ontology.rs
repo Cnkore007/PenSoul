@@ -457,6 +457,7 @@ mod tests {
             title: "第一卷".to_string(),
             chapter_ids: vec![ChapterId::new("ch-pseudo"), ChapterId::new("ch-normal")],
             summary: String::new(),
+            expanded: true,
         });
 
         assert!(onto.migrate_arc_chapters());
