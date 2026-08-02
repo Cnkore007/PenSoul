@@ -15,7 +15,7 @@ pub async fn save_world(
     state: tauri::State<'_, AppState>,
     world: serde_json::Value,
 ) -> Result<(), String> {
-    let layer: pensoul_core::WorldLayer =
+    let mut layer: pensoul_core::WorldLayer =
         serde_json::from_value(world).map_err(|e| e.to_string())?;
     let samples = {
         let onto = state.ontology.read();
@@ -23,6 +23,8 @@ pub async fn save_world(
     };
     {
         let mut ontology = state.ontology.write();
+        // 前端保存不带批注字段，覆盖时合并旧实体批注（防批注丢失）
+        crate::page_review::merge_world_annotations(&ontology.world, &mut layer);
         ontology.world = layer;
     }
     crate::edits::record_edit_samples(&state, samples);
@@ -58,6 +60,7 @@ pub async fn save_characters(
     };
     {
         let mut ontology = state.ontology.write();
+        crate::page_review::merge_character_annotations(&ontology.characters, &mut layer);
         ontology.characters = layer;
     }
     crate::edits::record_edit_samples(&state, samples);

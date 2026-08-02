@@ -56,6 +56,200 @@ fn now() -> String {
         .unwrap_or_default()
 }
 
+/// 兼容解析世界观：优先后端完整结构；失败则按前端扁平结构
+/// `{locations:[{id,name,description,spatial_tags}], timeline_events:[...], setting_rules:[...]}`
+fn parse_world_layer(v: &serde_json::Value) -> Result<pensoul_core::WorldLayer, String> {
+    if let Ok(layer) = serde_json::from_value::<pensoul_core::WorldLayer>(v.clone()) {
+        return Ok(layer);
+    }
+    let arr = |key: &str| -> Vec<serde_json::Value> {
+        v.get(key)
+            .and_then(|x| x.as_array())
+            .cloned()
+            .unwrap_or_default()
+    };
+    let locations = arr("locations")
+        .into_iter()
+        .filter_map(|l| serde_json::from_value(l).ok())
+        .collect();
+    let events = arr("timeline_events")
+        .into_iter()
+        .filter_map(|e| serde_json::from_value(e).ok())
+        .collect();
+    let rules = arr("setting_rules")
+        .into_iter()
+        .filter_map(|r| serde_json::from_value(r).ok())
+        .collect();
+    Ok(pensoul_core::WorldLayer {
+        world_id: pensoul_core::WorldId::new("default"),
+        name: v
+            .get("name")
+            .and_then(|x| x.as_str())
+            .unwrap_or("default")
+            .to_string(),
+        spatial_model: pensoul_core::SpatialModel {
+            locations,
+            hierarchy: Vec::new(),
+        },
+        timeline: pensoul_core::Timeline {
+            events,
+            epoch_markers: Vec::new(),
+        },
+        setting_rules: rules,
+        glossary: Vec::new(),
+        item_graph: Vec::new(),
+    })
+}
+
+/// 兼容解析人物志：优先后端完整结构；失败则按前端扁平 CharacterData[] 构建
+fn parse_character_layer(v: &serde_json::Value) -> Result<pensoul_core::CharacterLayer, String> {
+    if let Ok(layer) = serde_json::from_value::<pensoul_core::CharacterLayer>(v.clone()) {
+        return Ok(layer);
+    }
+    let chars: Vec<pensoul_core::Character> = v
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|c| {
+            let name = c.get("name").and_then(|x| x.as_str()).unwrap_or("").to_string();
+            let traits: Vec<(String, f32)> = c
+                .get("personality_traits")
+                .and_then(|x| x.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|t| {
+                            let name = t.get(0).and_then(|x| x.as_str())?.to_string();
+                            let strength = t
+                                .get(1)
+                                .and_then(|x| x.as_f64())
+                                .unwrap_or(0.5) as f32;
+                            Some((name, strength))
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            Some(pensoul_core::Character {
+                id: pensoul_core::CharacterId::new(
+                    c.get("id").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+                ),
+                name,
+                core_personality: pensoul_core::PersonalityVector { traits },
+                current_mood: pensoul_core::Emotion {
+                    primary: c
+                        .get("current_mood")
+                        .and_then(|x| x.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    intensity: 0.5,
+                    secondary: String::new(),
+                },
+                current_location: String::new(),
+                current_knowledge: pensoul_core::KnowledgeSet { facts: Vec::new() },
+                state_history: Vec::new(),
+                transition_rules: Vec::new(),
+                dialogue_style: pensoul_core::DialogueStyle {
+                    patterns: Vec::new(),
+                    vocabulary_level: "normal".to_string(),
+                    sentence_length_avg: 15.0,
+                    catchphrases: Vec::new(),
+                },
+                growth_curve: Vec::new(),
+                knowledge_base: pensoul_core::CharacterKnowledgeBase {
+                    known_facts: Vec::new(),
+                    knowledge_sources: Vec::new(),
+                    decay_model: pensoul_core::DecayModel {
+                        half_life_chapters: 10,
+                        min_reliability: 0.1,
+                    },
+                },
+                annotations: Vec::new(),
+            })
+        })
+        .collect();
+    // relationships：拍平各角色的关系并去重
+    let mut seen = std::collections::HashSet::new();
+    let relationships: Vec<pensoul_core::Relationship> = v
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .flat_map(|c| {
+            c.get("relationships")
+                .and_then(|x| x.as_array())
+                .cloned()
+                .unwrap_or_default()
+        })
+        .filter_map(|r| {
+            let from = r.get("from").and_then(|x| x.as_str()).unwrap_or("").to_string();
+            let to = r.get("to").and_then(|x| x.as_str()).unwrap_or("").to_string();
+            let relation_type = r
+                .get("relation_type")
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .to_string();
+            let key = format!("{from}|{to}|{relation_type}");
+            if !seen.insert(key) {
+                return None;
+            }
+            let strength = r
+                .get("strength")
+                .and_then(|x| x.as_f64())
+                .filter(|s| s.is_finite())
+                .unwrap_or(0.5) as f32;
+            Some(pensoul_core::Relationship {
+                from: pensoul_core::CharacterId::new(from),
+                to: pensoul_core::CharacterId::new(to),
+                relation_type,
+                strength,
+                history: Vec::new(),
+            })
+        })
+        .collect();
+    Ok(pensoul_core::CharacterLayer {
+        characters: chars,
+        relationships,
+    })
+}
+
+/// 把旧实体的批注合并回新层（受控保存覆盖时保留批注）
+pub(crate) fn merge_world_annotations(
+    old: &pensoul_core::WorldLayer,
+    new: &mut pensoul_core::WorldLayer,
+) {
+    for l in &mut new.spatial_model.locations {
+        if let Some(ol) = old.spatial_model.locations.iter().find(|o| o.id == l.id) {
+            l.annotations = ol.annotations.clone();
+        }
+    }
+    for e in &mut new.timeline.events {
+        if let Some(oe) = old.timeline.events.iter().find(|o| o.event_id == e.event_id) {
+            e.annotations = oe.annotations.clone();
+        }
+    }
+    for r in &mut new.setting_rules {
+        if let Some(or) = old.setting_rules.iter().find(|o| o.rule_id == r.rule_id) {
+            r.annotations = or.annotations.clone();
+        }
+    }
+    for g in &mut new.glossary {
+        if let Some(og) = old.glossary.iter().find(|o| o.term == g.term) {
+            g.annotations = og.annotations.clone();
+        }
+    }
+}
+
+pub(crate) fn merge_character_annotations(
+    old: &pensoul_core::CharacterLayer,
+    new: &mut pensoul_core::CharacterLayer,
+) {
+    for c in &mut new.characters {
+        if let Some(oc) = old.characters.iter().find(|o| o.id == c.id) {
+            c.annotations = oc.annotations.clone();
+        }
+    }
+}
+
 /// 收集页面批注（open）+ 修改样本（scope 匹配）
 fn collect_page_items(onto: &pensoul_core::NovelOntology, page: &str) -> Vec<PageItem> {
     let mut out = Vec::new();
@@ -237,29 +431,33 @@ pub async fn apply_page_review(
         let mut onto = state.ontology.write();
         match page.as_str() {
             "world" => {
-                let layer: pensoul_core::WorldLayer =
-                    serde_json::from_value(after.clone()).map_err(|e| e.to_string())?;
-                // 先流转批注（新数据里可能不带批注，从旧实体上按判定流转）
-                for l in onto.world.spatial_model.locations.iter_mut() {
+                let mut layer = parse_world_layer(&after)?;
+                let mut old_layer: pensoul_core::WorldLayer =
+                    serde_json::from_value(before.clone()).map_err(|e| e.to_string())?;
+                // 在旧实体批注上按判定流转，再合并进新层（新数据通常不带批注字段）
+                for l in old_layer.spatial_model.locations.iter_mut() {
                     resolve_annotations(&mut l.annotations, &verdicts);
                 }
-                for e in onto.world.timeline.events.iter_mut() {
+                for e in old_layer.timeline.events.iter_mut() {
                     resolve_annotations(&mut e.annotations, &verdicts);
                 }
-                for r in onto.world.setting_rules.iter_mut() {
+                for r in old_layer.setting_rules.iter_mut() {
                     resolve_annotations(&mut r.annotations, &verdicts);
                 }
-                for g in onto.world.glossary.iter_mut() {
+                for g in old_layer.glossary.iter_mut() {
                     resolve_annotations(&mut g.annotations, &verdicts);
                 }
+                merge_world_annotations(&old_layer, &mut layer);
                 onto.world = layer;
             }
             "character" => {
-                let layer: pensoul_core::CharacterLayer =
-                    serde_json::from_value(after.clone()).map_err(|e| e.to_string())?;
-                for c in onto.characters.characters.iter_mut() {
+                let mut layer = parse_character_layer(&after)?;
+                let mut old_layer: pensoul_core::CharacterLayer =
+                    serde_json::from_value(before.clone()).map_err(|e| e.to_string())?;
+                for c in old_layer.characters.iter_mut() {
                     resolve_annotations(&mut c.annotations, &verdicts);
                 }
+                merge_character_annotations(&old_layer, &mut layer);
                 onto.characters = layer;
             }
             _ => return Err("不支持的页面类型".to_string()),
@@ -477,5 +675,72 @@ mod tests {
         assert_eq!(annos[0].status, "accepted");
         assert_eq!(annos[0].resolved_by.as_deref(), Some("manual"));
         assert_eq!(annos[1].status, "rejected");
+    }
+
+    #[test]
+    fn test_parse_world_layer_flat_structure() {
+        let v = serde_json::json!({
+            "locations": [{"id": "loc-1", "name": "山谷", "description": "幽静"}],
+            "timeline_events": [{"event_id": "evt-1", "story_time": "第一年", "description": "大战"}],
+            "setting_rules": [{"rule_id": "rule-1", "title": "禁术", "description": "不可用"}],
+        });
+        let layer = parse_world_layer(&v).unwrap();
+        assert_eq!(layer.spatial_model.locations.len(), 1);
+        assert_eq!(layer.spatial_model.locations[0].name, "山谷");
+        assert_eq!(layer.timeline.events.len(), 1);
+        assert_eq!(layer.setting_rules.len(), 1);
+    }
+
+    #[test]
+    fn test_parse_character_layer_flat_array() {
+        let v = serde_json::json!([
+            {
+                "id": "char-1",
+                "name": "林晚",
+                "personality_traits": [["冷静", 0.8]],
+                "current_mood": "平静",
+                "relationships": [{"from": "林晚", "to": "顾沉", "relation_type": "宿敌", "strength": 0.9}]
+            }
+        ]);
+        let layer = parse_character_layer(&v).unwrap();
+        assert_eq!(layer.characters.len(), 1);
+        assert_eq!(layer.characters[0].core_personality.traits[0].0, "冷静");
+        assert_eq!(layer.relationships.len(), 1);
+        assert_eq!(layer.relationships[0].relation_type, "宿敌");
+    }
+
+    #[test]
+    fn test_merge_world_annotations_keeps_batch() {
+        use pensoul_core::ChapterAnnotation;
+        let anno = ChapterAnnotation {
+            annotation_id: "a1".to_string(),
+            status: "open".to_string(),
+            ..ChapterAnnotation::default()
+        };
+        let old = pensoul_core::WorldLayer {
+            world_id: pensoul_core::WorldId::new("w"),
+            name: "世界".to_string(),
+            spatial_model: pensoul_core::SpatialModel {
+                locations: vec![pensoul_core::Location {
+                    id: pensoul_core::LocationId::new("loc-1"),
+                    name: "谷".to_string(),
+                    description: "幽静".to_string(),
+                    spatial_tags: vec![],
+                    annotations: vec![anno],
+                }],
+                hierarchy: vec![],
+            },
+            timeline: pensoul_core::Timeline {
+                events: vec![],
+                epoch_markers: vec![],
+            },
+            setting_rules: vec![],
+            glossary: vec![],
+            item_graph: vec![],
+        };
+        let mut new = old.clone();
+        new.spatial_model.locations[0].annotations = vec![];
+        merge_world_annotations(&old, &mut new);
+        assert_eq!(new.spatial_model.locations[0].annotations.len(), 1);
     }
 }
