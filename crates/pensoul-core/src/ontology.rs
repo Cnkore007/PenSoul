@@ -13,6 +13,9 @@ pub struct NovelOntology {
     pub project_id: ProjectId,
     /// 项目标题
     pub title: String,
+    /// 作品简介（作品库列表与概览展示；旧数据曾复用 core_concept.inspiration）
+    #[serde(default)]
+    pub description: String,
     /// Layer 1: 世界层
     pub world: WorldLayer,
     /// Layer 2: 角色层
@@ -65,6 +68,7 @@ impl NovelOntology {
         Self {
             project_id,
             title,
+            description: String::new(),
             world: WorldLayer {
                 world_id: crate::id::WorldId::default(),
                 name: String::new(),

@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex};
 
 use parking_lot::RwLock;
 
+use crate::anti_ai::AntiAiRuleConfig;
 use pensoul_cda::ImpactGraph;
 use pensoul_concurrency::ConcurrencyController;
 use pensoul_consistency::IncrementalChecker;
@@ -98,6 +99,8 @@ pub struct AppState {
     pub discussion: Arc<crate::commands::discussion::DiscussionControl>,
     /// 蒸馏控制面（书籍/方法论/专家蒸馏共用，支持页面切换后重连）
     pub distills: Arc<crate::commands::expert_distill::DistillControl>,
+    /// 反 AI 味规则配置（全局，墨韵页可编辑，注入工作流）
+    pub anti_ai: Arc<RwLock<AntiAiRuleConfig>>,
 }
 
 impl AppState {
@@ -106,6 +109,7 @@ impl AppState {
         let project_id = ProjectId::new(uuid::Uuid::new_v4().to_string());
         let ontology = NovelOntology::new(project_id, String::new());
         let workflow_templates = load_workflow_templates_from_disk(&base_dir);
+        let anti_ai_cfg = crate::anti_ai::load_or_default(&base_dir.join("_config"));
 
         Self {
             harness: Arc::new(RwLock::new(HarnessEngine::new(&scratch_harness_dir(
@@ -124,6 +128,7 @@ impl AppState {
             pipeline: Arc::new(crate::pipeline::PipelineControl::new()),
             discussion: Arc::new(crate::commands::discussion::DiscussionControl::new()),
             distills: Arc::new(crate::commands::expert_distill::DistillControl::new()),
+            anti_ai: Arc::new(RwLock::new(anti_ai_cfg)),
         }
     }
 
@@ -146,6 +151,9 @@ impl AppState {
         let migrated = ontology.migrate_arc_chapters();
 
         let state = Self {
+            anti_ai: Arc::new(RwLock::new(crate::anti_ai::load_or_default(
+                &base_dir.join("_config"),
+            ))),
             base_dir: base_dir.clone(),
             active_project_id: Arc::new(RwLock::new(Some(project_id.to_string()))),
             api_keys: Arc::new(RwLock::new(HashMap::new())),
@@ -360,7 +368,12 @@ impl AppState {
             metas.push(ProjectMeta {
                 project_id: ontology.project_id.to_string(),
                 title: ontology.title.clone(),
-                description: String::new(),
+                // 旧数据：简介曾存于 core_concept.inspiration，兼容读取
+                description: if ontology.description.is_empty() {
+                    ontology.core_concept.inspiration.clone()
+                } else {
+                    ontology.description.clone()
+                },
                 created_at: String::new(),
                 updated_at: String::new(),
                 total_chapters: ontology.chapters.len(),

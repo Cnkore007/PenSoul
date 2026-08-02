@@ -101,10 +101,7 @@ pub async fn update_project(
         serde_json::from_str(&data).map_err(|e| format!("解析项目文件失败: {e}"))?;
 
     ontology.title = title;
-
-    // 将 description 存储到 core_concept.inspiration 作为扩展字段
-    // （NovelOntology 没有独立的 description 字段，复用 inspiration）
-    ontology.core_concept.inspiration = description;
+    ontology.description = description;
 
     let data = serde_json::to_string_pretty(&ontology).map_err(|e| e.to_string())?;
     std::fs::write(&project_file, data).map_err(|e| format!("保存项目文件失败: {e}"))?;

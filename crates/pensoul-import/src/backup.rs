@@ -143,6 +143,7 @@ mod tests {
         NovelOntology {
             project_id: ProjectId::new("proj1"),
             title: "测试小说".to_string(),
+            description: String::new(),
             world: pensoul_core::WorldLayer {
                 world_id: pensoul_core::WorldId::new("world1"),
                 name: String::new(),
