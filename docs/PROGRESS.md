@@ -277,3 +277,11 @@
   5. 人物志渲染保护：搜索过滤 + 分页加载（每页 24）+ 关系折叠（超 6 条折叠）。
 - **状态**：已完成。cargo test 全绿，tsc 通过。
 - **下次待办**：用户确认数据无误后删除 /tmp 备份；saveProjectData 全量保存可进一步改为增量保存（章节多时仍有开销）。
+
+## 2026-08-02：笔耕「保存并审核」
+
+- **改动范围**：新增 `crates/pensoul-app/src/chapter_review.rs`（review_chapter_changes / apply_chapter_review）；`EditSample` 加 `chapter_id`（按章过滤修改样本）；前端新增公共组件 `ReviewConfirmModal`（SaveControls 与 WritingView 共用），WritingView 保存按钮改为「保存并审核」流程。
+- **流程**：点保存 → LLM 判定本章批注与修改的有效性 + 对全文影响 → 面板二次确认 → 落库（revisions 快照、批注流转、valid 样本沉淀、派生状态更新、版本推进）。
+- **设计取舍**：笔耕的「撤回」复用现有 revisions 版本历史（上限 30）；无批注无修改时仍可确认直接保存（面板仅提示）；重写（按批注重写）流程不受影响。
+- **状态**：已完成。cargo test 全绿（含章节样本收集/批注流转单测），tsc 通过，clippy 无新增警告。
+- **下次待办**：用户验收后合并 main；大纲/细纲页的保存可同样接入（与受控保存统一）。

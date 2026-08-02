@@ -166,6 +166,10 @@ annotations_export(project_id, kind?) → JSONL 标注集
 
 经验判定原则：**批注与修改都只是人工数据采集，是否沉淀由 LLM 判定有效性**——invalid 的修改样本直接丢弃、批注标记 rejected，只有 valid 的才进经验库。
 
+### 章节受控保存（笔耕，已落地）
+
+笔耕「保存」升级为「保存并审核」：`chapter_review.rs` 收集本章 open 批注 + 本章修改样本（`EditSample.chapter_id` 过滤）+ 本次编辑与落库内容的临时 diff → LLM 判定 + 影响评估 → 二次确认 → `apply_chapter_review` 落库（旧版进 revisions 快照、批注按判定流转、valid 样本沉淀经验、触发派生状态更新）。判定面板抽为公共组件 `ReviewConfirmModal`，与页面受控保存共用。
+
 ## 七、迁移与兼容
 
 - `ChapterAnnotation` 保留为兼容别名/转换函数，旧项目 JSON 无需迁移；

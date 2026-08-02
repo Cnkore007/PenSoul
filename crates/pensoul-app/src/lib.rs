@@ -1,4 +1,5 @@
 pub mod commands;
+pub mod chapter_review;
 pub mod edits;
 /// PenSoul App — Tauri 桌面应用后端
 ///

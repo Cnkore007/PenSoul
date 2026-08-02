@@ -4,6 +4,8 @@ import { TipTapEditor } from "../components/TipTapEditor";
 import { AnnotationPanel } from "../components/AnnotationPanel";
 import {
   saveChapter,
+  reviewChapterChanges,
+  applyChapterReview,
   analyzeChapterImpact,
   rewriteChapterWithAnnotations,
   listChapterRevisions,
@@ -11,7 +13,9 @@ import {
   getWritingLessons,
   saveWritingLessons,
 } from "../ipc";
+import type { PageReview } from "../ipc";
 import { messageDialog, confirmDialog } from "../dialogs";
+import { ReviewConfirmModal } from "../components/ReviewConfirmModal";
 import type {
   ChapterImpact,
   ProjectData,
@@ -35,6 +39,9 @@ export function WritingView({ projectData, persistProjectData, chapterId, onWord
   const [annotations, setAnnotations] = useState<ChapterAnnotation[]>([]);
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
+  // 受控保存：判定面板状态
+  const [review, setReview] = useState<PageReview | null>(null);
+  const [verdicts, setVerdicts] = useState<Record<string, string>>({});
   const [selectedId, setSelectedId] = useState<string | null>(chapterId);
   const [expandedVolumes, setExpandedVolumes] = useState<Record<string, boolean>>({});
   const [showNav, setShowNav] = useState(true);
@@ -179,7 +186,28 @@ export function WritingView({ projectData, persistProjectData, chapterId, onWord
     setSaving(true);
     const plainText = toPlain(content);
     try {
-      const newVersion = await saveChapter(chapter.chapter_id, plainText, chapter.version, annotations);
+      // 受控保存：先让 LLM 判定本章批注/修改的有效性与影响，二次确认后再落库
+      const r = await reviewChapterChanges(chapter.chapter_id, plainText);
+      setReview(r);
+      const v: Record<string, string> = {};
+      for (const item of r.items) v[item.id] = item.verdict || "uncertain";
+      setVerdicts(v);
+    } catch (e: any) {
+      await messageDialog("审核分析失败：\n" + (typeof e === "string" ? e : e?.message || String(e)));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // 用户二次确认后真正落库
+  async function handleApplyReview() {
+    if (!chapter || !review) return;
+    setSaving(true);
+    const plainText = toPlain(content);
+    try {
+      const confirmations = review.items.map(item => ({ id: item.id, verdict: verdicts[item.id] ?? "uncertain" }));
+      const result = await applyChapterReview(chapter.chapter_id, plainText, confirmations);
+      const newVersion = result.new_version;
       const updated: Chapter = {
         ...chapter,
         content: plainText,
@@ -196,12 +224,13 @@ export function WritingView({ projectData, persistProjectData, chapterId, onWord
         })),
       }));
       setChapter(updated);
+      setReview(null);
       setContent(applyAnnotations(toHtml(plainText), annotations));
       const report = await analyzeChapterImpact(chapter.chapter_id);
       setImpact(report);
       const nAffected = Array.isArray(report.affected) ? report.affected.length : 0;
       const nIssues = Array.isArray(report.consistency) ? report.consistency.length : 0;
-      setSaveMsg(`已保存 · 批注 ${annotations.length} 条 · 影响 ${nAffected} 处 · 一致性提示 ${nIssues} 项`);
+      setSaveMsg(`已保存 · 沉淀 ${result.lessons.length} 条经验 · 影响 ${nAffected} 处 · 一致性提示 ${nIssues} 项`);
     } catch (e: any) {
       await messageDialog("保存失败：\n" + (typeof e === "string" ? e : e?.message || String(e)));
     } finally {
@@ -453,13 +482,23 @@ export function WritingView({ projectData, persistProjectData, chapterId, onWord
                 {rewriting ? <><Loader2 size={15} className="spinning" /> 重写中…</> : <><Wand2 size={15} /> 按批注重写本章（{openAnnoCount}）</>}
               </button>
             )}
-            <button className={"btn btn-primary" + (saving || !chapter ? " btn-disabled" : "")} onClick={handleSave} disabled={saving || !chapter}>
-              <Save size={15} /> {saving ? "保存中..." : "保存"}
+            <button className={"btn btn-primary" + (saving || !chapter ? " btn-disabled" : "")} onClick={handleSave} disabled={saving || !chapter} title="审核本章批注与修改后保存">
+              <Save size={15} /> {saving ? "审核中..." : "保存并审核"}
             </button>
           </div>
         </div>
         {saveMsg && <div className="save-message success">{saveMsg}</div>}
         {rewriteMsg && <div className="save-message success"><Loader2 size={13} className="spinning" style={{ verticalAlign: -2, marginRight: 6 }} />{rewriteMsg}</div>}
+        {review && (
+          <ReviewConfirmModal
+            review={review}
+            verdicts={verdicts}
+            setVerdicts={setVerdicts}
+            applying={saving}
+            onConfirm={handleApplyReview}
+            onCancel={() => setReview(null)}
+          />
+        )}
         {rewriteResult && (
           <div className="save-message success" style={{ whiteSpace: "pre-wrap" }}>
             重写完成（第 {rewriteResult.new_version} 版）。{rewriteResult.plan_summary}

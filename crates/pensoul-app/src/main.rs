@@ -61,6 +61,8 @@ fn main() {
             pensoul_app::page_review::apply_page_review,
             pensoul_app::page_review::undo_page_change,
             pensoul_app::page_review::page_undo_available,
+            pensoul_app::chapter_review::review_chapter_changes,
+            pensoul_app::chapter_review::apply_chapter_review,
             pensoul_app::commands::project::create_project,
             pensoul_app::commands::project::list_projects,
             pensoul_app::commands::project::get_project,

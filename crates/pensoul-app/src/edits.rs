@@ -103,6 +103,7 @@ fn capture_edit_sample(scope: &str, label: &str, before: &str, after: &str) -> O
         label: label.to_string(),
         before: b,
         after: a,
+        chapter_id: None,
         created_at: now(),
     })
 }
@@ -217,6 +218,8 @@ pub fn chapter_diff_samples(
         &old.summary,
         summary,
     ) {
+        let mut s = s;
+        s.chapter_id = Some(old.chapter_id.as_str().to_string());
         out.push(s);
     }
     if let Some(s) = capture_edit_sample(
@@ -225,6 +228,8 @@ pub fn chapter_diff_samples(
         &old.content,
         content,
     ) {
+        let mut s = s;
+        s.chapter_id = Some(old.chapter_id.as_str().to_string());
         out.push(s);
     }
     out

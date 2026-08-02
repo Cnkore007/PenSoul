@@ -161,6 +161,9 @@ pub struct EditSample {
     pub before: String,
     /// 修改后摘要
     pub after: String,
+    /// 归属章节（正文/细纲样本标记，笔耕审核按此过滤）
+    #[serde(default)]
+    pub chapter_id: Option<String>,
     #[serde(default)]
     pub created_at: String,
 }

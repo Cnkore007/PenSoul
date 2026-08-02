@@ -12,11 +12,11 @@ use crate::state::AppState;
 use pensoul_core::{ChapterAnnotation, EditSample, PageSnapshot, WritingLesson};
 
 /// 收集到的页面变更条目（批注或修改样本）
-struct PageItem {
-    source: String, // annotation / edit
-    id: String,
-    label: String,
-    content: String,
+pub(crate) struct PageItem {
+    pub(crate) source: String, // annotation / edit
+    pub(crate) id: String,
+    pub(crate) label: String,
+    pub(crate) content: String,
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -106,7 +106,7 @@ fn collect_page_items(onto: &pensoul_core::NovelOntology, page: &str) -> Vec<Pag
     out
 }
 
-fn review_prompt(items: &[PageItem], page: &str) -> String {
+pub(crate) fn review_prompt(items: &[PageItem], page: &str) -> String {
     let page_label = match page {
         "world" => "世界观",
         "character" => "人物志",
@@ -313,6 +313,7 @@ pub async fn apply_page_review(
                         label: format!("{label_prefix}批注"),
                         before: a.content.clone(),
                         after: "（批注已确认有效，按建议修订）".to_string(),
+                        chapter_id: None,
                         created_at: now(),
                     });
                 }
@@ -397,7 +398,7 @@ pub async fn page_undo_available(
     Ok(onto.page_snapshots.iter().any(|s| s.page == page))
 }
 
-fn extract_block(raw: &str, begin: &str, end: &str) -> String {
+pub(crate) fn extract_block(raw: &str, begin: &str, end: &str) -> String {
     let b = raw.find(begin).map(|i| i + begin.len());
     let e = raw.rfind(end);
     match (b, e) {
@@ -437,6 +438,7 @@ mod tests {
             label: "地点「谷」".to_string(),
             before: "a".to_string(),
             after: "b".to_string(),
+            chapter_id: None,
             created_at: String::new(),
         });
         onto.pending_edit_samples.push(EditSample {
@@ -445,6 +447,7 @@ mod tests {
             label: "人物".to_string(),
             before: "x".to_string(),
             after: "y".to_string(),
+            chapter_id: None,
             created_at: String::new(),
         });
         let items = collect_page_items(&onto, "world");

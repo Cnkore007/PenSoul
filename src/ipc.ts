@@ -111,6 +111,24 @@ export async function pageUndoAvailable(page: "world" | "character"): Promise<bo
   return await invoke<boolean>("page_undo_available", { page });
 }
 
+export async function reviewChapterChanges(
+  chapterId: string,
+  content: string
+): Promise<PageReview> {
+  return await invoke<PageReview>("review_chapter_changes", { chapterId, content });
+}
+
+export async function applyChapterReview(
+  chapterId: string,
+  content: string,
+  confirmations: Array<{ id: string; verdict: string }>
+): Promise<{ new_version: number; lessons: WritingLesson[] }> {
+  return await invoke<{ new_version: number; lessons: WritingLesson[] }>(
+    "apply_chapter_review",
+    { chapterId, content, confirmations }
+  );
+}
+
 // ── 项目管理 ──
 
 export async function createProject(title: string): Promise<string> {
