@@ -46,13 +46,14 @@
 
 1. 在概念页写下萌芽想法（构思 + 创作设定上下文），挑选讨论 Agent（可来自专家库）。
 2. 点「开始讨论」，实时观看每个 Agent 的发言进度。
-3. 讨论结束，系统给出结构化成果（共识总结 + 地点/时间线/设定规则/人物及人物关系）。
+3. 讨论结束，系统给出结构化成果（共识总结 + 地点/时间线/设定规则/人物及人物关系），并显式列出讨论中的分歧（已收敛/未收敛）与独立裁判的裁决建议。
 4. 确认后成果写入世界观与人物志；大纲页可用它作为情节脉络的起点。
 
 ### 系统实现
 
 - 命令：`discuss_concept`（长跑，`discussion-event` 推送进度）、`get_discussion_state`（重连恢复）。
-- 三轮流程：立论 → 交锋（互读他人发言）→ 成果提炼（单次综合调用，`json_fix` 修复 LLM 产物）。
+- 三轮流程：立论 → 交锋（互读他人发言）→ 成果提炼（`discussion_synthesis.rs`：五路并行分维度提炼 → 跨维度冲突检查 → 独立裁判裁决，`json_fix` 修复 LLM 产物）。
+- 分维度提炼依据：选择聚集优于合成聚集（直接把多 Agent 发言揉成一段共识会损失质量），每个维度都读完整讨论记录并显式输出分歧（各方立场 + 依据，不抹平）；跨维度矛盾显式标记；未收敛分歧由第二个 Agent 模型独立裁决，裁决建议（可直接采用的设定文字）随成果展示，不静默改写已提炼条目。
 - 专家库 Agent 自动加载其 `SKILL.md` 作为系统提示词。
 - 结果持久化到 `sprout.last_discussion`；讨论期间可切页面，回来用 `get_discussion_state` 重放。
 
@@ -142,7 +143,8 @@ chapter_planning（auto，写作模型，产出节拍表 JSON 写入滚动备忘
 
 ### 用户操作
 
-在 WritingView 手改章节正文，保存后系统自动：
+在 WritingView 手改章节正文，选中文字可添加行内批注（问题/修改建议/备注），
+也可在批注面板添加整章批注；点「按批注重写本章」让 AI 按批注重写（新版本，原稿进版本历史可回滚）。保存后系统自动：
 
 1. 标记受影响章节（影响图 BFS 反向传播，Direct / Indirect / Cascading 三级）。
 2. 给出修订建议（建议制，不自动改写）。
@@ -150,8 +152,10 @@ chapter_planning（auto，写作模型，产出节拍表 JSON 写入滚动备忘
 
 ### 系统实现
 
-- 命令：`save_chapter(chapter_id, content, expected_version)`（乐观并发，返回新版本号）、`find_affected(chapter_id, changed_entities)`、`get_impact_graph`、`check_consistency`。
+- 命令：`save_chapter(chapter_id, content, expected_version, annotations?)`（乐观并发，返回新版本号）、`rewrite_chapter_with_annotations`（修改计划 → 重写正文 → 批注状态流转 → 经验沉淀）、`list_chapter_revisions` / `rollback_chapter`（版本回滚）、`get/save_writing_lessons`、`find_affected(chapter_id, changed_entities)`、`get_impact_graph`、`check_consistency`。
 - `on_chapter_saved` 增量更新：记忆 8 步管道 → 影响图重建 → 实体状态 upsert → 版本推进。
+- 批注锚点：段落索引 + 段内偏移 + 锚定原文片段；正文被改后按原文片段容错匹配，失败退化为段落级定位。
+- 写作经验库：批注重写把已采纳批注归类为经验（措辞/节奏/对话/一致性/反AI味/结构/其他），同类去重累计次数，注入章节审查 prompt 重点检查是否重犯。
 
 ---
 

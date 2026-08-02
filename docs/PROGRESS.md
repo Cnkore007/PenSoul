@@ -18,6 +18,59 @@
 
 ---
 
+## 2026-08-02：细纲展开一次生成全部章节 + LLM JSON 容错修复
+
+- 改动范围：
+  - 细纲自动续展：`src/views/OutlineView.tsx`——「展开细纲」从"每批 20 章、多点几次"改为一次点击自动续展到节点全部展开（内部仍按每批 20 章调用，保单次产出质量），按钮实时显示「取消（已展开/总数）」，可中途取消、切页自动停止，已展开部分保留。
+  - JSON 容错：`crates/pensoul-app/src/commands/json_fix.rs`——新增两类修复：① 对象键未加引号（`{第1章: "..."}`，serde 报 `key must be a string`）时把裸键包引号；② 字符串内混入英文引号导致提前闭合时，识别多余引号并转义为 `\"`（逐轮修复多个引号）。防误伤：漏逗号场景（`"a" "b"`）仍走补逗号。
+- 遇到的问题：细纲展开到第 80 章附近整批失败，报「细纲 JSON 解析失败: key must be a string」——模型在章节标题/梗概里写了未加引号的键或对话引号，而修复器不认识这两类错误直接放弃。
+- 设计思考：分批展开是为了限制单次 LLM 产出量防截断，前端循环续展同时满足"一次全部展开"与产出质量；JSON 修复按 serde 报错位置驱动，新规则只作用于明确的错误形态，避免误修合法结构。
+- 状态：已完成（json_fix 新增 4 项单测、cargo test --workspace 全绿、前端 tsc + build 通过）。
+- 下次待办：无（已随客户端重建交付）。
+
+---
+
+## 2026-08-02：笔耕批注功能 —— 行内/整章批注 + 按批注重写 + 版本回滚 + 写作经验沉淀
+
+- 改动范围：
+  - 数据模型（pensoul-core）：`Chapter` 新增 `annotations`（`ChapterAnnotation`：行内锚点 = 段落索引 + 段内偏移 + 锚定原文片段 / 整章批注；类型 问题/修改建议/备注；状态 待处理/已采纳/已拒绝）与 `revisions`（`ChapterRevision` 版本历史）；`NovelOntology` 新增 `writing_lessons`（`WritingLesson` 项目写作经验库）。
+  - 后端命令（新增 `commands/chapter_rewrite.rs`）：`rewrite_chapter_with_annotations`（两步 LLM——修改计划 accept/reject/merge 逐条决定 → 按计划重写正文；落库时旧版进版本历史、批注状态流转、经验沉淀去重累计、派生状态同步）、`list_chapter_revisions` / `rollback_chapter`（回滚，当前版进历史）、`get/save_writing_lessons`；`save_chapter` 增加批注参数。
+  - 审查注入：`pipeline/context.rs` 的 `build_review_prompt` 注入本书写作经验库（重点检查是否重犯同类错误）。
+  - 前端：`TipTapEditor` 新增批注 Mark（选中文字 → 浮层「批注」→ 类型 + 内容 → 正文高亮）、`AnnotationPanel`（批注列表/编辑/删除/状态流转/定位正文）、`WritingView`（批注管理、按批注重写按钮 + 修改计划结果 + 版本历史回滚 + 写作经验库查看删除）。
+  - 文档：`docs/IPC-CONTRACT.md`（2.8 补充）、`docs/WORKFLOW.md`。
+- 遇到的问题：按批注重写若一次合成容易遗漏批注，沿用「讨论成果」的教训拆成修改计划 + 重写两步；行内批注锚点会随用户改正文而错位，采用「段落索引 + 锚定原文片段」容错匹配，匹配失败退化为段落级定位。
+- 设计思考：版本历史只在批注重写/回滚时生成快照（上限 30 条），普通人工保存不膨胀历史；经验沉淀在重写命令内 best-effort（失败不影响重写），同类经验按「分类 + 问题近似」去重累计次数；重写产物不直接覆盖，旧版永远可回滚。
+- 状态：已完成（`cargo test --workspace` 全绿、前端 tsc + build 通过，待重建客户端实测）。
+- 下次待办：重建客户端，请用户实测：选中文字批注、按批注重写、版本回滚、经验库是否随审查生效。
+
+---
+
+## 2026-08-02：讨论成果阶段重构 —— 分维度提炼 + 跨维度冲突检查 + 独立裁判裁决
+
+- 改动范围：
+  - 后端：新增 `crates/pensoul-app/src/commands/discussion_synthesis.rs`（`SynthesisContext` + 主流程 `synthesize`：五路 `tokio::join!` 并行维度提炼 → 跨维度冲突检查 → 未收敛分歧独立裁判裁决）；`commands/discussion.rs` 的 `synthesize` 改为薄封装，删除单次综合调用及旧 `extract_json_block`；`commands/mod.rs` 注册新模块。
+  - 数据模型：`crates/pensoul-core/src/sprout.rs` 新增 `Disagreement` / `DisagreeSide`，`DiscussionSynthesis` 增加 `disagreements`（serde default，向后兼容）；`prelude.rs` 导出。
+  - 前端：`src/types.ts` 增加 `disagreements`；`src/components/DiscussionPanel.tsx` 新增「第三轮 · 成果提炼」实时进度区（各维度/冲突检查/裁决状态）与成果区「分歧与裁决」区块（各方立场、已收敛/已裁决/未收敛、收敛结果或裁决建议）。
+  - 文档：`docs/WORKFLOW.md`（三轮流程描述）、`docs/IPC-CONTRACT.md`（2.12 说明）。
+- 遇到的问题：原第 3 轮是「单次综合调用把全部发言合成一份 JSON」——这正是调研指出的失败模式（合成聚集在 >80% 任务输给单模型；聚合器不读完整轨迹、共识掩盖分歧；强模型会被弱模型带偏）。
+- 设计思考：按调研结论落地 A+C+B——A：分维度（地点/时间线、设定规则、人物与关系、情节脉络、共识与分歧）并行提炼，每路都读完整讨论记录、输出显式分歧；C：跨维度冲突检查显式标记矛盾不抹平；B：未收敛分歧由第二个 Agent 模型（与提炼者不同源）独立裁决，裁决给出可直接采用的设定文字，随成果展示而不静默改写已提炼条目。提炼失败按维度独立降级，单维度失败不影响其他维度；冲突检查/裁决失败仅损失对应信息。
+- 状态：已完成（`cargo test --workspace` 全绿、前端 `tsc` + `npm run build` 通过；待重建客户端实测）。
+- 下次待办：重建客户端，请用户实测：成果质量是否提升、分歧与裁决展示是否清晰、第三轮进度是否可见。
+
+---
+
+## 2026-08-02：写作输出污染修复 + 笔耕保存升级（乐观并发/段落显示/影响分析）
+
+- 改动范围：
+  - 正文污染：`pipeline/stages.rs`（写作双通道标记 `===CHAPTER_BEGIN===/===CHAPTER_END===`，`parse_writing_output` 优先取标记内正文；无标记时剥离代码围栏 + 前导规划文本——模型常把「Let me carefully write…/Scene 1…/场景规划」混在正文前）；`pipeline/context.rs` 写作铁律强制标记协议（标记外不得有任何内容）。
+  - 笔耕保存：`src/views/WritingView.tsx` 从「纯前端内存保存」改为走后端 `save_chapter`（乐观并发 + 派生状态同步：记忆/影响图/一致性/版本），保存后调 `analyze_chapter_impact` 展示影响分析；章节内容纯文本↔HTML 段落互转（管线写入的纯文本在笔耕按段落渲染，保存统一存纯文本）。
+  - 影响分析命令：`commands/cda.rs` 新增 `analyze_chapter_impact`（自动提取本章实体为 CDA 变更种子 + 过滤本章一致性违规）；`integration.rs` 的 `entity_states_for_chapter` 改 `pub(crate)` 复用。
+  - 文档：`docs/IPC-CONTRACT.md`（2.8 增加 analyze_chapter_impact）。
+- 遇到的问题：用户测试造化工坊时发现生成的章节正文混入了模型的英文规划文本（「Let me carefully write Chapter 1… Scene 1…」）——原解析只剥代码围栏，planning 与正文都是纯文本时全量入库；且笔耕保存只改前端内存，不走 save_chapter，派生状态（记忆/影响图/一致性）不更新。
+- 设计思考：写作阶段补上双通道标记（与审查 SIGNAL/REPORT 同模式），解析器按标记截取，标记缺失时用「规划行特征」启发式剥离（英文行/## 标题/编号清单/场景标签等），双保险；笔耕保存统一走后端乐观并发入口，保证手改与管线写作走同一套派生状态同步，影响分析在保存后即时可见。
+- 状态：已完成（parse 新增 2 项单测、cargo test --workspace 24 套全绿、前端 tsc 通过，待重建客户端验证）。
+- 下次待办：重建客户端后请用户确认：造化工坊新写章节不再混入规划文本、笔耕段落分明、保存后影响分析与一致性提示正常。
+
 ## 2026-08-02：反 AI 味检测标准落地（规则检测命令 + 审查维度细则 + 文风工坊真实数据）
 
 - 改动范围：

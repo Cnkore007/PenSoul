@@ -31,7 +31,11 @@
 |---|---|---|---|
 | `get_chapter` | `chapter_id: String` | `Chapter`（JSON） | 按字符串主键查章节 |
 | `list_chapters` | — | `Vec<Chapter>` | 全部章节（含正文） |
-| `save_chapter` | `chapter_id, content, expected_version: i32` | `i32`（新版本号） | 乐观锁保存正文；首次保存自动从本体恢复版本号；成功后增量更新派生状态；版本冲突返回错误 |
+| `save_chapter` | `chapter_id, content, expected_version: i32, annotations?` | `i32`（新版本号） | 乐观锁保存正文与批注；首次保存自动从本体恢复版本号；成功后增量更新派生状态；版本冲突返回错误 |
+| `rewrite_chapter_with_annotations` | `chapter_id, model?, skill_cards?` | `RewriteResult` | 按批注重写：修改计划（accept/reject/merge 逐条决定）→ 重写正文；旧版进版本历史、批注状态流转、经验沉淀（合并项目经验库）、派生状态同步 |
+| `list_chapter_revisions` | `chapter_id` | `Vec<ChapterRevision>` | 章节版本历史（批注重写前快照 / 回滚点） |
+| `rollback_chapter` | `chapter_id, target_version: i32` | `i32`（新版本号） | 回滚到历史版本；当前版进历史 |
+| `get_writing_lessons` / `save_writing_lessons` | `—` / `lessons` | `Vec<WritingLesson>` / `()` | 项目写作经验库读写（重写沉淀，注入章节审查 prompt） |
 | `upsert_chapter` | `chapter_id, volume_id, title, content, summary, status` | `()` | 新建/插入式更新（大纲层章节走这里，梗概与正文分离） |
 | `save_volumes` | `volumes: Vec<{volume_id,title,summary?}>` | `()` | 整体保存卷 |
 | `get_volumes` | — | `Vec<Volume>` | 读取卷 |
@@ -88,6 +92,7 @@
 |---|---|---|---|
 | `find_affected_chapters` | `chapter_id: String`（u32 数字章号）, `changed_entities: Vec<String>` | `Vec<ImpactItem>` | BFS 反向传播（深度上限 5），Direct/Indirect/Cascading 分级 |
 | `get_impact_graph` | — | `Value`（统计） | 影响图节点/边统计 |
+| `analyze_chapter_impact` | `chapter_id: String`（章节主键） | `Value`（chapter_no + affected + consistency） | 章节修改后的影响分析：自动提取本章实体为变更种子跑 CDA，并返回本章相关一致性违规（笔耕保存后展示） |
 
 ### 2.9 一致性（commands/consistency.rs）
 
@@ -120,7 +125,7 @@
 
 | 命令 | 参数 | 返回 | 说明 |
 |---|---|---|---|
-| `discuss_concept` | `idea_description, settings_context, agents: Vec<AgentConfig>` | `DiscussionOutput` | 长跑命令：立论→交锋→成果；进度经 `discussion-event` 推送；Agent 可带 `skill_path`（专家库技能） |
+| `discuss_concept` | `idea_description, settings_context, agents: Vec<AgentConfig>` | `DiscussionOutput` | 长跑命令：立论→交锋→成果；成果阶段分维度提炼（五路并行）+ 跨维度冲突检查 + 独立裁判裁决；进度经 `discussion-event` 推送；Agent 可带 `skill_path`（专家库技能） |
 | `get_discussion_state` | — | `DiscussionState` | 讨论控制面快照（运行旗标 + 事件缓冲重放） |
 
 ### 2.13 专家蒸馏与专家库（commands/expert_distill.rs / experts.rs）
