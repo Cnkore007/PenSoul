@@ -143,7 +143,7 @@ export function CreationSettings({ project, projectData, persistProjectData }: C
         <h2>创作设定</h2>
         <span className="pd-section-sub">设定创作目标，追踪完成进度，同步到工作流引擎</span>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-          <button className="btn btn-accent" onClick={syncToBackend} title="保存设定到后端，Agent 工作流可读取">
+          <button className="btn btn-accent" onClick={syncToBackend} title="保存设定到后端，智能体工作流可读取">
             <Save size={14} />
             {isTauri ? "同步到引擎" : "保存到缓存"}
           </button>

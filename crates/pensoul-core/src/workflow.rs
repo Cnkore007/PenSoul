@@ -25,6 +25,9 @@ pub struct WorkflowStageDef {
     pub max_retries: u32,
     /// 是否启用（一稿仅作展示字段，管线仍按固定三阶段执行）
     pub enabled: bool,
+    /// 前 3 章启用「黄金三章」硬门控（审查时钩子/爽点维度必须达标，否则拦截重写）
+    #[serde(default)]
+    pub golden_gate: bool,
 }
 
 impl Default for WorkflowStageDef {
@@ -37,6 +40,7 @@ impl Default for WorkflowStageDef {
             on_fail: None,
             max_retries: 2,
             enabled: true,
+            golden_gate: false,
         }
     }
 }
@@ -54,7 +58,7 @@ pub struct WorkflowTemplate {
     pub genre: String,
     /// 一句话说明
     pub description: String,
-    /// 内置模板（不可删除、不可改 builtin 标志）
+    /// 内置模板（核心内置 webnovel 不可删除；其余内置可删除，恢复内置时补回；不可改 builtin 标志）
     pub builtin: bool,
     /// 是否启用（停用的模板不进入项目选择列表）
     pub enabled: bool,
@@ -112,42 +116,78 @@ pub fn builtin_workflow_templates() -> Vec<WorkflowTemplate> {
         WorkflowTemplate {
             template_id: "webnovel".to_string(),
             name: "网文创作流".to_string(),
-            version: "1.0".to_string(),
+            version: "2.0".to_string(),
             genre: "网文".to_string(),
-            description: "面向网络小说的自动连写流：黄金三章、核心卖点、压抑-释放情绪曲线、断章钩子等网文方法论内置于阶段手册；审查按「卖点一致 + 情绪曲线 + 断章钩子」判定。".to_string(),
+            description: "面向网络小说的自动连写流 v2：写前先出「章前策划」节拍表（场景级目标/冲突/钩子），写作阶段按节拍表执行并遵守黄金三章、断章钩子、反 AI 味铁律；审查按七维加权打分（卖点/钩子/情绪/节奏/一致性/文笔）。".to_string(),
             builtin: true,
             enabled: true,
             review_pass_score: 80.0,
             stages: vec![
                 WorkflowStageDef {
-                    stage: "chapter_writing".to_string(),
-                    display_name: "章节写作".to_string(),
-                    prompt_hint: "根据本章梗概与创作备忘录撰写正文：开篇 300 字内建立冲突或悬念（刀架脖子式危机），金手指针对本章危机量身定制；语言干练、钩子优先，结尾断在刀尖落下前。".to_string(),
+                    stage: "chapter_planning".to_string(),
+                    display_name: "章前策划".to_string(),
+                    prompt_hint: "写前策划：结合本章梗概、前章纪要、世界观与人物状态，产出一张可执行的节拍表（JSON）：本章目标一句话、开场钩子、3-6 个场景（每个含目标/冲突/状态变化/建议字数）、爽点与情绪释放点、本章必须新增的未解决次要问题、结尾断章钩子（疑问型/危机型/转折型三选一）、埋设与回收的伏笔、人物状态变化。铁律：非终局章节禁止解决主线核心冲突；刚用过的套路（冲突爽点/羁绊/势力经营/风土人情/危机升级）至少在冷却期内不得作为主场景重复。".to_string(),
                     gate: "auto".to_string(),
                     on_fail: None,
                     max_retries: 2,
                     enabled: true,
+                    golden_gate: false,
+                },
+                WorkflowStageDef {
+                    stage: "chapter_writing".to_string(),
+                    display_name: "章节写作".to_string(),
+                    prompt_hint: "严格按「章前策划」节拍表撰写正文：开场 300 字内出现冲突或悬念；每个场景必须有目标、阻碍与状态变化；对话优先于叙述，行动优先于形容；结尾必须断在钩子处。语言铁律（反 AI 味）：删除「不禁/仿佛/映入眼帘/心中暗道/嘴角微扬」等套话，每千字弱化副词不超过 3 个，不用排比三连，不用「与此同时/从而/一方面…另一方面」等书面语；用具体动作和感知代替情绪直说；长短句交替制造节奏。".to_string(),
+                    gate: "auto".to_string(),
+                    on_fail: None,
+                    max_retries: 2,
+                    enabled: true,
+                    golden_gate: false,
                 },
                 WorkflowStageDef {
                     stage: "chapter_review".to_string(),
-                    display_name: "卖点与一致性审查".to_string(),
-                    prompt_hint: "用不同模型审查本章：① 是否兑现核心卖点（馒头不跑偏成钻石）；② 压抑→释放的情绪曲线是否成立；③ 是否给读者新期待并留断章钩子；④ 与设定/人物/前文的一致性。输出 score 与 issues。".to_string(),
+                    display_name: "卖点与质量审查".to_string(),
+                    prompt_hint: "用不同模型按七维加权审查本章：① 卖点兑现（20 分）；② 开场钩子（10 分）；③ 情绪曲线与爽点（20 分）；④ 场景与节奏（10 分）；⑤ 断章钩子（15 分）；⑥ 人物与设定一致性（15 分）；⑦ 文笔与反 AI 味（10 分）。对照节拍表检查是否按策划执行，偏差列入问题清单。输出分数与问题清单。".to_string(),
                     gate: "conditional".to_string(),
                     on_fail: Some("chapter_writing".to_string()),
                     max_retries: 2,
                     enabled: true,
+                    golden_gate: true,
                 },
                 WorkflowStageDef {
                     stage: "state_injection".to_string(),
                     display_name: "状态回灌".to_string(),
-                    prompt_hint: "提炼本章纪要，回灌滚动备忘录，供下一章写作携带。".to_string(),
+                    prompt_hint: "提炼本章纪要，回灌滚动备忘录：关键事件、人物状态变化、埋设/推进/回收的伏笔，供下一章写作携带。".to_string(),
                     gate: "auto".to_string(),
                     on_fail: None,
                     max_retries: 1,
                     enabled: true,
+                    golden_gate: false,
                 },
             ],
-            bindings: serde_json::json!({}),
+            // 模板级绑定：直接引用「网文创作方法论」技能卡（路径相对 WritingCard/ 根目录）
+            bindings: serde_json::json!({
+                "outline_expand": {
+                    "cards": [
+                        "网文创作方法论-methodology/structure/SKILL.md",
+                        "网文创作方法论-methodology/tension/SKILL.md",
+                        "网文创作方法论-methodology/character/SKILL.md",
+                        "网文创作方法论-methodology/genre/SKILL.md",
+                    ]
+                },
+                "chapter_writing": {
+                    "cards": [
+                        "网文创作方法论-methodology/style/SKILL.md",
+                        "网文创作方法论-methodology/tension/SKILL.md",
+                        "网文创作方法论-methodology/character/SKILL.md",
+                    ]
+                },
+                "review": {
+                    "cards": [
+                        "网文创作方法论-methodology/review/SKILL.md",
+                        "网文创作方法论-methodology/style/SKILL.md",
+                    ]
+                }
+            }),
         },
         WorkflowTemplate {
             template_id: "standard-novel".to_string(),
@@ -167,15 +207,17 @@ pub fn builtin_workflow_templates() -> Vec<WorkflowTemplate> {
                     on_fail: None,
                     max_retries: 2,
                     enabled: true,
+                    golden_gate: false,
                 },
                 WorkflowStageDef {
                     stage: "chapter_review".to_string(),
                     display_name: "一致性审查".to_string(),
-                    prompt_hint: "用不同模型审查本章：人物性格/状态/位置是否连贯、伏笔是否埋而未收、世界观设定是否矛盾、文风是否偏离基调。输出 score 与 issues。".to_string(),
+                    prompt_hint: "用不同模型审查本章：人物性格/状态/位置是否连贯、伏笔是否埋而未收、世界观设定是否矛盾、文风是否偏离基调。输出分数与问题清单。".to_string(),
                     gate: "conditional".to_string(),
                     on_fail: Some("chapter_writing".to_string()),
                     max_retries: 2,
                     enabled: true,
+                    golden_gate: false,
                 },
                 WorkflowStageDef {
                     stage: "state_injection".to_string(),
@@ -185,6 +227,7 @@ pub fn builtin_workflow_templates() -> Vec<WorkflowTemplate> {
                     on_fail: None,
                     max_retries: 1,
                     enabled: true,
+                    golden_gate: false,
                 },
             ],
             bindings: serde_json::json!({}),
@@ -207,15 +250,17 @@ pub fn builtin_workflow_templates() -> Vec<WorkflowTemplate> {
                     on_fail: None,
                     max_retries: 2,
                     enabled: true,
+                    golden_gate: false,
                 },
                 WorkflowStageDef {
                     stage: "chapter_review".to_string(),
                     display_name: "设定一致性审查".to_string(),
-                    prompt_hint: "用不同模型审查本章：核心设定是否自洽、技术细节是否违背已建立的规则、时间线与因果链是否成立、人物在科幻压力下行为是否合理。输出 score 与 issues。".to_string(),
+                    prompt_hint: "用不同模型审查本章：核心设定是否自洽、技术细节是否违背已建立的规则、时间线与因果链是否成立、人物在科幻压力下行为是否合理。输出分数与问题清单。".to_string(),
                     gate: "conditional".to_string(),
                     on_fail: Some("chapter_writing".to_string()),
                     max_retries: 2,
                     enabled: true,
+                    golden_gate: false,
                 },
                 WorkflowStageDef {
                     stage: "state_injection".to_string(),
@@ -225,6 +270,7 @@ pub fn builtin_workflow_templates() -> Vec<WorkflowTemplate> {
                     on_fail: None,
                     max_retries: 1,
                     enabled: true,
+                    golden_gate: false,
                 },
             ],
             bindings: serde_json::json!({}),
@@ -247,15 +293,17 @@ pub fn builtin_workflow_templates() -> Vec<WorkflowTemplate> {
                     on_fail: None,
                     max_retries: 2,
                     enabled: true,
+                    golden_gate: false,
                 },
                 WorkflowStageDef {
                     stage: "chapter_review".to_string(),
                     display_name: "快速检查".to_string(),
-                    prompt_hint: "用不同模型快速检查关键一致性问题与明显硬伤，输出 score 与 issues。".to_string(),
+                    prompt_hint: "用不同模型快速检查关键一致性问题与明显硬伤，输出分数与问题清单。".to_string(),
                     gate: "conditional".to_string(),
                     on_fail: Some("chapter_writing".to_string()),
                     max_retries: 1,
                     enabled: true,
+                    golden_gate: false,
                 },
                 WorkflowStageDef {
                     stage: "state_injection".to_string(),
@@ -265,6 +313,7 @@ pub fn builtin_workflow_templates() -> Vec<WorkflowTemplate> {
                     on_fail: None,
                     max_retries: 1,
                     enabled: true,
+                    golden_gate: false,
                 },
             ],
             bindings: serde_json::json!({}),

@@ -418,7 +418,7 @@ export default function LlmSettingsView() {
                     <div style={{ marginBottom: "var(--space-sm)" }}>
                       <div style={{ fontSize: "var(--text-2xs)", color: "var(--color-ink-3)", marginBottom: 2, letterSpacing: "0.5px" }}>
                         <Key size={11} style={{ verticalAlign: "middle", marginRight: 3 }} />
-                        API Key
+                        接口密钥
                       </div>
                       <div style={{ display: "flex", gap: 4 }}>
                         <div style={{ flex: 1, display: "flex", gap: 4 }}>

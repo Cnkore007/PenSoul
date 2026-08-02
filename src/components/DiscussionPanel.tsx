@@ -35,7 +35,7 @@ function TurnCard({ agent, turn, live }: {
 }) {
   const running = live?.status === "running";
   const isError = live?.status === "error";
-  const name = agent?.name || turn?.agent_name || live?.agent_name || "Agent";
+  const name = agent?.name || turn?.agent_name || live?.agent_name || "评审员";
   const meta = agent ? `${agent.model} · ${agent.perspective}` : turn?.perspective || "";
   const content = turn?.content || (isError ? `❌ ${live?.content}` : "");
 

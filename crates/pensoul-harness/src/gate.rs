@@ -93,10 +93,32 @@ impl GateEvaluator {
     /// 解析简单的条件表达式。
     ///
     /// 支持格式：`field_name >= number`、`field_name > number`、
-    /// `field_name <= number`、`field_name < number`、`field_name == value`。
+    /// `field_name <= number`、`field_name < number`、`field_name == value`，
+    /// 以及用 `&&` 连接的多条件（如 `score >= 80 && hook >= 8 && payoff >= 8`，全部满足才放行）。
     fn evaluate_condition(condition: &str, result: &serde_json::Value) -> Result<bool> {
         let condition = condition.trim();
 
+        // 多条件：先按 && 拆开，逐条判定，全部通过才放行
+        if condition.contains("&&") {
+            let clauses: Vec<&str> = condition.split("&&").map(|c| c.trim()).collect();
+            if clauses.len() > 1 {
+                let mut passed = true;
+                for clause in clauses {
+                    passed = Self::evaluate_single_condition(clause, result)? && passed;
+                }
+                return Ok(passed);
+            }
+        }
+
+        Self::evaluate_single_condition(condition, result)
+    }
+
+    /// 单条 `field op value` 判定。
+    fn evaluate_single_condition(
+        condition: &str,
+        result: &serde_json::Value,
+    ) -> Result<bool> {
+        let condition = condition.trim();
         // 解析 "field op value" 模式
         for op in &["==", ">=", "<=", ">", "<"] {
             if let Some((field, value_str)) = condition.split_once(op) {
@@ -248,6 +270,26 @@ mod tests {
         let high_gr = GateEvaluator::evaluate(&stage, &high, false).unwrap();
         assert!(high_gr.passed);
         assert_eq!(high_gr.score, Some(90.0));
+    }
+
+    #[test]
+    fn test_conditional_gate_multi_clause_and() {
+        // 黄金三章门控：总分达标 且 钩子/爽点维度均达标
+        let stage = make_stage(
+            GateType::Conditional,
+            Some("score >= 80 && hook >= 8 && payoff >= 8"),
+        );
+        let pass = serde_json::json!({"score": 85.0, "hook": 9.0, "payoff": 8.0});
+        let gr = GateEvaluator::evaluate(&stage, &pass, false).unwrap();
+        assert!(gr.passed);
+        // 钩子不达标 → 即使总分够也被拦截
+        let fail_hook = serde_json::json!({"score": 88.0, "hook": 6.0, "payoff": 9.0});
+        let gr = GateEvaluator::evaluate(&stage, &fail_hook, false).unwrap();
+        assert!(!gr.passed);
+        // 爽点不达标 → 同样拦截
+        let fail_payoff = serde_json::json!({"score": 90.0, "hook": 9.0, "payoff": 4.0});
+        let gr = GateEvaluator::evaluate(&stage, &fail_payoff, false).unwrap();
+        assert!(!gr.passed);
     }
 
     #[test]

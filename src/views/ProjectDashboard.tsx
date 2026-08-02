@@ -1,9 +1,9 @@
 import { useState, useEffect } from "react";
 import {
-  ListTree, PenLine, Users, Globe, Workflow,
+  ListTree, PenLine, Users, Globe,
   ShieldCheck, Palette,
   Calendar,
-  Sparkles, Play, Check, Settings,
+  Sparkles, Play, Check,
   ChevronRight, Lightbulb,
 } from "lucide-react";
 import type { ProjectData, ProjectMeta, ViewType, WorkflowTemplate } from "../types";
@@ -90,14 +90,6 @@ export function ProjectDashboard({ project, projectData, onNavigate }: ProjectDa
       count: `${totalWords.toLocaleString()} 字`,
     },
     {
-      id: "workflow",
-      label: "工作流",
-      sublabel: "选择模板 → 设置阶段",
-      icon: <Workflow size={20} />,
-      color: "var(--color-ochre)",
-      count: wfMeta ? wfMeta.name : "未配置",
-    },
-    {
       id: "harness",
       label: "造化工坊",
       sublabel: "一键执行 → 自动写稿",
@@ -166,7 +158,7 @@ export function ProjectDashboard({ project, projectData, onNavigate }: ProjectDa
             width: 6, height: 6, borderRadius: "50%",
             background: "var(--color-ochre)", display: "inline-block",
           }} />
-          <span>自动化引擎：工作流（配置模板）→ 造化工坊（Agent 自动写作）</span>
+          <span>自动化引擎：主页「工作流」（模板与环节绑定）→ 造化工坊（智能体自动写作）</span>
         </div>
       </div>
 
@@ -201,7 +193,7 @@ export function ProjectDashboard({ project, projectData, onNavigate }: ProjectDa
       {/* 创作空间 — 模块入口 */}
       <div className="pd-section">
         <div className="pd-section-header">
-          <h2>创作空间</h2>
+          <h2>概览</h2>
           <span className="pd-section-sub">选择模块开始创作</span>
         </div>
         <div className="pd-modules">
@@ -237,7 +229,7 @@ export function ProjectDashboard({ project, projectData, onNavigate }: ProjectDa
               <span className="pd-wf-stages">{wfMeta.stageCount} 个阶段</span>
             </div>
             <p className="pd-wf-desc">
-              Agent 已就绪。前往「造化工坊」一键启动自动创作流程。
+              智能体已就绪。前往「造化工坊」一键启动自动创作流程。
             </p>
             <button
               className="pd-onboard-btn"
@@ -305,12 +297,14 @@ export function ProjectDashboard({ project, projectData, onNavigate }: ProjectDa
             </div>
 
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {!hasOutline && (
               <button
                 className="pd-onboard-btn"
-                onClick={() => onNavigate(hasOutline ? "workflow" : "concept")}
+                onClick={() => onNavigate("concept")}
               >
-                {hasOutline ? <><Settings size={15} /> 配置工作流</> : <><Lightbulb size={15} /> 从灵感开始</>}
+                <Lightbulb size={15} /> 从灵感开始
               </button>
+              )}
               {hasOutline && (
                 <>
                   <button

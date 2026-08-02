@@ -10,8 +10,6 @@ import { HarnessConsole } from "./views/HarnessConsole";
 import { StyleWorkshop } from "./views/StyleWorkshop";
 import { ProjectManager } from "./views/ProjectManager";
 import LlmSettingsView from "./views/LlmSettingsView";
-import { PluginView } from "./views/PluginView";
-import { WorkflowView } from "./views/WorkflowView";
 import { WorkflowLibraryView } from "./views/WorkflowLibraryView";
 import { ConceptView } from "./views/ConceptView";
 import { ExpertLibraryView } from "./views/ExpertLibraryView";
@@ -19,6 +17,7 @@ import { ProjectDashboard } from "./views/ProjectDashboard";
 import type { ViewType, ProjectMeta, ProjectData } from "./types";
 import { loadProjectData, refreshProjectData, saveProjectData } from "./store";
 import { getHarnessStatus } from "./ipc";
+import { messageDialog } from "./dialogs";
 import "./tokens.css";
 import "./App.css";
 
@@ -145,11 +144,11 @@ function App() {
   // 项目内页面切换时自动刷新一次（全局页面无项目上下文，跳过）
   useEffect(() => {
     if (!currentProject) return;
-    if (["projects", "llm-settings", "plugins", "experts", "workflow-library"].includes(currentView)) return;
+    if (["projects", "llm-settings", "experts", "workflow-library"].includes(currentView)) return;
     refreshNow();
   }, [currentView, currentProject, refreshNow]);
 
-  // 进入项目空间，默认跳转到 dashboard（项目概览）
+  // 进入项目空间，默认跳转到 dashboard（概览）
   const handleSelectProject = useCallback((project: ProjectMeta) => {
     setCurrentProject(project);
     setCurrentView("dashboard");
@@ -191,7 +190,7 @@ function App() {
         console.error("保存项目数据失败:", err);
         if (!saveErrorShownRef.current) {
           saveErrorShownRef.current = true;
-          alert("部分数据保存失败，重启后可能丢失：\n" + (err?.message ?? err));
+          void messageDialog("部分数据保存失败，重启后可能丢失：\n" + (err?.message ?? err));
         }
       });
       pendingSaveRef.current = p;
@@ -206,9 +205,6 @@ function App() {
     }
     if (currentView === "llm-settings") {
       return <LlmSettingsView />;
-    }
-    if (currentView === "plugins") {
-      return <PluginView />;
     }
     if (currentView === "experts") {
       return <ExpertLibraryView />;
@@ -235,14 +231,12 @@ function App() {
         return <CharacterView projectData={projectData} persistProjectData={persistProjectData} />;
       case "world":
         return <WorldView projectData={projectData} persistProjectData={persistProjectData} />;
-      case "workflow":
-        return <WorkflowView projectData={projectData} persistProjectData={persistProjectData} onNavigate={setCurrentView} />;
       case "consistency":
         return <ConsistencyView />;
       case "harness":
-        return <HarnessConsole projectData={projectData} onNavigate={setCurrentView} />;
+        return <HarnessConsole projectData={projectData} persistProjectData={persistProjectData} onNavigate={setCurrentView} />;
       case "style":
-        return <StyleWorkshop />;
+        return <StyleWorkshop projectData={projectData} />;
       default:
         return <ProjectDashboard project={currentProject} projectData={projectData} onNavigate={setCurrentView} />;
     }

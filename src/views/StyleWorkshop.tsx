@@ -1,28 +1,40 @@
 import { useState, useEffect } from "react";
 import { BarChart3, Activity, ShieldAlert, Feather } from "lucide-react";
-import { getStyleMetrics } from "../ipc";
-import type { StyleMetrics } from "../types";
+import { getStyleMetrics, analyzeAiFlavor } from "../ipc";
+import type { AiFlavorReport, ProjectData, StyleMetrics } from "../types";
 
-export function StyleWorkshop() {
+interface StyleWorkshopProps {
+  projectData: ProjectData;
+}
+
+export function StyleWorkshop({ projectData }: StyleWorkshopProps) {
   const [metrics, setMetrics] = useState<StyleMetrics | null>(null);
+  const [flavor, setFlavor] = useState<AiFlavorReport | null>(null);
   const [loading, setLoading] = useState(true);
+  const [checkedChapter, setCheckedChapter] = useState("");
 
   useEffect(() => { loadMetrics(); }, []);
 
   async function loadMetrics() {
     setLoading(true);
-    const result = await getStyleMetrics();
-    setMetrics(result);
-    setLoading(false);
+    try {
+      const result = await getStyleMetrics();
+      setMetrics(result);
+      // 取最新一篇有正文的章节做反 AI 味检测（规则统计，非 LLM）
+      const chapters = projectData.volumes
+        .flatMap(v => v.chapters)
+        .filter(c => (c.word_count ?? 0) > 0)
+        .sort((a, b) => (b.chapter_no ?? 0) - (a.chapter_no ?? 0));
+      if (chapters.length > 0) {
+        const latest = chapters[0];
+        const report = await analyzeAiFlavor(latest.content ?? "");
+        setFlavor(report);
+        setCheckedChapter(`第${latest.chapter_no}章《${latest.title || "未命名"}》`);
+      }
+    } finally {
+      setLoading(false);
+    }
   }
-
-  const antiAIRules = [
-    { id: 1, rule: "避免过度使用「然而」、「不过」等转折词", status: "pass" as const },
-    { id: 2, rule: "减少「值得一提的是」等套话", status: "pass" as const },
-    { id: 3, rule: "避免过度整齐的排比句", status: "warning" as const },
-    { id: 4, rule: "增加口语化表达", status: "pass" as const },
-    { id: 5, rule: "避免重复使用相同形容词", status: "fail" as const },
-  ];
 
   const paceData = [
     { chapter: "第一章", score: 0.65 }, { chapter: "第二章", score: 0.78 },
@@ -40,7 +52,7 @@ export function StyleWorkshop() {
   if (!metrics) {
     return (
       <div className="view-container">
-        <div className="view-header"><h2>墨韵品鉴</h2></div>
+        <div className="view-header"><h2>墨韵</h2></div>
         <div className="empty-state">
           <div className="empty-state-icon">墨</div>
           <div className="empty-state-text">暂无文风数据</div>
@@ -52,7 +64,7 @@ export function StyleWorkshop() {
 
   return (
     <div className="view-container">
-      <div className="view-header"><h2>墨韵品鉴</h2></div>
+      <div className="view-header"><h2>墨韵</h2></div>
       <div className="stat-grid stat-grid-4">
         <div className="stat-card">
           <div className="stat-card-icon"><BarChart3 size={16} className="stat-icon-indigo" /><span>平均句长</span></div>
@@ -71,10 +83,10 @@ export function StyleWorkshop() {
         </div>
         <div className="stat-card">
           <div className="stat-card-icon"><ShieldAlert size={16} className="stat-icon-alert" /><span>AI痕迹</span></div>
-          <div className={"stat-card-value " + (metrics.ai_pattern_score > 0.2 ? "stat-color-error" : "stat-color-success")}>
-            {(metrics.ai_pattern_score * 100).toFixed(0)}%
+          <div className={"stat-card-value " + ((flavor?.score ?? 0) > 35 ? "stat-color-error" : (flavor?.score ?? 0) > 15 ? "stat-color-warning" : "stat-color-success")}>
+            {flavor ? flavor.score.toFixed(0) : "—"}
           </div>
-          <div className="stat-card-unit">越低越好</div>
+          <div className="stat-card-unit">{flavor ? `${flavor.level} · 越低越好` : "暂无正文可检测"}</div>
         </div>
       </div>
       <div className="grid-2">
@@ -91,14 +103,38 @@ export function StyleWorkshop() {
         </div>
         <div className="card">
           <div className="card-header"><ShieldAlert size={15} color="var(--color-ink-3)" /><h3>反AI检查</h3></div>
-          <div className="flex-col flex-gap-sm">
-            {antiAIRules.map((rule) => (
-              <div key={rule.id} className={"rule-row rule-" + rule.status}>
-                <div className="rule-icon">{rule.status === "pass" ? "✓" : rule.status === "warning" ? "!" : "✗"}</div>
-                <span className="rule-text">{rule.rule}</span>
+          {!flavor ? (
+            <div className="empty-state-sub" style={{ padding: "12px 0" }}>
+              暂无正文可检测：完成至少一个章节的写作后，这里会按标准自动检测 AI 痕迹
+            </div>
+          ) : (
+            <>
+              <div style={{ fontSize: "var(--text-2xs)", color: "var(--color-ink-3)", marginBottom: 8 }}>
+                检测对象：{checkedChapter} · 共 {flavor.total_hits} 处命中 · {flavor.suggestion}
               </div>
-            ))}
-          </div>
+              <div className="flex-col flex-gap-sm">
+                {flavor.categories.map((cat) => {
+                  const status = cat.hits === 0 ? "pass" : cat.score >= cat.max_score * 0.8 ? "fail" : "warning";
+                  return (
+                    <div key={cat.key} className={"rule-row rule-" + status}>
+                      <div className="rule-icon">{status === "pass" ? "✓" : status === "warning" ? "!" : "✗"}</div>
+                      <span className="rule-text">
+                        {cat.label}：命中 {cat.hits} 处，扣 {cat.score.toFixed(0)}/{cat.max_score.toFixed(0)} 分
+                        {cat.examples.length > 0 && (
+                          <details style={{ marginTop: 4 }}>
+                            <summary style={{ fontSize: "var(--text-2xs)", color: "var(--color-accent)", cursor: "pointer" }}>违例样例</summary>
+                            <ul style={{ margin: "6px 0 0", paddingLeft: 18, fontSize: "var(--text-2xs)", color: "var(--color-ink-2)" }}>
+                              {cat.examples.map((ex, i) => <li key={i}>{ex}</li>)}
+                            </ul>
+                          </details>
+                        )}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
         </div>
       </div>
     </div>

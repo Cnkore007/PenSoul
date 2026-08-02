@@ -5,10 +5,10 @@ import {
   Lightbulb, Target, Bot, MessageSquare,
   Plus, Trash2, GripVertical, FileText,
   PenLine, Layers, BarChart3, BookOpen,
-  Save, Upload, UserCheck,
+  UserCheck,
 } from "lucide-react";
 import { listen } from "@tauri-apps/api/event";
-import { saveSprout, loadSprout, saveSettings, loadExperts, listModels, discussConcept, getDiscussionState, saveOutlineArcs } from "../ipc";
+import { loadSprout, loadExperts, listModels, discussConcept, getDiscussionState, saveOutlineArcs } from "../ipc";
 import { DiscussionPanel, type SelectedResults } from "../components/DiscussionPanel";
 
 interface ConceptViewProps {
@@ -80,67 +80,10 @@ export function ConceptView({ projectData, persistProjectData }: ConceptViewProp
     return 0;
   }, [settings.targetChapters, settings.chapterTargetWords]);
 
-  // 后端同步状态
-  const [backendSynced, setBackendSynced] = useState<boolean | null>(null);
-
-  // 同步到后端
-  const syncToEngine = useCallback(async () => {
-    try {
-      await saveSprout({
-        idea_description: sprout.ideaDescription,
-        agents: sprout.agents.map(a => ({
-          id: a.id,
-          name: a.name,
-          model: a.model,
-          prompt: a.prompt,
-          perspective: a.perspective,
-          enabled: a.enabled,
-          expert_id: a.expertId || null,
-          skill_path: a.skillPath || null,
-        })),
-        presets_dismissed: sprout.presetsDismissed ?? false,
-      });
-      await saveSettings({
-        target_chapters: settings.targetChapters,
-        target_words: autoTargetWords,
-        chapter_target_words: settings.chapterTargetWords,
-        target_volumes: settings.targetVolumes,
-        genre: settings.genre || "",
-      });
-      setBackendSynced(true);
-    } catch {
-      setBackendSynced(false);
-    }
-    setTimeout(() => setBackendSynced(null), 3000);
-  }, [sprout, settings, autoTargetWords]);
-
-  // 从后端加载
-  const loadFromEngine = useCallback(async () => {
-    const loaded = await loadSprout();
-    if (loaded && persistProjectData) {
-      persistProjectData(prev => ({
-        ...prev,
-        sprout: {
-          ...prev.sprout,
-          ideaDescription: loaded.idea_description,
-          agents: loaded.agents.map((a: any) => ({
-            id: a.id,
-            name: a.name,
-            model: a.model,
-            prompt: a.prompt,
-            perspective: a.perspective,
-            enabled: a.enabled,
-            expertId: a.expert_id || undefined,
-            skillPath: a.skill_path || undefined,
-          })),
-          presetsDismissed: loaded.presets_dismissed ?? prev.sprout.presetsDismissed,
-        },
-      }));
-    }
-  }, [persistProjectData]);
-
   // 专家浏览弹窗
   const [showExpertBrowser, setShowExpertBrowser] = useState(false);
+  // 从专家库导入到指定 Agent（null = 添加新 Agent）
+  const [importTargetAgentId, setImportTargetAgentId] = useState<string | null>(null);
 
   // 更新 sprout 数据
   const updateSprout = useCallback((updater: (prev: SproutData) => SproutData) => {
@@ -239,21 +182,6 @@ export function ConceptView({ projectData, persistProjectData }: ConceptViewProp
       agents: prev.agents.map(a => a.id === id ? { ...a, ...updater } : a),
     }));
   }, [updateSprout]);
-
-  // 从专家库导入（回填到当前 Agent）
-  const importFromExpert = useCallback((agentId: string) => {
-    if (availableExpertsList.length === 0) {
-      alert("专家库为空，请先前往「专家库」页面创建或导入专家");
-      return;
-    }
-    const chosen = window.prompt("输入要导入的专家序号：\n" + availableExpertsList.map(function(e, i) { return (i+1) + ". " + e.name + " [" + e.perspective + "]"; }).join("\n"));
-    if (!chosen) return;
-    const idx = parseInt(chosen) - 1;
-    if (!isNaN(idx) && idx >= 0 && idx < availableExpertsList.length) {
-      const expert = availableExpertsList[idx];
-      updateAgent(agentId, { name: expert.name, model: expert.modelId, perspective: expert.perspective, prompt: expert.defaultPrompt, expertId: expert.id });
-    }
-  }, [updateAgent, availableExpertsList]);
 
   // 重置为预置 Agent（清空自定义，回到预置回退模式）
   const resetAgents = useCallback(() => {
@@ -360,7 +288,7 @@ export function ConceptView({ projectData, persistProjectData }: ConceptViewProp
       setGenerated(false);
       const enabledAgents = agents.filter(a => a.enabled);
       if (enabledAgents.length === 0) {
-        setDiscussionError("没有启用的 Agent，请先添加至少一个 Agent");
+        setDiscussionError("没有启用的评审员，请先添加至少一位评审员");
         setDiscussing(false);
         return;
       }
@@ -483,28 +411,10 @@ export function ConceptView({ projectData, persistProjectData }: ConceptViewProp
   return (
     <div className="view-container">
       <div className="view-header">
-        <h2>灵魂萄芽</h2>
+        <h2>灵魂萌芽</h2>
         <span style={{ fontSize: "var(--text-xs)", color: "var(--color-ink-3)", letterSpacing: "0.5px" }}>
           想法描述 · 创作设定 · 多维度讨论
         </span>
-        <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
-          <button className="btn btn-accent" onClick={syncToEngine} style={{ padding: "4px 12px", fontSize: "var(--text-xs)" }}>
-            <Save size={13} />
-            同步到引擎
-          </button>
-          <button className="btn btn-secondary" onClick={loadFromEngine} style={{ padding: "4px 12px", fontSize: "var(--text-xs)" }}>
-            <Upload size={13} /> 从引擎加载
-          </button>
-          {backendSynced !== null && (
-            <span style={{
-              fontSize: "var(--text-xs)", padding: "2px 8px", borderRadius: "var(--radius-sm)",
-              background: backendSynced ? "var(--color-jade-wash)" : "var(--color-error-wash)",
-              color: backendSynced ? "var(--color-jade)" : "var(--color-error)",
-            }}>
-              {backendSynced ? "已同步" : "失败"}
-            </span>
-          )}
-        </div>
       </div>
 
       {/* ── 第一步：想法描述 ── */}
@@ -566,7 +476,7 @@ export function ConceptView({ projectData, persistProjectData }: ConceptViewProp
             创作设定
           </span>
           <span style={{ fontSize: "var(--text-xs)", color: "var(--color-ink-3)", letterSpacing: "0.5px", marginLeft: "auto" }}>
-            设定目标，为 Agent 提供讨论上下文
+            设定目标，为评审员提供讨论上下文
           </span>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: "var(--space-md)" }}>
@@ -633,7 +543,7 @@ export function ConceptView({ projectData, persistProjectData }: ConceptViewProp
         </div>
       </div>
 
-      {/* ── 第三步：Agent 讨论配置 ── */}
+      {/* ── 第三步：评审员讨论配置 ── */}
       <div style={{
         background: "var(--color-paper)", border: "1px solid var(--color-rule-light)",
         borderRadius: "var(--radius-md)", padding: "var(--space-lg) var(--space-xl)",
@@ -647,10 +557,10 @@ export function ConceptView({ projectData, persistProjectData }: ConceptViewProp
           <div style={{ width: 28, height: 28, borderRadius: "50%", background: "var(--color-jade)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: "#fff", fontSize: "var(--text-xs)", fontWeight: 600 }}>3</div>
           <Bot size={18} style={{ color: "var(--color-jade)" }} />
           <span style={{ fontFamily: "var(--font-brush)", fontSize: "var(--text-md)", letterSpacing: "2px", color: "var(--color-ink)" }}>
-            Agent 讨论配置
+            评审员讨论配置
           </span>
           <span style={{ fontSize: "var(--text-xs)", color: "var(--color-ink-3)", letterSpacing: "0.5px", marginLeft: "auto" }}>
-            配置多个 Agent 从不同维度讨论构思
+            配置多位评审员从不同维度讨论构思
           </span>
           {usingPresets && (
             <span style={{ fontSize: "var(--text-2xs)", padding: "2px 8px", borderRadius: "var(--radius-xs)", background: "var(--color-indigo-wash)", color: "var(--color-indigo)" }}>
@@ -674,14 +584,14 @@ export function ConceptView({ projectData, persistProjectData }: ConceptViewProp
                 <input style={{ flex: 1, border: "none", background: "transparent", fontFamily: "var(--font-brush)", fontSize: "var(--text-md)", letterSpacing: "1px", color: "var(--color-ink)", outline: "none" }}
                   value={agent.name}
                   onChange={(e) => updateAgent(agent.id, { name: e.target.value })}
-                  placeholder="Agent 名称" />
+                  placeholder="评审员名称" />
                 <span style={{ fontSize: "var(--text-2xs)", padding: "2px 8px", borderRadius: "var(--radius-xs)", background: "var(--color-jade-wash)", color: "var(--color-jade)" }}>
                   {agent.perspective}
                 </span>
-                <button className="pv-icon-btn" onClick={() => importFromExpert(agent.id)} title={"从专家库选择"}>
+                <button className="pv-icon-btn" onClick={() => { setImportTargetAgentId(agent.id); setShowExpertBrowser(true); }} title={"从专家库选择"}>
                   <UserCheck size={14} />
                 </button>
-                <button className="pv-icon-btn pv-icon-btn-danger" onClick={() => removeAgent(agent.id)} title={"删除此 Agent"}>
+                <button className="pv-icon-btn pv-icon-btn-danger" onClick={() => removeAgent(agent.id)} title={"删除此评审员"}>
                   <Trash2 size={14} />
                 </button>
               </div>
@@ -718,7 +628,7 @@ export function ConceptView({ projectData, persistProjectData }: ConceptViewProp
               <div>
                 <label style={{ fontSize: "var(--text-2xs)", color: "var(--color-ink-3)", display: "block", marginBottom: 2, letterSpacing: "0.5px" }}>评审提示词</label>
                 <textarea className="pm-input" style={{ marginBottom: 0, fontSize: "var(--text-xs)", padding: "4px 8px", minHeight: 50, resize: "vertical" }}
-                  placeholder={"Agent 的评审方向和评价标准..."}
+                  placeholder={"评审员的评审方向和评价标准..."}
                   value={agent.prompt}
                   onChange={(e) => updateAgent(agent.id, { prompt: e.target.value })} />
               </div>
@@ -728,9 +638,9 @@ export function ConceptView({ projectData, persistProjectData }: ConceptViewProp
 
         <div style={{ display: "flex", gap: "var(--space-sm)", marginTop: "var(--space-md)" }}>
           <button className="btn btn-secondary" onClick={addAgent}>
-            <Plus size={14} /> 添加 Agent
+            <Plus size={14} /> 添加评审员
           </button>
-          <button className="btn btn-accent" onClick={() => setShowExpertBrowser(true)}>
+          <button className="btn btn-accent" onClick={() => { setImportTargetAgentId(null); setShowExpertBrowser(true); }}>
             <UserCheck size={14} /> 从专家库添加
           </button>
         </div>
@@ -739,13 +649,15 @@ export function ConceptView({ projectData, persistProjectData }: ConceptViewProp
       {/* ── 专家浏览器弹窗 ── */}
       {showExpertBrowser && (
         <div style={{ position: "fixed", inset: 0, zIndex: 1000, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center" }}
-          onClick={() => setShowExpertBrowser(false)}>
+          onClick={() => { setImportTargetAgentId(null); setShowExpertBrowser(false); }}>
           <div style={{ background: "var(--color-paper)", borderRadius: "var(--radius-md)", padding: "var(--space-xl)", maxWidth: 520, width: "90%", maxHeight: "70vh", overflow: "auto", boxShadow: "var(--shadow-lg)" }}
             onClick={e => e.stopPropagation()}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: "var(--space-md)" }}>
               <UserCheck size={18} style={{ color: "var(--color-accent)" }} />
-              <span style={{ fontFamily: "var(--font-brush)", fontSize: "var(--text-md)", letterSpacing: "2px" }}>从专家库添加</span>
-              <button className="pv-icon-btn" style={{ marginLeft: "auto" }} onClick={() => setShowExpertBrowser(false)}>&times;</button>
+              <span style={{ fontFamily: "var(--font-brush)", fontSize: "var(--text-md)", letterSpacing: "2px" }}>
+                {importTargetAgentId ? "从专家库导入" : "从专家库添加"}
+              </span>
+              <button className="pv-icon-btn" style={{ marginLeft: "auto" }} onClick={() => { setImportTargetAgentId(null); setShowExpertBrowser(false); }}>&times;</button>
             </div>
             {availableExpertsList.length === 0 ? (
               <div style={{ padding: 20, textAlign: "center", color: "var(--color-ink-3)" }}>专家库为空，请先前往「专家库」页面创建或导入</div>
@@ -753,7 +665,21 @@ export function ConceptView({ projectData, persistProjectData }: ConceptViewProp
               <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-sm)" }}>
                 {availableExpertsList.map(ex => (
                   <div key={ex.id} style={{ display: "flex", alignItems: "center", gap: "var(--space-sm)", padding: "var(--space-sm) var(--space-md)", border: "1px solid var(--color-rule-light)", borderRadius: "var(--radius-sm)", cursor: "pointer", transition: "all var(--dur-short) var(--ease-out)" }}
-                    onClick={() => { addExpertAsAgent(ex); setShowExpertBrowser(false); }}
+                    onClick={() => {
+                      if (importTargetAgentId) {
+                        updateAgent(importTargetAgentId, {
+                          name: ex.name,
+                          model: ex.modelId,
+                          perspective: ex.perspective,
+                          prompt: ex.defaultPrompt,
+                          expertId: ex.id,
+                        });
+                      } else {
+                        addExpertAsAgent(ex);
+                      }
+                      setImportTargetAgentId(null);
+                      setShowExpertBrowser(false);
+                    }}
                     onMouseOver={e => (e.currentTarget.style.borderColor = "var(--color-accent)")}
                     onMouseOut={e => (e.currentTarget.style.borderColor = "")}>
                     <Bot size={18} style={{ color: "var(--color-accent)", flexShrink: 0 }} />
@@ -774,7 +700,7 @@ export function ConceptView({ projectData, persistProjectData }: ConceptViewProp
       <div style={{ textAlign: "center", marginBottom: "var(--space-xl)" }}>
         <button className="btn btn-primary" style={{ padding: "12px 32px", fontSize: "var(--text-md)", letterSpacing: "2px" }}
           onClick={startDiscussion} disabled={discussing || !hasIdea}>
-          {discussing ? (<><MessageSquare size={18} /> 讨论中（共 {agents.filter(a => a.enabled).length} 位 Agent）</>) : (<><MessageSquare size={18} /> 启动多维度讨论</>)}
+          {discussing ? (<><MessageSquare size={18} /> 讨论中（共 {agents.filter(a => a.enabled).length} 位评审员）</>) : (<><MessageSquare size={18} /> 启动多维度讨论</>)}
         </button>
         {!hasIdea && (
           <div style={{ fontSize: "var(--text-xs)", color: "var(--color-ink-3)", marginTop: 8, fontStyle: "italic" }}>

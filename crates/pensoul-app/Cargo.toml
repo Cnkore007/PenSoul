@@ -9,7 +9,6 @@ pensoul-harness = { path = "../pensoul-harness" }
 pensoul-cda = { path = "../pensoul-cda" }
 pensoul-memory = { path = "../pensoul-memory" }
 pensoul-concurrency = { path = "../pensoul-concurrency" }
-pensoul-plugin = { path = "../pensoul-plugin" }
 pensoul-consistency = { path = "../pensoul-consistency" }
 pensoul-import = { path = "../pensoul-import" }
 tauri = { version = "2", features = [] }

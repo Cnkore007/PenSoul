@@ -1,7 +1,7 @@
 //! 管线三阶段模板与输出解析器。
 //!
 //! 阶段模板 P0 用 Rust 硬编码（写作 → 审查 → 回灌），
-//! P1 才外置为 YAML 插件（PluginStage → Stage 转换器）。
+//! P1 由声明式工作流模板（模板库）覆盖阶段手册/门控/重试。
 //! 解析器负责把 LLM 文本产出拆成「信号（给引擎判门控）」
 //! 与「报告（给用户看）」双通道。
 use pensoul_core::StageName;
@@ -14,17 +14,51 @@ pub const STAGE_WRITING: &str = "chapter_writing";
 pub const STAGE_REVIEW: &str = "chapter_review";
 /// 回灌阶段
 pub const STAGE_INJECTION: &str = "state_injection";
+/// 章前策划阶段（模板声明该阶段时插入到写作之前）
+pub const STAGE_PLANNING: &str = "chapter_planning";
 
-/// 三阶段模板：写作(auto) → 审查(conditional, 异模型) → 回灌(auto)。
+/// 阶段模板：写作(auto) → 审查(conditional, 异模型) → 回灌(auto)；
+/// 若模板声明了「章前策划」环节（默认三阶段之外的第四阶段），
+/// 则编排为 策划 → 写作 → 审查 → 回灌。
 ///
 /// 传入全局工作流模板时可覆盖阶段显示名/手册/门控/重试/审查阈值；
 /// 模板缺省（None）时使用默认值。
 pub fn pipeline_stages(template: Option<&WorkflowTemplate>) -> Vec<Stage> {
-    let mut stages = vec![
+    let mut stages: Vec<Stage> = Vec::new();
+
+    // 章前策划：仅在模板显式声明该环节时启用（webnovel v2 内置）
+    let with_planning = template
+        .and_then(|t| t.find_stage(STAGE_PLANNING))
+        .map(|def| def.enabled)
+        .unwrap_or(false);
+    if with_planning {
+        stages.push(Stage {
+            name: StageName::new(STAGE_PLANNING),
+            display_name: "章前策划".to_string(),
+            manual: "写前策划：结合本章梗概、前章纪要、世界观与人物状态，产出一张可执行的节拍表。"
+                .to_string(),
+            tools_allowed: vec![
+                "read_memo".into(),
+                "read_chapter_outline".into(),
+                "read_world_settings".into(),
+                "read_character_state".into(),
+                "read_memory_packet".into(),
+                "read_creation_settings".into(),
+            ],
+            tools_denied: vec!["write_settings".into(), "write_outline".into()],
+            gate_type: GateType::Auto,
+            next_stage: Some(StageName::new(STAGE_WRITING)),
+            runner: RunnerType::Local,
+            ..Default::default()
+        });
+    }
+
+    stages.extend(vec![
         Stage {
             name: StageName::new(STAGE_WRITING),
             display_name: "章节写作".to_string(),
-            manual: "根据备忘录、本章梗概、世界观、人物与记忆包撰写正文，只输出正文。".to_string(),
+            manual: "根据备忘录、本章梗概、节拍表、世界观、人物与记忆包撰写正文，只输出正文。"
+                .to_string(),
             tools_allowed: vec![
                 "read_memo".into(),
                 "read_chapter_outline".into(),
@@ -43,7 +77,7 @@ pub fn pipeline_stages(template: Option<&WorkflowTemplate>) -> Vec<Stage> {
         Stage {
             name: StageName::new(STAGE_REVIEW),
             display_name: "一致性审查".to_string(),
-            manual: "用不同模型审查本章与设定/人物/前文的一致性，输出 score 与 issues。"
+            manual: "用不同模型按七维加权审查本章：卖点兑现/开场钩子/情绪曲线/场景节奏/断章钩子/人物与设定一致性/文笔反 AI 味，输出分数与问题清单。"
                 .to_string(),
             tools_allowed: vec![
                 "read_memo".into(),
@@ -71,7 +105,7 @@ pub fn pipeline_stages(template: Option<&WorkflowTemplate>) -> Vec<Stage> {
             runner: RunnerType::Local,
             ..Default::default()
         },
-    ];
+    ]);
 
     if let Some(tpl) = template {
         for st in &mut stages {
@@ -116,6 +150,10 @@ const REPORT_END: &str = "===REPORT_END===";
 pub struct ReviewSignal {
     pub score: f64,
     pub issues: Vec<String>,
+    /// 黄金三章门控子分数：开场钩子（0-10，仅前 3 章审查输出）
+    pub hook_score: Option<f64>,
+    /// 黄金三章门控子分数：爽点/情绪释放（0-10，仅前 3 章审查输出）
+    pub payoff_score: Option<f64>,
 }
 
 /// 截取两个标记之间的文本
@@ -185,11 +223,21 @@ pub fn parse_review_output(text: &str) -> Result<(ReviewSignal, String), String>
                 .collect()
         })
         .unwrap_or_default();
+    let hook_score = json.get("hook").and_then(|v| v.as_f64());
+    let payoff_score = json.get("payoff").and_then(|v| v.as_f64());
 
     let report = between(text, REPORT_BEGIN, REPORT_END)
         .map(str::to_string)
         .unwrap_or_else(|| format!("一致性评分 {score:.0}"));
-    Ok((ReviewSignal { score, issues }, report))
+    Ok((
+        ReviewSignal {
+            score,
+            issues,
+            hook_score,
+            payoff_score,
+        },
+        report,
+    ))
 }
 
 /// 解析回灌阶段输出：提取 JSON 中的 chapter_brief；失败用正文前 150 字兜底。
@@ -210,6 +258,31 @@ pub fn parse_injection_output(text: &str, fallback_content: &str) -> String {
     // 兜底：截正文前 150 字
     let fallback: String = fallback_content.chars().take(150).collect();
     format!("（纪要提炼失败，正文节选）{fallback}")
+}
+
+/// 解析章前策划输出：提取 JSON 节拍表；失败时取最长连续文本段兜底。
+pub fn parse_planning_output(raw: &str) -> String {
+    let cleaned = raw
+        .trim()
+        .strip_prefix("```json")
+        .or_else(|| raw.trim().strip_prefix("```"))
+        .map(|s| s.strip_suffix("```").unwrap_or(s).trim())
+        .unwrap_or(raw.trim());
+    if serde_json::from_str::<serde_json::Value>(cleaned).is_ok() {
+        return cleaned.to_string();
+    }
+    let longest = raw
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .max_by_key(|l| l.chars().count())
+        .unwrap_or(raw)
+        .to_string();
+    if longest.chars().count() > 200 {
+        longest
+    } else {
+        raw.trim().to_string()
+    }
 }
 
 #[cfg(test)]
@@ -233,6 +306,36 @@ mod tests {
         );
         assert_eq!(stages[1].max_retries, 2);
         assert!(stages[2].next_stage.is_none());
+    }
+
+    #[test]
+    fn test_pipeline_stages_with_planning() {
+        use pensoul_core::workflow::builtin_workflow_templates;
+        let tpl = builtin_workflow_templates()
+            .into_iter()
+            .find(|t| t.template_id == "webnovel")
+            .expect("内置网文模板必须存在");
+        let stages = pipeline_stages(Some(&tpl));
+        assert_eq!(stages.len(), 4);
+        assert_eq!(stages[0].name.as_str(), STAGE_PLANNING);
+        assert_eq!(stages[0].display_name, "章前策划");
+        assert_eq!(
+            stages[0].next_stage.as_ref().map(|s| s.as_str()),
+            Some(STAGE_WRITING)
+        );
+        assert_eq!(stages[1].name.as_str(), STAGE_WRITING);
+        assert_eq!(stages[3].name.as_str(), STAGE_INJECTION);
+    }
+
+    #[test]
+    fn test_parse_planning_output() {
+        let fenced = "```json\n{\"chapter_goal\": \"主角首次用金手指脱困\", \"beats\": []}\n```";
+        let plan = parse_planning_output(fenced);
+        assert!(plan.contains("chapter_goal"));
+        // 兜底：纯文本取最长段
+        let plain = "第一段很短。\n第二段是完整的节拍说明：开篇冲突、三个场景、结尾钩子，内容足够长可以成为兜底。";
+        let fallback = parse_planning_output(plain);
+        assert!(fallback.contains("节拍说明"));
     }
 
     #[test]

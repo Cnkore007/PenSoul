@@ -163,6 +163,8 @@ pub(crate) struct ModelCtx {
     pub writing_cards: String,
     /// 审查阶段绑定的技法卡注入块（可为空）
     pub review_cards: String,
+    /// 审查阶段是否启用「黄金三章」硬门控（模板 review 环节声明时开启）
+    pub golden_review: bool,
 }
 
 impl ModelCtx {
@@ -225,6 +227,7 @@ pub(crate) async fn call_interruptible(
 /// 阶段显示名
 pub(crate) fn stage_display(stage: &str) -> &'static str {
     match stage {
+        stages::STAGE_PLANNING => "章前策划",
         stages::STAGE_WRITING => "章节写作",
         stages::STAGE_REVIEW => "一致性审查",
         stages::STAGE_INJECTION => "状态回灌",

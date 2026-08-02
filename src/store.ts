@@ -1,5 +1,5 @@
 // IPC 持久化层 — 通过 Tauri IPC 与后端通信
-import type { ProjectMeta, ProjectData, LlmProvider, LlmModel, PluginConfig, Expert } from "./types";
+import type { ProjectMeta, ProjectData, LlmProvider, LlmModel, Expert } from "./types";
 import * as ipc from "./ipc";
 import { computeEffectiveSkills } from "./workflow";
 
@@ -457,21 +457,6 @@ export async function loadApiKeys(): Promise<Record<string, string>> {
 
 export async function saveApiKeys(_keys: Record<string, string>): Promise<void> {
   // 保存通过 ipc.saveApiKey 逐条处理，此函数保留用于兼容
-}
-
-// ── Plugins ──
-
-export async function loadPlugins(): Promise<PluginConfig[]> {
-  try {
-    const list = await ipc.listPlugins();
-    return list as PluginConfig[];
-  } catch {
-    return [];
-  }
-}
-
-export async function savePlugins(_plugins: PluginConfig[]): Promise<void> {
-  // 插件管理通过 ipc.installPlugin / removePlugin / togglePlugin
 }
 
 // ── Experts ──

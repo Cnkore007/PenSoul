@@ -8,11 +8,10 @@ use parking_lot::RwLock;
 use pensoul_cda::ImpactGraph;
 use pensoul_concurrency::ConcurrencyController;
 use pensoul_consistency::IncrementalChecker;
+use pensoul_core::workflow::{WorkflowTemplate, builtin_workflow_templates};
 use pensoul_core::{NovelOntology, ProjectId};
 use pensoul_harness::HarnessEngine;
 use pensoul_memory::{EditingMode, MemoryPipeline};
-use pensoul_plugin::PluginRegistry;
-use pensoul_core::workflow::{WorkflowTemplate, builtin_workflow_templates};
 
 use anyhow::{Result, anyhow};
 
@@ -86,8 +85,6 @@ pub struct AppState {
     pub memory: Arc<RwLock<MemoryPipeline>>,
     /// 并发控制器
     pub concurrency: Arc<RwLock<ConcurrencyController>>,
-    /// 插件注册中心
-    pub plugin_registry: Arc<RwLock<PluginRegistry>>,
     /// 全局工作流模板库（作品库层面定义，项目通过引用 + 覆盖使用）
     pub workflow_templates: Arc<RwLock<Vec<WorkflowTemplate>>>,
     /// 项目文件保存锁：前端并发保存（人物/世界观/设定/概念/萌芽/工作流引用）
@@ -99,6 +96,8 @@ pub struct AppState {
     pub pipeline: Arc<crate::pipeline::PipelineControl>,
     /// 概念讨论控制面（运行旗标 + 事件缓冲，支持页面切换后重连）
     pub discussion: Arc<crate::commands::discussion::DiscussionControl>,
+    /// 蒸馏控制面（书籍/方法论/专家蒸馏共用，支持页面切换后重连）
+    pub distills: Arc<crate::commands::expert_distill::DistillControl>,
 }
 
 impl AppState {
@@ -119,12 +118,12 @@ impl AppState {
             impact_graph: Arc::new(RwLock::new(ImpactGraph::new())),
             memory: Arc::new(RwLock::new(new_memory_pipeline())),
             concurrency: Arc::new(RwLock::new(ConcurrencyController::new())),
-            plugin_registry: Arc::new(RwLock::new(PluginRegistry::new())),
             workflow_templates: Arc::new(RwLock::new(workflow_templates)),
             save_lock: Arc::new(Mutex::new(())),
             consistency_checker: Arc::new(RwLock::new(IncrementalChecker::new())),
             pipeline: Arc::new(crate::pipeline::PipelineControl::new()),
             discussion: Arc::new(crate::commands::discussion::DiscussionControl::new()),
+            distills: Arc::new(crate::commands::expert_distill::DistillControl::new()),
         }
     }
 
@@ -155,14 +154,12 @@ impl AppState {
             impact_graph: Arc::new(RwLock::new(ImpactGraph::new())),
             memory: Arc::new(RwLock::new(new_memory_pipeline())),
             concurrency: Arc::new(RwLock::new(ConcurrencyController::new())),
-            plugin_registry: Arc::new(RwLock::new(PluginRegistry::new())),
-            workflow_templates: Arc::new(RwLock::new(load_workflow_templates_from_disk(
-                &base_dir,
-            ))),
+            workflow_templates: Arc::new(RwLock::new(load_workflow_templates_from_disk(&base_dir))),
             save_lock: Arc::new(Mutex::new(())),
             consistency_checker: Arc::new(RwLock::new(IncrementalChecker::new())),
             pipeline: Arc::new(crate::pipeline::PipelineControl::new()),
             discussion: Arc::new(crate::commands::discussion::DiscussionControl::new()),
+            distills: Arc::new(crate::commands::expert_distill::DistillControl::new()),
         };
         crate::integration::rebuild_derived_state(&state);
         // 回填/迁移过的数据立即落盘，避免下次启动重复处理
@@ -207,6 +204,69 @@ impl AppState {
         )?;
         let data = serde_json::to_string_pretty(templates)?;
         atomic_write(&file, data.as_bytes())
+    }
+
+    /// 一键清空所有项目的项目级覆盖（保留模板引用）。
+    ///
+    /// 覆盖层退役后，各环节绑定统一由全局模板绑定接管；
+    /// 仅对有非空覆盖的项目写盘，返回处理的项目数。
+    pub fn clear_all_project_overrides(&self) -> Result<usize> {
+        let _guard = self.save_lock.lock().unwrap_or_else(|e| e.into_inner());
+        if !self.base_dir.exists() {
+            return Ok(0);
+        }
+        let active = self.active_project_id.read().clone();
+        let mut changed = 0usize;
+        for entry in std::fs::read_dir(&self.base_dir)? {
+            let path = entry?.path();
+            if !path.is_dir() {
+                continue;
+            }
+            let dir_name = path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string();
+            if dir_name == "_config" {
+                continue;
+            }
+            let project_file = path.join("pensoul-project.json");
+            if !project_file.exists() {
+                continue;
+            }
+            let Ok(data) = std::fs::read_to_string(&project_file) else {
+                continue;
+            };
+            let Ok(mut json) = serde_json::from_str::<serde_json::Value>(&data) else {
+                continue;
+            };
+            let Some(wf) = json.get_mut("workflow_ref") else {
+                continue;
+            };
+            if !wf.is_object() {
+                continue;
+            }
+            // 仅当覆盖层非空才写盘
+            let has_overrides = wf
+                .get("overrides")
+                .and_then(|v| v.as_object())
+                .map(|o| !o.is_empty())
+                .unwrap_or(false);
+            if !has_overrides {
+                continue;
+            }
+            if let Some(obj) = wf.as_object_mut() {
+                obj.insert("overrides".to_string(), serde_json::json!({}));
+            }
+            // 当前活跃项目：同步内存，避免后续保存把磁盘结果覆盖回去
+            if active.as_deref() == Some(dir_name.as_str()) {
+                self.ontology.write().workflow_ref = wf.clone();
+            }
+            let out = serde_json::to_string_pretty(&json)?;
+            atomic_write(&project_file, out.as_bytes())?;
+            changed += 1;
+        }
+        Ok(changed)
     }
 
     /// 保存当前活跃项目到磁盘（原子写入：临时文件 + rename，

@@ -3,7 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { BookOpen, Loader2, CheckCircle2, XCircle, Sparkles, FileUp, X } from "lucide-react";
 import type { BookPackage, LlmModel } from "../types";
-import { distillBook } from "../ipc";
+import { distillBook, getDistillState } from "../ipc";
 
 // 五个蒸馏维度（与后端 DIMENSIONS 一致）
 export const DIMENSION_OPTIONS = [
@@ -23,7 +23,8 @@ interface PhaseEvent {
 
 interface BookDistillPanelProps {
   models: LlmModel[];
-  onDistilled: (pkg: BookPackage) => void;
+  // pkg 为 null 表示任务在后台完成（页面切换后重连场景），面板只需刷新列表
+  onDistilled: (pkg: BookPackage | null) => void;
   onClose: () => void;
 }
 
@@ -39,6 +40,58 @@ export function BookDistillPanel({ models, onDistilled, onClose }: BookDistillPa
   const [running, setRunning] = useState(false);
   const [phases, setPhases] = useState<PhaseEvent[]>([]);
   const unlistenRef = useRef<(() => void) | null>(null);
+  // 保存最新回调，重连订阅期间避免闭包捕获旧版本
+  const onDistilledRef = useRef(onDistilled);
+  onDistilledRef.current = onDistilled;
+
+  // 合并/更新阶段事件（按阶段名去重，保留最新状态）
+  const upsertPhase = (prev: PhaseEvent[], ev: PhaseEvent) => {
+    const i = prev.findIndex((p) => p.phase === ev.phase);
+    if (i >= 0) {
+      const u = [...prev];
+      u[i] = ev;
+      return u;
+    }
+    return [...prev, ev];
+  };
+
+  // 页面切换后重连：若书籍蒸馏仍在后台进行，重放缓冲事件并订阅实时进度与终态
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const st = await getDistillState().catch(() => null);
+      if (!st || cancelled || !st.running || st.kind !== "book") return;
+      setRunning(true);
+      (st.events ?? []).forEach(ev => {
+        if (ev.phase === "__distill__") return;
+        setPhases(prev => upsertPhase(prev, ev));
+      });
+      const unlisten = await listen<PhaseEvent>("book-distill-phase", (evt) => {
+        const e = evt.payload;
+        if (e.phase === "__distill__") {
+          if (e.status === "finished") {
+            setRunning(false);
+            onDistilledRef.current(null);
+          } else {
+            setPhases(prev => [...prev, e]);
+            setRunning(false);
+          }
+          return;
+        }
+        setPhases(prev => upsertPhase(prev, e));
+      });
+      if (cancelled) { unlisten(); return; }
+      // 订阅间隙任务可能已结束：复查一次，避免错过终态
+      const st2 = await getDistillState().catch(() => null);
+      if (cancelled) { unlisten(); return; }
+      if (st2 && !st2.running) {
+        setRunning(false);
+        onDistilledRef.current(null);
+        unlisten();
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -71,15 +124,7 @@ export function BookDistillPanel({ models, onDistilled, onClose }: BookDistillPa
     setPhases([]);
 
     unlistenRef.current = await listen<PhaseEvent>("book-distill-phase", (evt) => {
-      setPhases((prev) => {
-        const i = prev.findIndex((p) => p.phase === evt.payload.phase);
-        if (i >= 0) {
-          const u = [...prev];
-          u[i] = evt.payload;
-          return u;
-        }
-        return [...prev, evt.payload];
-      });
+      setPhases(prev => upsertPhase(prev, evt.payload));
     });
 
     try {

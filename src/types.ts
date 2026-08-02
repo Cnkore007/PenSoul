@@ -63,6 +63,24 @@ export interface StyleMetrics {
   ai_pattern_score: number;
 }
 
+// 反 AI 味检测报告（analyze_ai_flavor 命令返回）
+export interface AiFlavorCategory {
+  key: string;
+  label: string;
+  hits: number;
+  score: number;
+  max_score: number;
+  examples: string[];
+}
+
+export interface AiFlavorReport {
+  score: number; // 0-100，越高 AI 味越重
+  level: string; // 低 / 中 / 高
+  total_hits: number;
+  categories: AiFlavorCategory[];
+  suggestion: string;
+}
+
 // 项目元数据
 export interface ProjectMeta {
   project_id: string;
@@ -95,29 +113,6 @@ export interface LlmModel {
   avg_latency_ms: number;
   is_available: boolean;
   api_key_configured: boolean;
-}
-
-// 插件/工作流配置
-export interface PluginConfig {
-  plugin_id: string;
-  name: string;
-  version: string;
-  description: string;
-  enabled: boolean;
-  stages: PluginStage[];
-}
-
-export interface PluginStage {
-  name: string;
-  display_name: string;
-  tool: string;
-  gate: 'auto' | 'manual' | 'conditional';
-  runner: 'local' | 'delegated';
-  prompt_template: string;
-  allowed_tools: string[];
-  denied_tools: string[];
-  timeout_seconds: number;
-  max_retries: number;
 }
 
 // 情节脉络节点 —— 大纲规划层（覆盖一个章节范围的剧情规划，展开细纲后才生成可写章节）
@@ -166,13 +161,14 @@ export interface WorkflowSkillConfig {
 
 // 模板中的一个执行环节（stage 与后端管线三阶段 key 一致）
 export interface WorkflowStageDef {
-  stage: string; // chapter_writing / chapter_review / state_injection
+  stage: string; // chapter_planning / chapter_writing / chapter_review / state_injection
   display_name: string;
   prompt_hint: string; // 阶段工作手册
   gate: 'auto' | 'manual' | 'conditional';
   on_fail: string | null; // 门控失败时的回退阶段
   max_retries: number;
   enabled: boolean;
+  golden_gate?: boolean; // 审查环节：前 3 章启用黄金三章硬门控（钩子/爽点必达标）
 }
 
 // 全局工作流模板（作品库层面资产，可被多个项目引用）
@@ -419,8 +415,6 @@ export type ViewType =
   | 'style'
   | 'projects'
   | 'llm-settings'
-  | 'plugins'
-  | 'workflow'
   | 'workflow-library'
   | 'dashboard';
 

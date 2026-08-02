@@ -156,12 +156,13 @@ fn resolve_models(
         available.push(fallback.to_string());
     }
 
-    let writing = match resolve_stage_model(state, template, writing_model.as_deref(), STAGE_WRITING) {
-        Some(m) => m,
-        None => available.first().cloned().ok_or_else(|| {
-            "未配置可用模型。请先在「模型设置」添加模型并配置 API Key。".to_string()
-        })?,
-    };
+    let writing =
+        match resolve_stage_model(state, template, writing_model.as_deref(), STAGE_WRITING) {
+            Some(m) => m,
+            None => available.first().cloned().ok_or_else(|| {
+                "未配置可用模型。请先在「模型设置」添加模型并配置 API Key。".to_string()
+            })?,
+        };
     let review = match resolve_stage_model(state, template, review_model.as_deref(), STAGE_REVIEW) {
         Some(m) => m,
         None => available
@@ -240,12 +241,7 @@ async fn run_pipeline_inner(
 ) -> Result<serde_json::Value, String> {
     lh::ensure_api_keys_loaded(state);
     let template = resolve_project_workflow(state);
-    let (writing, review) = resolve_models(
-        state,
-        writing_model,
-        review_model,
-        template.as_ref(),
-    )?;
+    let (writing, review) = resolve_models(state, writing_model, review_model, template.as_ref())?;
     // 新一轮运行：清空事件缓冲，记录实际使用的模型（供页面恢复）
     state.pipeline.begin_run(&writing, &review);
     // 技法卡：显式参数（造化工坊页面）优先，否则按项目引用模板 + 覆盖解析
@@ -261,6 +257,12 @@ async fn run_pipeline_inner(
         review_cards.as_ref(),
         STAGE_REVIEW,
     );
+    // 黄金三章硬门控：模板 review 环节声明后，前 3 章额外要求钩子/爽点维度达标
+    let golden_review = template
+        .as_ref()
+        .and_then(|t| t.find_stage(STAGE_REVIEW))
+        .map(|d| d.golden_gate)
+        .unwrap_or(false);
     let ctx = ModelCtx {
         m2p: lh::build_model_to_provider(&lh::load_models(state)),
         bases: lh::build_provider_api_bases(&lh::load_providers(state)),
@@ -275,6 +277,7 @@ async fn run_pipeline_inner(
             state,
             &resolved_review_cards,
         ),
+        golden_review,
     };
 
     let chapters = select_chapters(state, chapter_ids);
@@ -285,7 +288,11 @@ async fn run_pipeline_inner(
         );
     }
 
-    // 注册三阶段模板 + 注入创作备忘录
+    // 注册阶段模板（默认三阶段；模板声明章前策划时为四阶段）+ 注入创作备忘录
+    let stage_names: Vec<String> = stages::pipeline_stages(template.as_ref())
+        .iter()
+        .map(|s| s.name.as_str().to_string())
+        .collect();
     {
         let onto = state.ontology.read();
         let mut engine = state.harness.write();
@@ -319,7 +326,14 @@ async fn run_pipeline_inner(
     let mut failed_titles: Vec<String> = Vec::new();
     let mut stopped = false;
     // 审查放行阈值：模板可自定义（默认 80）
-    let review_pass_score = template.as_ref().map(|t| t.review_pass_score).unwrap_or(80.0);
+    let review_pass_score = template
+        .as_ref()
+        .map(|t| t.review_pass_score)
+        .unwrap_or(80.0);
+    // 审查阶段定义快照：每章按黄金三章开关重设门控条件后重新注册
+    let mut review_stage = stages::pipeline_stages(template.as_ref())
+        .into_iter()
+        .find(|s| s.name.as_str() == STAGE_REVIEW);
 
     for (idx, chapter) in chapters.iter().enumerate() {
         if state.pipeline.stop.load(Ordering::SeqCst) {
@@ -341,15 +355,29 @@ async fn run_pipeline_inner(
             ),
         );
 
-        // 每章开始前重置三个阶段的实例状态
+        // 每章开始前重置各阶段实例状态，起始阶段取编排的第一个（含章前策划）
         {
             let mut engine = state.harness.write();
-            for name in [STAGE_WRITING, STAGE_REVIEW, STAGE_INJECTION] {
+            // 黄金三章硬门控：前 3 章要求总分达标 且 钩子/爽点 ≥ 8；其余章节仅总分达标
+            if let Some(rev) = review_stage.as_mut() {
+                let golden_chapter = golden_review && chapter.chapter_no <= 3;
+                rev.gate_condition = Some(if golden_chapter {
+                    format!("score >= {review_pass_score} && hook >= 8 && payoff >= 8")
+                } else {
+                    format!("score >= {review_pass_score}")
+                });
+                engine.register_stage(rev.clone());
+            }
+            for name in &stage_names {
                 engine
                     .stages_status
                     .insert(name.to_string(), StageInstance::new(StageName::new(name)));
             }
-            engine.set_current_stage(StageName::new(STAGE_WRITING));
+            let first = stage_names
+                .first()
+                .cloned()
+                .unwrap_or_else(|| STAGE_WRITING.to_string());
+            engine.set_current_stage(StageName::new(first));
         }
 
         let mut prev_issues: Vec<String> = Vec::new();
@@ -509,9 +537,7 @@ async fn run_pipeline_inner(
                 },
             );
             if stage_str == STAGE_REVIEW
-                && gate_score
-                    .map(|s| s >= review_pass_score)
-                    .unwrap_or(false)
+                && gate_score.map(|s| s >= review_pass_score).unwrap_or(false)
             {
                 set_chapter_status(state, &chapter.chapter_id, ChapterStatus::Reviewed);
             }

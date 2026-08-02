@@ -8,6 +8,7 @@
 //! - 调研过程写入 `references/research/` 随产物自包含保存
 use crate::state::AppState;
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::Emitter;
 
 use super::experts::{experts_base_dir, extract_section_any, parse_skill_md};
@@ -19,6 +20,129 @@ pub struct DistillPhaseEvent {
     pub status: String,
     pub message: String,
     pub detail: String,
+}
+
+/// 蒸馏事件缓冲上限（阶段事件有限，超出后丢弃最旧）
+const DISTILL_EVENT_CAP: usize = 100;
+
+/// 蒸馏控制面（书籍/方法论/专家蒸馏共用）：运行旗标 + 任务类型 + 事件缓冲，
+/// 支持前端切换页面后重连恢复进度（与讨论、造化工坊同一模式）。
+pub struct DistillControl {
+    /// 是否有蒸馏任务正在进行（防重入）
+    pub running: AtomicBool,
+    /// 当前任务类型（book / methodology / expert），前端据此恢复对应面板
+    pub kind: parking_lot::Mutex<Option<String>>,
+    /// 阶段事件缓冲：前端重连后重放恢复进度
+    pub events: parking_lot::RwLock<Vec<DistillPhaseEvent>>,
+}
+
+impl DistillControl {
+    pub fn new() -> Self {
+        Self {
+            running: AtomicBool::new(false),
+            kind: parking_lot::Mutex::new(None),
+            events: parking_lot::RwLock::new(Vec::new()),
+        }
+    }
+
+    /// 事件入缓冲（发射前调用）
+    pub(crate) fn record(&self, ev: &DistillPhaseEvent) {
+        let mut buf = self.events.write();
+        if buf.len() >= DISTILL_EVENT_CAP {
+            buf.remove(0);
+        }
+        buf.push(ev.clone());
+    }
+}
+
+impl Default for DistillControl {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// 蒸馏运行守卫：独占蒸馏控制面，任务结束（成功或失败）时自动释放旗标
+/// 并发射终态事件（`phase = "__distill__"`），前端据此收尾刷新。
+pub struct DistillRunGuard<'a> {
+    app_handle: &'a tauri::AppHandle,
+    state: &'a AppState,
+    event_name: &'static str,
+    success: bool,
+    message: String,
+}
+
+impl<'a> DistillRunGuard<'a> {
+    /// 尝试独占蒸馏控制面；已有任务进行时返回错误
+    pub fn begin(
+        app_handle: &'a tauri::AppHandle,
+        state: &'a AppState,
+        kind: &str,
+        event_name: &'static str,
+    ) -> Result<Self, String> {
+        if state.distills.running.swap(true, Ordering::SeqCst) {
+            return Err("已有蒸馏任务正在进行，请等待当前任务完成".to_string());
+        }
+        *state.distills.kind.lock() = Some(kind.to_string());
+        state.distills.events.write().clear();
+        Ok(Self {
+            app_handle,
+            state,
+            event_name,
+            success: false,
+            message: String::new(),
+        })
+    }
+
+    /// 标记任务成功并附完成消息（终态事件在 Drop 时发射）
+    pub fn finish(&mut self, message: impl Into<String>) {
+        self.success = true;
+        self.message = message.into();
+    }
+}
+
+impl Drop for DistillRunGuard<'_> {
+    fn drop(&mut self) {
+        let (status, message) = if self.success {
+            (
+                "finished",
+                if self.message.is_empty() {
+                    "蒸馏完成".to_string()
+                } else {
+                    self.message.clone()
+                },
+            )
+        } else {
+            (
+                "error",
+                if self.message.is_empty() {
+                    "蒸馏失败或已中断".to_string()
+                } else {
+                    self.message.clone()
+                },
+            )
+        };
+        let ev = DistillPhaseEvent {
+            phase: "__distill__".to_string(),
+            status: status.to_string(),
+            message,
+            detail: String::new(),
+        };
+        self.state.distills.record(&ev);
+        let _ = self.app_handle.emit(self.event_name, ev);
+        self.state.distills.running.store(false, Ordering::SeqCst);
+    }
+}
+
+/// 蒸馏状态查询：运行旗标 + 任务类型 + 事件缓冲（前端切换页面后重连恢复进度）
+#[tauri::command]
+pub async fn get_distill_state(
+    state: tauri::State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    Ok(serde_json::json!({
+        "running": state.distills.running.load(Ordering::SeqCst),
+        "kind": state.distills.kind.lock().clone(),
+        "events": state.distills.events.read().clone(),
+    }))
 }
 
 /// 技能文件在工作区内的相对路径
@@ -54,6 +178,8 @@ pub async fn distill_expert(
 ) -> Result<pensoul_core::Expert, String> {
     use super::llm_helper as lh;
     lh::ensure_api_keys_loaded(&state);
+    // 独占蒸馏控制面：任务全程占位，结束（成功或失败）时自动发终态事件
+    let mut guard = DistillRunGuard::begin(&app_handle, &state, "expert", "distill-phase")?;
 
     let saved_providers = lh::load_providers(&state);
     let saved_models = lh::load_models(&state);
@@ -88,7 +214,15 @@ pub async fn distill_expert(
 
     // 加载 pensoul-skill-Experts 技能作为蒸馏方法论
     let (methodology, skill_source) = load_distill_methodology(&state);
-    emit_phase(&app_handle, "加载蒸馏技能", "done", &skill_source, "").ok();
+    emit_phase(
+        &app_handle,
+        &state,
+        "加载蒸馏技能",
+        "done",
+        &skill_source,
+        "",
+    )
+    .ok();
 
     let auth = lh::ProviderAuth {
         provider_id: &provider_id,
@@ -99,6 +233,7 @@ pub async fn distill_expert(
     // ── Phase 1: 人物调研（技能的六维度框架）──
     emit_phase(
         &app_handle,
+        &state,
         "人物调研",
         "running",
         &format!("正在按六维度框架调研「{}」的思维方式...", persona),
@@ -130,11 +265,20 @@ pub async fn distill_expert(
         Some(idx) => research[idx..].to_string(),
         None => research,
     };
-    emit_phase(&app_handle, "人物调研", "done", "调研完成", &research).ok();
+    emit_phase(
+        &app_handle,
+        &state,
+        "人物调研",
+        "done",
+        "调研完成",
+        &research,
+    )
+    .ok();
 
     // ── Phase 2: 技能构建（按产物模板生成 SKILL.md）──
     emit_phase(
         &app_handle,
+        &state,
         "技能构建",
         "running",
         &format!("正在为「{}」提炼心智模型并构建专家技能...", persona),
@@ -255,12 +399,14 @@ pub async fn distill_expert(
 
     emit_phase(
         &app_handle,
+        &state,
         "技能构建",
         "done",
         "技能构建完成！",
         &format!("已生成「{}」并保存到 Experts/{}", expert_name, dir_name),
     )
     .ok();
+    guard.finish(format!("已生成「{}」专家技能", expert_name));
     Ok(expert)
 }
 
@@ -363,6 +509,7 @@ pub(crate) fn extract_skill_md(output: &str) -> Option<String> {
 /// 向 Tauri 前端发射蒸馏阶段事件
 fn emit_phase(
     app_handle: &tauri::AppHandle,
+    state: &AppState,
     phase: &str,
     status: &str,
     message: &str,
@@ -374,6 +521,7 @@ fn emit_phase(
         message: message.to_string(),
         detail: detail.to_string(),
     };
+    state.distills.record(&event);
     let _ = app_handle.emit("distill-phase", event);
     Ok(())
 }

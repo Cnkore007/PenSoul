@@ -9,7 +9,8 @@ import type {
   StageSkillConfig,
 } from "./types";
 
-// 三个可绑定技能卡/模型的执行环节（key 与后端 applicable_stages 一致）
+// 可绑定技能卡/模型的执行环节（key 与后端 applicable_stages 一致；
+// 章前策划的守则在模板编辑区调整，不走技能卡绑定）
 export const EXEC_STAGES = ["outline_expand", "chapter_writing", "review"] as const;
 
 export function emptyStageConfig(): StageSkillConfig {

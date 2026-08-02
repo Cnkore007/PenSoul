@@ -16,27 +16,33 @@ import {
 import type { ProjectData, ViewType, Chapter, PipelineEvent } from "../types";
 import {
   listModels,
+  listWorkflowTemplates,
   runChapterPipeline,
   pausePipeline,
   resumePipeline,
   stopPipeline,
   getPipelineState,
 } from "../ipc";
+import { computeEffectiveSkills } from "../workflow";
+import type { WorkflowTemplate } from "../types";
 
 interface HarnessConsoleProps {
   projectData: ProjectData;
+  persistProjectData?: (updater: (prev: ProjectData) => ProjectData) => void;
   onNavigate?: (view: ViewType) => void;
 }
 
-// 三阶段展示元数据
+// 阶段展示元数据（默认三阶段；网文创作流 v2 含章前策划）
 const STAGE_META: Record<string, { label: string; color: string }> = {
+  chapter_planning: { label: "策划", color: "#4aa3df" },
   chapter_writing: { label: "写作", color: "#7c6cf0" },
   chapter_review: { label: "审查", color: "#d99a3d" },
   state_injection: { label: "回灌", color: "#3f9e63" },
 };
 
-export function HarnessConsole({ projectData, onNavigate }: HarnessConsoleProps) {
+export function HarnessConsole({ projectData, persistProjectData, onNavigate }: HarnessConsoleProps) {
   const [models, setModels] = useState<any[]>([]);
+  const [templates, setTemplates] = useState<WorkflowTemplate[]>([]);
   const [writingModel, setWritingModel] = useState("");
   const [reviewModel, setReviewModel] = useState("");
   const [running, setRunning] = useState(false);
@@ -76,15 +82,37 @@ export function HarnessConsole({ projectData, onNavigate }: HarnessConsoleProps)
     }
   }, []);
 
-  // 工作流页的环节技能绑定（写作/审查），启动时随管线传给后端注入 prompt
+  // 主页「工作流」的模板级环节绑定（写作/审查），启动时随管线传给后端注入 prompt
   const workflowSkills = projectData.workflowSkills;
   const boundWritingCards = workflowSkills?.chapter_writing?.cards ?? [];
   const boundReviewCards = workflowSkills?.review?.cards ?? [];
+  // 项目引用的全局模板（模板与环节绑定在主页「工作流」统一维护，这里只选模板）
+  const workflowRef = projectData.workflowRef;
+  const selectedTemplate = templates.find(t => t.template_id === workflowRef?.template_id) ?? null;
+
+  function handleTemplateChange(templateId: string) {
+    if (!persistProjectData) return;
+    const t = templates.find(x => x.template_id === templateId) ?? null;
+    // 项目层只存模板引用，覆盖层已退役（一键清空后保持为空）
+    const ref = {
+      template_id: t ? t.template_id : null,
+      template_version: t ? t.version : null,
+      overrides: {},
+    };
+    persistProjectData(prev => ({
+      ...prev,
+      workflowRef: ref,
+      workflowSkills: computeEffectiveSkills(templates, ref),
+    }));
+  }
 
   // 初始化：模型列表 + 快照恢复（运行状态/事件流/模型选择）+ 实时事件订阅
   useEffect(() => {
     listModels()
       .then((ms) => setModels(ms.filter((m: any) => m.is_available !== false)))
+      .catch(() => {});
+    listWorkflowTemplates()
+      .then(setTemplates)
       .catch(() => {});
 
     let unlisten: (() => void) | null = null;
@@ -185,7 +213,7 @@ export function HarnessConsole({ projectData, onNavigate }: HarnessConsoleProps)
       <div className="view-header">
         <h2>造化工坊</h2>
         <p style={{ fontSize: "var(--text-xs)", color: "var(--color-ink-3)", margin: 0 }}>
-          选择工作流后自动连写：每章走「写作 → 审查 → 回灌」闭环，正文落库后自动出现在笔耕
+          下方选择本项目的工作流模板（模板与环节绑定在主页「工作流」统一配置）；每章走「策划 → 写作 → 审查 → 回灌」闭环，正文落库后自动出现在笔耕
         </p>
       </div>
 
@@ -199,6 +227,26 @@ export function HarnessConsole({ projectData, onNavigate }: HarnessConsoleProps)
             flexWrap: "wrap",
           }}
         >
+          <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 13 }}>
+            <span style={{ opacity: 0.7 }}>工作流模板</span>
+            <select
+              value={workflowRef?.template_id ?? ""}
+              disabled={running}
+              onChange={(e) => handleTemplateChange(e.target.value)}
+              style={{ minWidth: 180, padding: "6px 8px" }}
+              title="模板定义与环节绑定在主页「工作流」统一配置"
+            >
+              <option value="">不选模板（默认三阶段：写作 → 审查 → 回灌）</option>
+              {templates.filter(t => t.enabled).map(t => (
+                <option key={t.template_id} value={t.template_id}>{t.name}</option>
+              ))}
+            </select>
+            {selectedTemplate && (
+              <span style={{ fontSize: 11, opacity: 0.55, maxWidth: 220 }}>
+                {selectedTemplate.genre} · {selectedTemplate.stages.filter(s => s.enabled).length} 阶段
+              </span>
+            )}
+          </label>
           <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 13 }}>
             <span style={{ opacity: 0.7 }}>写作模型</span>
             <select

@@ -1,6 +1,6 @@
 # PenSoul IPC 契约（全量）
 
-> 最后更新：2026-08-01 · 版本：v3 · 对齐 2026-08-01 代码（`crates/pensoul-app/src/main.rs` invoke_handler + `src/ipc.ts`）
+> 最后更新：2026-08-02 · 版本：v3 · 对齐 2026-08-02 代码（`crates/pensoul-app/src/main.rs` invoke_handler + `src/ipc.ts`）
 > 维护规则：后端新增/修改命令时，必须同步本文件（见 `agent.md` 与 `docs/DEVELOPMENT.md`）
 
 ## 一、总览
@@ -102,6 +102,7 @@
 | `get_world` / `save_world` | — / `world` | `WorldLayer` / `()` | 世界观读写 |
 | `get_characters` / `save_characters` | — / `characters` | `CharacterLayer` / `()` | 人物志读写 |
 | `get_style_metrics` | — | `StyleMetrics` | 文风指标 |
+| `analyze_ai_flavor` | `content: String` | `AiFlavorReport` | 反 AI 味规则检测：五类模式（AI 套话/弱化副词/书面连接词/意义膨胀/情绪直说）计数计分，返回 0-100 分与违例样例 |
 | `optimize_content` | `content_type: "world"\|"character"`, `content_json: String`, `model_id?` | `String`（同结构优化后 JSON） | 只优化不新增，保持条目数与含义 |
 
 ### 2.11 LLM 设置（commands/llm.rs）
@@ -142,7 +143,16 @@
 | `list_book_packages` | — | `Vec<BookPackage>` | 列出技能包 |
 | `delete_book_package` | `package_dir: String` | `()` | 删除技能包 |
 
-### 2.15 工作流与项目设定（commands/settings.rs）
+### 2.15 方法论蒸馏（commands/methodology_distill.rs）
+
+| 命令 | 参数 | 返回 | 说明 |
+|---|---|---|---|
+| `distill_methodology` | `title, methodology_text, dimensions?, model?` | `BookPackage` | 长跑命令，进度经 `methodology-distill-phase` 推送；产物 `WritingCard/<标题>-methodology/`；维度 slug：style/structure/character/tension/genre/review |
+
+`list_book_packages` / `delete_book_package` 同时覆盖 `-book` 与 `-methodology` 两类技能包；
+技能卡扫描以 SKILL.md frontmatter 的 `dimension` / `applicable_stages` 为准。
+
+### 2.16 工作流与项目设定（commands/settings.rs）
 
 | 命令 | 参数 | 返回 | 说明 |
 |---|---|---|---|
@@ -151,28 +161,20 @@
 | `save_sprout` / `load_sprout` | `sprout` / — | `()` / `SproutData` | 萌芽数据读写；保存时若 `last_discussion` 为 None 保留后端旧结果（防旧副本覆盖） |
 | `save_workflow_skills` / `load_workflow_skills` | `config: Value\|null` / — | `()` / `Value\|null` | **遗留**：旧版工作流技能卡绑定（透明存储），已由 `workflow_ref` 取代，仅做迁移兜底 |
 
-### 2.16 全局工作流模板与项目引用（commands/workflow_templates.rs）
+### 2.17 全局工作流模板与项目引用（commands/workflow_templates.rs）
 
 | 命令 | 参数 | 返回 | 说明 |
 |---|---|---|---|
 | `list_workflow_templates` | — | `Vec<WorkflowTemplate>` | 列出全部全局模板（每次重新加载磁盘，跨页面一致） |
-| `save_workflow_templates` | `templates: Vec<WorkflowTemplate>` | `()` | 整体保存模板库；ID 非空唯一，内置模板缺失自动补回、`builtin` 标志不可篡改 |
+| `save_workflow_templates` | `templates: Vec<WorkflowTemplate>` | `()` | 整体保存模板库；ID 非空唯一，核心内置 `webnovel` 缺失自动补回、其余内置允许删除、`builtin` 标志不可篡改；校验模板级 `bindings` 结构（model 字符串/null、cards 字符串数组） |
 | `reset_workflow_templates` | — | `Vec<WorkflowTemplate>` | 恢复内置模板到出厂状态（用户自定义模板保留） |
 | `save_workflow_ref` | `config: Value\|null` | `()` | 保存项目工作流引用（模板 ID + 版本 + 项目覆盖），随项目文件持久化 |
 | `load_workflow_ref` | — | `Value\|null` | 读取项目工作流引用（未配置过返回 null） |
+| `clear_all_project_overrides` | — | `usize` | 一键清空所有项目的项目级覆盖（保留模板引用），返回处理的项目数；覆盖层退役后统一由模板绑定接管 |
 
 `WorkflowTemplate` 结构：`template_id / name / version / genre / description / builtin / enabled / review_pass_score / stages / bindings`。
-`WorkflowRef` 结构：`template_id? / template_version? / overrides`（overrides 形如 `{outline_expand: {model, cards}, chapter_writing: {...}, review: {...}}`）。
-模板本体存 `data/workflows/templates.json`（全局共享）；项目只存引用与差异覆盖。
-
-### 2.17 插件（commands/plugin.rs）
-
-| 命令 | 参数 | 返回 | 说明 |
-|---|---|---|---|
-| `list_plugins` | — | `Vec<PluginConfig>` | 插件列表 |
-| `install_plugin` | `yaml_content: String` | `()` | YAML 校验后安装 |
-| `remove_plugin` | `plugin_id: String` | `()` | 移除插件 |
-| `toggle_plugin` | `plugin_id, enabled: bool` | `()` | 启用/停用 |
+`WorkflowRef` 结构：`template_id? / template_version? / overrides`（overrides 为遗留覆盖层，新 UI 统一写 `{}`）。
+模板本体存 `data/workflows/templates.json`（全局共享）；环节绑定（模型 + 技法卡）在模板级维护，项目只存模板引用。
 
 ### 2.18 杂项（commands/http.rs）
 
@@ -238,7 +240,7 @@ interface PipelineEvent {
   seq: number;             // 单调序号（0=未入缓冲，emit 时覆写）
   chapter_id: string;
   chapter_title: string;
-  stage: string;           // chapter_writing | chapter_review | state_injection
+  stage: string;           // chapter_planning | chapter_writing | chapter_review | state_injection
   kind: string;            // chapter_start | stage_start | llm_output | review_report
                            // | gate | effect | chapter_done | chapter_failed
                            // | paused | resumed | pipeline_done
@@ -281,6 +283,10 @@ interface PhaseEvent {
 ### 4.4 `book-distill-phase`（书籍蒸馏）
 
 同上 `PhaseEvent` 结构，前端订阅：`BookDistillPanel.tsx`。
+
+### 4.5 `methodology-distill-phase`（方法论蒸馏）
+
+同上 `PhaseEvent` 结构，前端订阅：`MethodologyDistillPanel.tsx`。
 
 ## 五、约定与坑
 

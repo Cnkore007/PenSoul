@@ -4,12 +4,12 @@
 //! LLM 调用经过 `call_interruptible`，停止旗标可立即中断。
 use tauri::AppHandle;
 
-use pensoul_core::{ChapterId, ChapterStatus};
+use pensoul_core::{ChapterId, ChapterStatus, StageName};
 
 use crate::integration;
 use crate::state::AppState;
 
-use super::stages::{self, STAGE_INJECTION, STAGE_REVIEW, STAGE_WRITING};
+use super::stages::{self, STAGE_INJECTION, STAGE_PLANNING, STAGE_REVIEW, STAGE_WRITING};
 use super::{ModelCtx, PipelineEvent, call_interruptible, context, emit, emit_simple};
 
 /// 执行单个阶段，返回 (signal, issues)
@@ -30,16 +30,59 @@ pub(super) async fn execute_stage(
     };
 
     match stage {
+        STAGE_PLANNING => {
+            let memo_ctx = state.harness.read().memo.to_context_string();
+            let packet = state.memory.read().build_packet(chapter.chapter_no);
+            let onto = state.ontology.read().clone();
+            // 策划守则取自模板阶段手册（已注册进引擎）
+            let manual = state
+                .harness
+                .read()
+                .get_stage(&StageName::new(STAGE_PLANNING))
+                .map(|s| s.manual.clone())
+                .unwrap_or_default();
+            let prompt =
+                context::build_planning_prompt(&onto, &memo_ctx, &chapter, &packet, &manual);
+            let raw = call_interruptible(state, ctx, &ctx.writing_model, &prompt, 0.7).await?;
+            let plan = stages::parse_planning_output(&raw);
+            if plan.trim().is_empty() {
+                return Err("策划输出为空".to_string());
+            }
+            // 节拍表写入滚动备忘录，供写作/审查阶段读取
+            {
+                let mut engine = state.harness.write();
+                let _ = engine.inject_memo("chapter_plan", &plan);
+            }
+            let preview: String = plan.chars().take(400).collect();
+            emit_simple(
+                app,
+                state,
+                &chapter,
+                stage,
+                "llm_output",
+                format!("节拍表已生成：\n{preview}…"),
+            );
+            Ok((serde_json::json!({"planned": true}), vec![]))
+        }
+
         STAGE_WRITING => {
             let memo_ctx = state.harness.read().memo.to_context_string();
             let packet = state.memory.read().build_packet(chapter.chapter_no);
             let onto = state.ontology.read().clone();
+            let beat_plan = state
+                .harness
+                .read()
+                .memo
+                .get("chapter_plan")
+                .unwrap_or("")
+                .to_string();
             let prompt = context::build_writing_prompt(
                 &onto,
                 &memo_ctx,
                 &chapter,
                 &packet,
                 prev_issues,
+                &beat_plan,
                 &ctx.writing_cards,
             );
             let raw = call_interruptible(state, ctx, &ctx.writing_model, &prompt, 0.85).await?;
@@ -91,7 +134,23 @@ pub(super) async fn execute_stage(
                 .unwrap_or("")
                 .to_string();
             let onto = state.ontology.read().clone();
-            let prompt = context::build_review_prompt(&onto, &chapter, &recent, &ctx.review_cards);
+            let beat_plan = state
+                .harness
+                .read()
+                .memo
+                .get("chapter_plan")
+                .unwrap_or("")
+                .to_string();
+            // 黄金三章硬门控：模板声明 + 前 3 章生效
+            let golden = ctx.golden_review && chapter.chapter_no <= 3;
+            let prompt = context::build_review_prompt(
+                &onto,
+                &chapter,
+                &recent,
+                &beat_plan,
+                &ctx.review_cards,
+                golden,
+            );
             let raw = call_interruptible(state, ctx, &ctx.review_model, &prompt, 0.3).await?;
             let (signal, report) = stages::parse_review_output(&raw)?;
             emit(
@@ -110,10 +169,14 @@ pub(super) async fn execute_stage(
                 },
             );
             let issues = signal.issues.clone();
-            Ok((
-                serde_json::json!({"score": signal.score, "issues": signal.issues}),
-                issues,
-            ))
+            let mut sig = serde_json::json!({"score": signal.score, "issues": signal.issues});
+            if let Some(h) = signal.hook_score {
+                sig["hook"] = serde_json::json!(h);
+            }
+            if let Some(p) = signal.payoff_score {
+                sig["payoff"] = serde_json::json!(p);
+            }
+            Ok((sig, issues))
         }
 
         STAGE_INJECTION => {

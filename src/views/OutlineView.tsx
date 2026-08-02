@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { ChevronRight, ChevronDown, FileText, Plus, Edit3, Trash2, Check, X, GitBranch, Wand2, Loader2 } from "lucide-react";
 import type { ProjectData, VolumeWithChapters, Chapter, OutlineArc, LlmModel } from "../types";
 import { deleteChapter, deleteVolume, expandOutlineArc, saveOutlineArcs, listModels } from "../ipc";
+import { confirmDialog } from "../dialogs";
 
 interface OutlineViewProps {
   projectData: ProjectData;
@@ -97,7 +98,7 @@ export function OutlineView({ projectData, persistProjectData, onRefresh }: Outl
     const hint = expandedCount > 0
       ? `删除脉络节点「${arc.title}」？已展开的 ${expandedCount} 章细纲与正文不受影响。`
       : `删除脉络节点「${arc.title}」？`;
-    if (!window.confirm(hint)) return;
+    if (!(await confirmDialog(hint))) return;
     const next = arcs.filter(a => a.arc_id !== arc.arc_id);
     updateArcsLocal(next);
     await saveOutlineArcs(next).catch(e => setArcError("脉络删除失败: " + (e?.message ?? e)));
@@ -150,11 +151,11 @@ export function OutlineView({ projectData, persistProjectData, onRefresh }: Outl
     setEditingVolumeId(null);
   }
 
-  function handleDeleteVolume(vol: VolumeWithChapters) {
+  async function handleDeleteVolume(vol: VolumeWithChapters) {
     const hint = vol.chapters.length > 0
       ? `删除卷「${vol.title}」？其中的 ${vol.chapters.length} 个章节及正文将一并删除，不可恢复。`
       : `删除卷「${vol.title}」？`;
-    if (!window.confirm(hint)) return;
+    if (!(await confirmDialog(hint))) return;
     persistProjectData(prev => ({
       ...prev,
       volumes: prev.volumes.filter(v => v.volume_id !== vol.volume_id),
@@ -210,11 +211,11 @@ export function OutlineView({ projectData, persistProjectData, onRefresh }: Outl
     setEditingChapterId(null);
   }
 
-  function handleDeleteChapter(volId: string, ch: Chapter) {
+  async function handleDeleteChapter(volId: string, ch: Chapter) {
     const hint = ch.word_count > 0
       ? `删除章节「${ch.title}」？已写入的 ${ch.word_count} 字正文将一并删除，不可恢复。`
       : `删除章节「${ch.title}」？`;
-    if (!window.confirm(hint)) return;
+    if (!(await confirmDialog(hint))) return;
     persistProjectData(prev => ({
       ...prev,
       volumes: prev.volumes.map(v => v.volume_id === volId

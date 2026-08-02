@@ -1,3 +1,4 @@
+pub mod ai_flavor;
 pub mod book_distill;
 /// 书籍文件解析（txt/md/epub/pdf → 纯文本抽样，书籍蒸馏的全文输入）
 pub(crate) mod book_file;
@@ -16,13 +17,13 @@ pub(crate) mod json_fix;
 pub mod llm;
 pub(crate) mod llm_helper;
 pub mod memory;
+pub mod methodology_distill;
 pub mod optimize;
 pub mod outline;
 pub mod pipeline;
-pub mod plugin;
 /// IPC 命令模块
 pub mod project;
 pub mod settings;
 pub mod style;
-pub mod world;
 pub mod workflow_templates;
+pub mod world;

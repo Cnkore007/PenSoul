@@ -41,7 +41,7 @@ export function ConsistencyView() {
   return (
     <div className="view-container">
       <div className="view-header">
-        <h2>审校录</h2>
+        <h2>审校</h2>
         <button className={"btn btn-primary" + (checking ? " btn-disabled" : "")} onClick={handleRefresh} disabled={checking}>
           <RefreshCw size={15} className={checking ? "spinning" : ""} /> 刷新
         </button>

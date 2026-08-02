@@ -34,15 +34,17 @@ pub async fn save_workflow_templates(
         if !seen.insert(t.template_id.clone()) {
             return Err(format!("模板 ID 重复：{}", t.template_id));
         }
+        validate_bindings(&t.template_id, &t.bindings)?;
     }
 
-    // 内置模板保护：缺失的内置模板自动补回，内置标志不可被篡改
+    // 内置模板保护：网文创作流（webnovel）为核心内置，缺失自动补回；
+    // 其余内置模板允许删除（缺失不补回），但存在时 builtin 标志不可被篡改
     let builtins = builtin_workflow_templates();
     let mut merged = templates;
     for b in builtins {
         if let Some(existing) = merged.iter_mut().find(|t| t.template_id == b.template_id) {
             existing.builtin = true;
-        } else {
+        } else if b.template_id == "webnovel" {
             merged.push(b);
         }
     }
@@ -96,4 +98,49 @@ pub async fn load_workflow_ref(
 ) -> Result<serde_json::Value, String> {
     let ontology = state.ontology.read();
     Ok(ontology.workflow_ref.clone())
+}
+
+/// 一键清空所有项目的项目级覆盖（保留模板引用）。
+///
+/// 覆盖层退役后，各环节绑定统一由全局模板绑定接管；
+/// 仅对有非空覆盖的项目写盘，返回处理的项目数。
+#[tauri::command]
+pub async fn clear_all_project_overrides(
+    state: tauri::State<'_, AppState>,
+) -> Result<usize, String> {
+    state
+        .clear_all_project_overrides()
+        .map_err(|e| e.to_string())
+}
+
+/// 校验模板级环节绑定结构：`{ stage: { model?: string|null, cards?: string[] } }`。
+fn validate_bindings(template_id: &str, bindings: &serde_json::Value) -> Result<(), String> {
+    if !bindings.is_object() {
+        return Err(format!("模板「{template_id}」的环节绑定必须是对象"));
+    }
+    let Some(map) = bindings.as_object() else {
+        return Ok(());
+    };
+    for (stage, cfg) in map {
+        if !cfg.is_object() {
+            return Err(format!(
+                "模板「{template_id}」环节「{stage}」的绑定必须是对象"
+            ));
+        }
+        if let Some(model) = cfg.get("model") {
+            if !model.is_null() && !model.is_string() {
+                return Err(format!(
+                    "模板「{template_id}」环节「{stage}」的 model 必须是字符串或 null"
+                ));
+            }
+        }
+        if let Some(cards) = cfg.get("cards") {
+            if !cards.is_array() || cards.as_array().unwrap().iter().any(|c| !c.is_string()) {
+                return Err(format!(
+                    "模板「{template_id}」环节「{stage}」的 cards 必须是字符串数组"
+                ));
+            }
+        }
+    }
+    Ok(())
 }

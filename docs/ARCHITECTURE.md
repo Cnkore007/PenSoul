@@ -1,6 +1,6 @@
 # PenSoul 架构总览
 
-> 最后更新：2026-08-01 · 版本：v2（对齐 2026-08-01 代码状态）
+> 最后更新：2026-08-02 · 版本：v2（对齐 2026-08-02 代码状态）
 > 维护规则：见仓库根目录 `agent.md` 与 `docs/PROGRESS.md`
 
 ## 一、项目定位与核心理念
@@ -40,7 +40,6 @@ Pensoul/
 │   ├── pensoul-memory      四层记忆：热/温/冷/叙事，8 步更新管道 + 预算分配
 │   ├── pensoul-agent       预置 Agent 定义与双通道通信协议（signal/report）
 │   ├── pensoul-concurrency 并发控制：版本管理、操作日志、blake3 校验和、冲突解决
-│   ├── pensoul-plugin      YAML 插件校验与解析
 │   ├── pensoul-consistency 增量一致性检查：5 条规则 + 实体状态管理
 │   ├── pensoul-import      文本导入（章节检测/中文数字）、导出、备份恢复
 │   ├── pensoul-llm         模型路由（TaskType/冷却/故障转移）—— 目前应用层未使用，见遗留说明
@@ -63,9 +62,9 @@ Pensoul/
 - **narrative**（NarrativeLayer）：情节脉络节点（`outline_arcs`）+ 章节实体（`chapters`）+ 卷（`volumes`）
 - **aesthetic**（AestheticLayer）：文风与美学设定
 
-另含项目级设定：`settings`（ProjectSettings：类型/目标章数/每章字数）、`core_concept`（高概念/前提/主角/基调/核心冲突）、`sprout`（萌芽想法与讨论成果）、`workflow_ref`（项目对全局工作流模板的引用 + 项目级覆盖；旧字段 `workflow_skills` 仅做迁移兜底）。
+另含项目级设定：`settings`（ProjectSettings：类型/目标章数/每章字数）、`core_concept`（高概念/前提/主角/基调/核心冲突）、`sprout`（萌芽想法与讨论成果）、`workflow_ref`（项目对全局工作流模板的引用；项目级覆盖层已退役，遗留数据可经 `clear_all_project_overrides` 一键清空；旧字段 `workflow_skills` 仅做迁移兜底）。
 
-工作流模板（`pensoul-core::workflow`）：作品库层面定义全局模板（网文/传统/科幻/通用等），存 `data/workflows/templates.json`，AppState 持有 `workflow_templates` 缓存；项目内只存 `workflow_ref`（引用的模板 ID/版本 + 覆盖），造化工坊启动时按「显式参数 → 项目覆盖 → 模板绑定 → 自动选模型」解析实际执行配置。
+工作流模板（`pensoul-core::workflow`）：作品库层面定义全局模板（网文/传统/科幻/通用等），存 `data/workflows/templates.json`，AppState 持有 `workflow_templates` 缓存；模板级 `bindings` 维护各环节模型/技法卡绑定，项目内只存 `workflow_ref`（引用的模板 ID/版本），造化工坊启动时按「显式参数 → 项目覆盖（遗留）→ 模板绑定 → 自动选模型」解析实际执行配置。
 
 关键设计决策：
 
@@ -145,13 +144,18 @@ Pensoul/
 
 位置：`crates/pensoul-app/src/pipeline/`，唯一编排入口，执行循环在 Rust 侧，前端只渲染事件 + 发控制指令。
 
-### 4.1 三阶段模板（Rust 硬编码）
+### 4.1 阶段模板（默认三阶段，模板可插入「章前策划」）
 
 | 阶段 | 门控 | 说明 |
 |---|---|---|
+| `chapter_planning` | auto | 章前策划（仅模板声明时启用，如网文创作流 v2）：产出节拍表 JSON 写入滚动备忘录，供写作/审查读取 |
 | `chapter_writing` | auto | 写作：组装上下文 → 调写作模型 → 产出正文 |
-| `chapter_review` | conditional | 审查：异模型（默认与写作模型不同）审查，`on_fail=writing`，`max_retries=2` |
+| `chapter_review` | conditional | 审查：异模型（默认与写作模型不同）审查，`on_fail=writing`，`max_retries=2`；模板声明 `golden_gate` 时前 3 章门控升级为 `score >= 阈值 && hook >= 8 && payoff >= 8` |
 | `state_injection` | auto | 回灌：正文落库 + 触发派生状态增量更新 |
+
+阶段编排由 `pipeline_stages()` 按模板声明动态生成：默认三阶段（写作 → 审查 → 回灌）；
+模板定义了 `chapter_planning` 环节时编排为四阶段（策划 → 写作 → 审查 → 回灌）。
+门控表达式由 `pensoul-harness/gate.rs` 求值，支持 `&&` 多条件（如黄金三章门控）。
 
 ### 4.2 选章规则
 
@@ -237,6 +241,12 @@ Pensoul/
 - 知识蒸馏模式（无样章）必须在 B 段标注"基于模型知识储备，非逐字文本核对"。
 - `load_writing_cards`：蒸馏产物可供管线写作/审查与细纲展开注入（按 `applicable_stages` 匹配）。
 
+### 方法论蒸馏（commands/methodology_distill.rs）
+
+- 输入一段写作方法论（≤2 万字），按六维（文风/结构/人物/张力/类型/审查）切为 RIA++ 技能卡，产物 `WritingCard/<标题>-methodology/`。
+- 方法论：`skills/pensoul-skill-Methodology/SKILL.md`；与书籍蒸馏共用 RIA++ 六段与三重验证、`resolve_model_and_auth` / `writing_cards_base_dir` 等辅助。
+- 技能包扫描（`list_book_packages`）统一覆盖 `-book` / `-methodology` 两类，卡片维度与适用环节以 SKILL.md frontmatter 为准。
+
 ## 九、两层大纲模型
 
 1. **情节脉络**（`outline_arcs`）：讨论成果的剧情规划，覆盖章节范围，不可写正文。
@@ -267,7 +277,7 @@ Pensoul/
 - `src/ipc.ts`：`invoke` 封装，所有命令的唯一前端入口，camelCase ↔ snake_case 转换在此收敛。
 - `src/types.ts`：前后端共享类型（与后端 serde 结构对齐）。
 - `src/store.ts`：项目数据状态管理，独立容错保存（各区块分开持久化），`open`（打开项目全量加载）与 `refresh`（重拉派生状态）语义区分。
-- 视图：ProjectDashboard（项目仪表盘）/ WorkflowLibraryView（作品库工作流模板库）/ ConceptView（萌芽与讨论）/ WorkflowView（项目工作流：选模板 + 项目覆盖）/ HarnessConsole（造化工坊管线事件控制台）/ OutlineView（情节脉络与细纲）/ WritingView（笔耕）/ WorldView / CharacterView / ConsistencyView / ExpertLibraryView / StyleWorkshop / PluginView / LlmSettingsView / CreationSettings / ProjectManager。
+- 视图：ProjectDashboard（项目仪表盘）/ WorkflowLibraryView（主页工作流：模板库 + 环节技能绑定 + 写作技能库）/ ConceptView（萌芽与讨论）/ HarnessConsole（造化工坊管线事件控制台 + 项目模板选择）/ OutlineView（情节脉络与细纲）/ WritingView（笔耕）/ WorldView / CharacterView / ConsistencyView / ExpertLibraryView / StyleWorkshop / LlmSettingsView / CreationSettings / ProjectManager。
 
 ## 十三、数据流总览
 

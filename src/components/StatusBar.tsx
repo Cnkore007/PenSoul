@@ -7,20 +7,18 @@ interface StatusBarProps {
 }
 
 const viewLabels: Record<ViewType, string> = {
-  dashboard: "项目概览",
+  dashboard: "概览",
   concept: "灵魂萌芽",
   writing: "笔耕",
-  outline: "经纬",
-  character: "人物",
-  world: "山河",
+  outline: "大纲",
+  character: "人物志",
+  world: "世界观",
   consistency: "审校",
-  harness: "造化引擎",
-  style: "墨韵品鉴",
+  harness: "造化工坊",
+  style: "墨韵",
   projects: "作品库",
   "llm-settings": "模型设置",
-  plugins: "造化工坊",
-  workflow: "工作流",
-  "workflow-library": "工作流模板库",
+  "workflow-library": "工作流",
   experts: "专家库",
 };
 

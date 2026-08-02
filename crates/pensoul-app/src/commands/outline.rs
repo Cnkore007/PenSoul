@@ -9,8 +9,8 @@
 //! `expand_outline_arc` 每次展开一批（默认 20 章），多次点击逐步展开，
 //! 让作者在每个故事段内按自己的节奏推进，而不是一次吞下几百章。
 use crate::state::AppState;
-use pensoul_core::{Chapter, ChapterId, ChapterStatus, OutlineArc, VolumeId};
 use pensoul_core::workflow::WorkflowRef;
+use pensoul_core::{Chapter, ChapterId, ChapterStatus, OutlineArc, VolumeId};
 use serde::Deserialize;
 
 use super::json_fix;
@@ -136,10 +136,8 @@ pub async fn expand_outline_arc(
         .to_string();
     // 工作流为细纲展开绑定的技法卡（结构/人物/张力/类型维度），注入为方法手册。
     // 显式参数优先，缺省时按「项目覆盖 → 模板绑定」解析（与造化工坊同一套规则）
-    let cards_block = super::book_distill::load_writing_cards(
-        &state,
-        &resolve_expand_cards(&state, skill_cards),
-    );
+    let cards_block =
+        super::book_distill::load_writing_cards(&state, &resolve_expand_cards(&state, skill_cards));
     if !cards_block.is_empty() {
         system.push_str(&format!(
             "\n\n【写作技法卡】\n\

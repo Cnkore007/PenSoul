@@ -112,7 +112,96 @@ fn memory_digest(packet: &MemoryPacket) -> String {
     cap_chars(out.trim(), 6000)
 }
 
+/// 反 AI 味写作铁律（注入写作与审查阶段）
+const ANTI_AI_RULES: &str = "\
+语言铁律（反 AI 味）：
+1. 删除套话：「不禁」「仿佛」「映入眼帘」「心中暗道」「嘴角微扬」「脸色一变」等一律不写；
+2. 弱化副词（微微/淡淡/缓缓/轻轻/悄然/默默）每千字不超过 3 个；
+3. 不用排比三连（三个词一组堆砌「全面感」）；
+4. 不用「与此同时」「从而」「于是乎」「诚然」「一方面…另一方面…」等书面连接词；
+5. 情绪不许直说：不写「他很担忧」，写「他的后背出了一层冷汗」；
+6. 用具体细节代替判断：不写「她很聪明」，写她做了什么具体的聪明事；
+7. 长短句交替，段落不超过五行，对话优先于叙述、行动优先于形容。";
+
+/// 章前策划 prompt：生成本章节拍表（JSON）。
+/// `manual` 为模板阶段手册，约束策划规则。
+pub fn build_planning_prompt(
+    onto: &NovelOntology,
+    memo_ctx: &str,
+    chapter: &Chapter,
+    packet: &MemoryPacket,
+    manual: &str,
+) -> StagePrompt {
+    let mut system = String::from(
+        "你是一位深谙网文节奏的责编，负责在动笔前为每一章做「章前策划」。\n\
+        铁律：非终局章节禁止解决主线核心冲突；每章必须新增至少一个未解决的次要问题；\n\
+        结尾必须留断章钩子（疑问型：读者想知道答案；危机型：刀悬在脖子上；转折型：预期被翻转）。\n\
+        产出必须是一份可直接执行的节拍表 JSON，只输出 JSON 本身，不要任何解释。\n\
+        JSON 结构：\n\
+        {\n\
+          \"章节目标\": \"本章要达成的叙事目标（一句话）\",\n\
+          \"开场钩子\": \"开场场景与第一句的钩子设计\",\n\
+          \"场景节拍\": [\n\
+            {\"场景\": \"场景一名称\", \"目标\": \"本场景目标\", \"冲突\": \"阻碍与对抗\", \"状态变化\": \"场景结束时人物的状态变化\", \"建议字数\": 600}\n\
+          ],\n\
+          \"爽点与情绪释放\": \"本章的爽点或情绪释放点\",\n\
+          \"新增未解决问题\": \"本章必须新增的次要问题\",\n\
+          \"结尾断章钩子\": \"疑问型/危机型/转折型：具体钩子\",\n\
+          \"伏笔\": {\"埋设\": [\"...\"], \"回收\": [\"...\"]},\n\
+          \"人物状态变化\": [\"人物A：变化\"]\n\
+        }",
+    );
+    if !manual.trim().is_empty() {
+        system.push_str(&format!("\n\n【策划守则】\n{manual}"));
+    }
+
+    let mut user = String::new();
+    if !memo_ctx.is_empty() {
+        user.push_str(&format!("【创作备忘录】\n{memo_ctx}\n\n"));
+    }
+    let concept = &onto.core_concept;
+    if !concept.high_concept.is_empty() || !concept.premise.is_empty() {
+        user.push_str(&format!(
+            "【核心构思】\n高概念：{}\n前提：{}\n主角：{}\n基调：{}\n核心冲突：{}\n\n",
+            concept.high_concept,
+            concept.premise,
+            concept.protagonist_hint,
+            concept.tone,
+            concept.central_conflict
+        ));
+    }
+    user.push_str(&format!(
+        "【本章任务】\n第 {} 章《{}》（全书目标约 {} 章）。\n本章梗概：{}\n\n",
+        chapter.chapter_no, chapter.title, onto.settings.target_chapters, chapter.summary
+    ));
+    let world = world_digest(onto);
+    if !world.is_empty() {
+        user.push_str(&format!("【世界观】\n{world}\n\n"));
+    }
+    let chars = character_digest(onto);
+    if !chars.is_empty() {
+        user.push_str(&format!("【人物志】\n{chars}\n\n"));
+    }
+    let memory = memory_digest(packet);
+    if !memory.is_empty() {
+        user.push_str(&format!("{memory}\n\n"));
+    }
+    user.push_str(&format!(
+        "请输出第 {} 章的节拍表 JSON。",
+        chapter.chapter_no
+    ));
+
+    StagePrompt {
+        system,
+        user,
+        // 策划需要一定推理量，但比正文小
+        max_tokens: 8192,
+        light: false,
+    }
+}
+
 /// 写作阶段 prompt。`prev_issues` 非空表示本次是审查退回后的重写。
+/// `beat_plan` 为章前策划产出的节拍表（JSON 文本，可为空表示无策划）。
 /// `cards` 为工作流绑定的写作技法卡注入块（load_writing_cards 拼接结果），可为空。
 pub fn build_writing_prompt(
     onto: &NovelOntology,
@@ -120,6 +209,7 @@ pub fn build_writing_prompt(
     chapter: &Chapter,
     packet: &MemoryPacket,
     prev_issues: &[String],
+    beat_plan: &str,
     cards: &str,
 ) -> StagePrompt {
     let target_words = if onto.settings.chapter_target_words > 0 {
@@ -132,6 +222,15 @@ pub fn build_writing_prompt(
         铁律：只输出章节正文本身——不输出章节标题、不输出大纲复述、不输出任何解释或元信息；\n\
         文风贴合给定题材与基调，严格承接前文情节与人物状态，不得与世界观设定矛盾。"
         .to_string();
+    system.push_str(&format!("\n\n{ANTI_AI_RULES}"));
+    // 开篇黄金三章：前 3 章用「立刻出事 → 给期待 → 给爽点」节奏
+    if chapter.chapter_no <= 3 {
+        system.push_str(
+            "\n\n【开篇黄金三章】第 1 章必须在 300 字内抛出核心事件（重生/穿越/系统降临/身死危机等），\
+             把读者钉住；第 2 章亮出金手指并制造期待与反转；第 3 章释放第一个爽点（用金手指解决麻烦或首次打脸）。\
+             前三章人物要少，避免多线铺陈。",
+        );
+    }
     if !cards.is_empty() {
         system.push_str(&format!(
             "\n\n【写作技法卡】\n\
@@ -159,6 +258,9 @@ pub fn build_writing_prompt(
         "【本章任务】\n第 {} 章《{}》，目标约 {} 字。\n本章梗概：{}\n\n",
         chapter.chapter_no, chapter.title, target_words, chapter.summary
     ));
+    if !beat_plan.trim().is_empty() {
+        user.push_str(&format!("【本章节拍表】\n{beat_plan}\n\n"));
+    }
     let world = world_digest(onto);
     if !world.is_empty() {
         user.push_str(&format!("【世界观】\n{world}\n\n"));
@@ -194,26 +296,61 @@ pub fn build_writing_prompt(
     }
 }
 
-/// 审查阶段 prompt（异模型判卷：本章正文 + 设定/人物/前章纪要对照）
+/// 审查阶段 prompt（异模型判卷：本章正文 + 节拍表 + 设定/人物/前章纪要对照）
 /// `cards` 为审查环节绑定的技法卡（通常是文风卡），审查时对照其边界检查文风偏离。
+/// `golden` 为真时启用「黄金三章」硬门控：SIGNAL 必须额外输出 hook/payoff 两个
+/// 0-10 子分数，引擎按 `score >= 阈值 && hook >= 8 && payoff >= 8` 判定。
 pub fn build_review_prompt(
     onto: &NovelOntology,
     chapter: &Chapter,
     recent_briefs: &str,
+    beat_plan: &str,
     cards: &str,
+    golden: bool,
 ) -> StagePrompt {
-    let mut system = "你是一位极其严谨的网文编辑，负责章节一致性审查。\n\
-        逐项核对：① 与世界观设定是否矛盾；② 人物性格/状态/位置是否连贯；\n\
-        ③ 与前文情节（含前章纪要）是否矛盾；④ 时间线是否合理；⑤ 文笔是否基本通顺。\n\
+    let signal_schema = if golden {
+        "{\"score\": 0到100的整数, \"hook\": 0到10的整数, \"payoff\": 0到10的整数, \"issues\": [\"问题1\", \"问题2\"]}"
+    } else {
+        "{\"score\": 0到100的整数, \"issues\": [\"问题1\", \"问题2\"]}"
+    };
+    let mut system = format!(
+        "你是一位极其严谨的网文编辑，负责章节质量审查。按七维加权打分：\n\
+        ① 卖点兑现（20 分）：本章是否兑现作品核心卖点，还是跑偏成另一本书；\n\
+        ② 开场钩子（10 分）：前 300 字是否出现冲突或悬念；\n\
+        ③ 情绪曲线与爽点（20 分）：压抑→释放是否成立，爽点是否前置且具体；\n\
+        ④ 场景与节奏（10 分）：每个场景是否有目标/冲突/状态变化，节奏是否拖沓；\n\
+        ⑤ 断章钩子（15 分）：结尾是否停在疑问/危机/转折钩子上；\n\
+        ⑥ 人物与设定一致性（15 分）：人物性格/状态/位置、世界观、时间线是否连贯；\n\
+        ⑦ 文笔与反 AI 味（10 分）：从 10 分起按标准扣分——\n\
+        a) AI 套话（不禁/仿佛/映入眼帘/心中暗道/嘴角微扬/勾起一抹/目光如炬/此时此刻等）每处扣 0.5 分；\n\
+        b) 弱化副词（微微/淡淡/缓缓/轻轻/悄然/默默/隐隐）每千字超过 3 个后每处扣 0.5 分；\n\
+        c) 书面连接词（与此同时/从而/诚然/由此可见/值得注意的是）每处扣 0.5 分；\n\
+        d) 意义膨胀词（意义深远/前所未有/可谓/未来可期）每处扣 0.5 分；\n\
+        e) 情绪直说（他感到…/心中涌起…/一股寒意…）每处扣 0.5 分；\n\
+        f) 排比三连（三个词一组堆「全面感」）每处扣 0.5 分；\n\
+        扣完为止最低 0 分；若用具体细节代替判断、长短句有节奏变化，可加回 0-2 分。\n\
+        若有章前策划节拍表，须核对是否按策划执行，明显偏离计入问题清单并扣分。\n\
         输出必须严格使用如下双通道格式，不得输出任何其他内容：\n\
         ===SIGNAL_BEGIN===\n\
-        {\"score\": 0到100的整数, \"issues\": [\"问题1\", \"问题2\"]}\n\
+        {signal_schema}\n\
         ===SIGNAL_END===\n\
         ===REPORT_BEGIN===\n\
         给作者看的中文审查报告（300 字以内，先结论后问题清单）\n\
         ===REPORT_END===\n\
-        评分参考：90+ 优秀可直接通过；80-89 基本合格；低于 80 存在必须修正的硬伤。"
-        .to_string();
+        评分参考：90+ 优秀可直接通过；80-89 基本合格；低于 80 存在必须修正的问题。"
+    );
+    if golden {
+        system.push_str(
+            "\n\n【黄金三章硬门控（前 3 章强制）】\n\
+            本阶段引擎按「总分达标 且 开场钩子 ≥ 8 且 爽点 ≥ 8」放行，任一项不达标即拦截重写：\n\
+            - hook（0-10）：前 300 字是否出现核心事件/危机/悬念，把读者钉住；\n\
+            - payoff（0-10）：本章是否有具体可感的爽点或情绪释放（打脸/反杀/奇遇/危机解决/情感击中）。\n\
+            必须诚实给分，不得因总分高而虚高子分数。",
+        );
+    }
+    if !beat_plan.trim().is_empty() {
+        system.push_str(&format!("\n\n【本章节拍表】\n{beat_plan}"));
+    }
     if !cards.is_empty() {
         system.push_str(&format!(
             "\n\n【文风技法卡】\n\
@@ -312,11 +449,12 @@ mod tests {
                 pensoul_memory::EditingMode::Drafting,
             ),
         };
-        let prompt = build_writing_prompt(&onto, "memo: 测试", &chapter, &packet, &[], "");
+        let prompt = build_writing_prompt(&onto, "memo: 测试", &chapter, &packet, &[], "", "");
         assert!(prompt.user.contains("测试高概念"));
         assert!(prompt.user.contains("本章梗概内容"));
         assert!(prompt.user.contains("前一章的正文节选"));
         assert!(prompt.user.contains("第 3 章"));
+        assert!(prompt.system.contains("反 AI 味"));
         assert_eq!(prompt.max_tokens, 16384); // 2000*2+8192=12192 → 夹到下限 16384
         // 重写时携带 issues
         let retry = build_writing_prompt(
@@ -326,8 +464,22 @@ mod tests {
             &packet,
             &["时间线矛盾".to_string()],
             "",
+            "",
         );
         assert!(retry.user.contains("时间线矛盾"));
+        // 携带节拍表
+        let planned = build_writing_prompt(
+            &onto,
+            "",
+            &chapter,
+            &packet,
+            &[],
+            "{\"章节目标\": \"脱困\"}",
+            "",
+        );
+        assert!(planned.user.contains("【本章节拍表】"));
+        // 前 3 章注入黄金三章规则
+        assert!(planned.system.contains("开篇黄金三章"));
     }
 
     #[test]
@@ -350,6 +502,7 @@ mod tests {
             &chapter,
             &packet,
             &[],
+            "",
             "── 技能卡「x/style」──\n卡内容",
         );
         assert!(prompt.system.contains("写作技法卡"));
@@ -357,14 +510,59 @@ mod tests {
     }
 
     #[test]
+    fn test_planning_prompt_contains_schema() {
+        let mut onto = NovelOntology::new(ProjectId::new("p"), String::new());
+        onto.settings.target_chapters = 300;
+        let chapter = make_chapter(1, "本章梗概", "");
+        let packet = MemoryPacket {
+            hot: vec![],
+            warm: Default::default(),
+            cold: vec![],
+            narrative: vec![],
+            total_tokens: 0,
+            budget_used: pensoul_memory::packet::get_budget_ratio(
+                pensoul_memory::EditingMode::Drafting,
+            ),
+        };
+        let prompt = build_planning_prompt(&onto, "", &chapter, &packet, "策划守则内容");
+        assert!(prompt.user.contains("本章梗概"));
+        assert!(prompt.system.contains("场景节拍"));
+        assert!(prompt.system.contains("结尾断章钩子"));
+        assert!(prompt.system.contains("策划守则内容"));
+        assert!(prompt.system.contains("非终局章节禁止解决主线核心冲突"));
+    }
+
+    #[test]
     fn test_review_prompt_has_dual_channel_format() {
         let onto = NovelOntology::new(ProjectId::new("p"), String::new());
         let chapter = make_chapter(1, "梗概", "正文内容");
-        let prompt = build_review_prompt(&onto, &chapter, "前一章纪要", "");
+        let prompt = build_review_prompt(
+            &onto,
+            &chapter,
+            "前一章纪要",
+            "{\"章节目标\": \"脱困\"}",
+            "",
+            false,
+        );
         assert!(prompt.system.contains("SIGNAL_BEGIN"));
         assert!(prompt.system.contains("REPORT_BEGIN"));
+        assert!(prompt.system.contains("卖点兑现"));
+        assert!(prompt.system.contains("【本章节拍表】"));
         assert!(prompt.user.contains("正文内容"));
         assert!(prompt.user.contains("前一章纪要"));
+    }
+
+    #[test]
+    fn test_review_prompt_golden_gate() {
+        let onto = NovelOntology::new(ProjectId::new("p"), String::new());
+        let chapter = make_chapter(1, "梗概", "正文内容");
+        let golden = build_review_prompt(&onto, &chapter, "", "", "", true);
+        assert!(golden.system.contains("黄金三章硬门控"));
+        assert!(golden.system.contains("\"hook\""));
+        assert!(golden.system.contains("\"payoff\""));
+        let normal = build_review_prompt(&onto, &chapter, "", "", "", false);
+        assert!(!normal.system.contains("黄金三章硬门控"));
+        assert!(!normal.system.contains("\"hook\""));
     }
 
     #[test]

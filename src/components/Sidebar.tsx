@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import {
   PenLine, ListTree, Users, Globe, ShieldCheck, Palette, LayoutDashboard,
-  FolderOpen, Settings, Puzzle, Workflow, Play,
+  FolderOpen, Settings, Workflow, Play,
   ChevronsLeft, ChevronsRight, ArrowLeft, Lightbulb,
 } from "lucide-react";
 import type { ViewType, ProjectMeta } from "../types";
@@ -19,7 +19,6 @@ const globalNav = [
   { id: "projects" as ViewType, label: "作品库", icon: <FolderOpen size={18} />, group: "works" as const },
   { id: "workflow-library" as ViewType, label: "工作流", icon: <Workflow size={18} />, group: "works" as const },
   { id: "llm-settings" as ViewType, label: "模型设置", icon: <Settings size={18} />, group: "system" as const },
-  { id: "plugins" as ViewType, label: "插件", icon: <Puzzle size={18} />, group: "system" as const },
   { id: "experts" as ViewType, label: "专家库", icon: <Lightbulb size={18} />, group: "system" as const },
 ];
 
@@ -35,7 +34,6 @@ const projectNav = [
   { id: "outline" as ViewType, label: "大纲", icon: <ListTree size={18} />, group: "创作" as const },
   { id: "writing" as ViewType, label: "笔耕", icon: <PenLine size={18} />, group: "创作" as const },
   // 自动化引擎
-  { id: "workflow" as ViewType, label: "工作流", icon: <Workflow size={18} />, group: "引擎" as const },
   { id: "harness" as ViewType, label: "造化工坊", icon: <Play size={18} />, group: "引擎" as const },
   // 辅助工具
   { id: "consistency" as ViewType, label: "审校", icon: <ShieldCheck size={18} />, group: "工具" as const },
@@ -54,7 +52,7 @@ const groupLabels: Record<string, string> = {
 // 各分组对应的操作提示
 const groupHints: Record<string, string> = {
   "创作": "概念→世界→人物→大纲→笔耕",
-  "引擎": "工作流 + Agent 自动化",
+  "引擎": "造化工坊 + 智能体自动化",
   "工具": "审校·墨韵",
 };
 

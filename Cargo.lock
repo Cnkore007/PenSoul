@@ -2614,7 +2614,6 @@ dependencies = [
  "pensoul-harness",
  "pensoul-import",
  "pensoul-memory",
- "pensoul-plugin",
  "reqwest 0.13.4",
  "serde",
  "serde_json",
@@ -2721,17 +2720,6 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
-]
-
-[[package]]
-name = "pensoul-plugin"
-version = "0.1.0"
-dependencies = [
- "pensoul-core",
- "serde",
- "serde_json",
- "serde_yaml",
- "thiserror 2.0.19",
 ]
 
 [[package]]

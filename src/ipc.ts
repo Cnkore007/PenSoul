@@ -274,24 +274,6 @@ export async function getPipelineState(): Promise<PipelineState> {
   return await invoke<PipelineState>("get_pipeline_state");
 }
 
-// ── 插件/工作流 ──
-
-export async function listPlugins(): Promise<any[]> {
-  return await invoke<any[]>("list_plugins");
-}
-
-export async function installPlugin(yamlContent: string): Promise<void> {
-  await invoke("install_plugin", { yamlContent });
-}
-
-export async function removePlugin(pluginId: string): Promise<void> {
-  await invoke("remove_plugin", { pluginId });
-}
-
-export async function togglePlugin(pluginId: string, enabled: boolean): Promise<void> {
-  await invoke("toggle_plugin", { pluginId, enabled });
-}
-
 // ── 专家库 ──
 
 export async function saveExperts(experts: any[]): Promise<void> {
@@ -355,6 +337,26 @@ export async function deleteBookPackage(packageDir: string): Promise<void> {
   return await invoke("delete_book_package", { package: packageDir });
 }
 
+// 蒸馏一段方法论为写作技能卡组（dimensions 为空 = 全 6 维）
+export async function distillMethodology(
+  title: string,
+  methodologyText: string,
+  dimensions: string[] | null,
+  model: string | null
+): Promise<import("./types").BookPackage> {
+  return await invoke<import("./types").BookPackage>("distill_methodology", {
+    title,
+    methodologyText,
+    dimensions,
+    model,
+  });
+}
+
+// 反 AI 味检测：对章节正文按五类模式统计，返回 0-100 的 AI 痕迹报告
+export async function analyzeAiFlavor(content: string): Promise<import("./types").AiFlavorReport> {
+  return await invoke<import("./types").AiFlavorReport>("analyze_ai_flavor", { content });
+}
+
 // ── 工作流技能配置（环节 → 模型 + 技法卡绑定，随项目持久化） ──
 
 export async function saveWorkflowSkills(config: import("./types").WorkflowSkillConfig | null): Promise<void> {
@@ -380,6 +382,11 @@ export async function saveWorkflowTemplates(templates: import("./types").Workflo
 // 恢复内置模板（用户自定义模板保留）
 export async function resetWorkflowTemplates(): Promise<import("./types").WorkflowTemplate[]> {
   return await invoke<import("./types").WorkflowTemplate[]>("reset_workflow_templates");
+}
+
+// 一键清空所有项目的项目级覆盖（覆盖层退役，项目只保留模板引用）
+export async function clearAllProjectOverrides(): Promise<number> {
+  return await invoke<number>("clear_all_project_overrides");
 }
 
 // ── 项目工作流引用（模板 ID + 版本 + 项目覆盖，随项目文件持久化） ──
@@ -417,6 +424,18 @@ export async function saveSprout(sprout: any): Promise<void> {
 
 export async function loadSprout(): Promise<any> {
   return await invoke<any>("load_sprout");
+}
+
+// ── 蒸馏状态（书籍/方法论/专家共用，页面切换后重连恢复进度） ──
+
+export interface DistillState {
+  running: boolean;
+  kind: string | null;
+  events: Array<{ phase: string; status: string; message: string; detail: string }>;
+}
+
+export async function getDistillState(): Promise<DistillState> {
+  return await invoke<DistillState>("get_distill_state");
 }
 
 // ── HTTP 代理（绕过 WebView CSP） ──

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import type { Expert, LlmModel } from "../types";
 import { DEFAULT_DISCUSSION_AGENTS } from "../types";
-import { saveExperts, loadExperts, listModels, scanExpertsFolder, distillExpert, getExpertsFolder, deleteExpertSkill } from "../ipc";
+import { saveExperts, loadExperts, listModels, scanExpertsFolder, distillExpert, getExpertsFolder, deleteExpertSkill, getDistillState } from "../ipc";
 import { listen } from "@tauri-apps/api/event";
 import {
   Bot, Trash2, Edit3,
@@ -34,6 +34,17 @@ export function ExpertLibraryView() {
   const [scanning, setScanning] = useState(false);
   const [foundSkills, setFoundSkills] = useState<(Expert & { selected: boolean })[]>([]);
 
+  // 重新拉取专家列表（蒸馏在后台完成后刷新用）
+  const refreshExperts = useCallback(async () => {
+    const raw = await loadExperts().catch(() => []);
+    setExperts((raw || []).map((e: any) => ({
+      id: e.id, name: e.name, description: e.description,
+      sourcePersona: e.source_persona, modelId: e.model_id,
+      perspective: e.perspective, defaultPrompt: e.default_prompt,
+      createdAt: e.created_at, skillPath: e.skill_path, skillSummary: e.skill_summary,
+    })));
+  }, []);
+
   useEffect(() => {
     Promise.all([
       loadExperts().catch(() => []),
@@ -49,6 +60,63 @@ export function ExpertLibraryView() {
       setLoading(false);
     });
   }, []);
+
+  // 页面切换后重连：若专家蒸馏仍在后台进行，自动打开蒸馏面板并恢复进度
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const st = await getDistillState().catch(() => null);
+      if (!st || cancelled || !st.running || st.kind !== "expert") return;
+      setDistillRunning(true);
+      setShowDistill(true);
+      (st.events ?? []).forEach(ev => {
+        if (ev.phase === "__distill__") return;
+        setPhases(prev => {
+          const i = prev.findIndex(p => p.phase === ev.phase);
+          if (i >= 0) {
+            const u = [...prev];
+            u[i] = ev;
+            return u;
+          }
+          return [...prev, ev];
+        });
+      });
+      const unlistenFn = await listen<PhaseEvent>("distill-phase", (evt) => {
+        const e = evt.payload;
+        if (e.phase === "__distill__") {
+          if (e.status === "finished") {
+            void refreshExperts();
+            setMsg("专家蒸馏已在后台完成，列表已刷新");
+          } else {
+            setPhases(prev => [...prev, e]);
+            setMsg(`专家蒸馏失败：${e.message}`);
+          }
+          setDistillRunning(false);
+          return;
+        }
+        setPhases(prev => {
+          const i = prev.findIndex(p => p.phase === e.phase);
+          if (i >= 0) {
+            const u = [...prev];
+            u[i] = e;
+            return u;
+          }
+          return [...prev, e];
+        });
+      });
+      unlistenRef.current = unlistenFn;
+      if (cancelled) { unlistenFn(); return; }
+      // 订阅间隙任务可能已结束：复查一次，避免错过终态
+      const st2 = await getDistillState().catch(() => null);
+      if (cancelled) { unlistenFn(); return; }
+      if (st2 && !st2.running) {
+        unlistenFn();
+        setDistillRunning(false);
+        void refreshExperts();
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [refreshExperts]);
 
   useEffect(() => {
     return () => { if (unlistenRef.current) unlistenRef.current(); };

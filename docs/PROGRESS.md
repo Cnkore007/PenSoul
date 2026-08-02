@@ -18,6 +18,93 @@
 
 ---
 
+## 2026-08-02：反 AI 味检测标准落地（规则检测命令 + 审查维度细则 + 文风工坊真实数据）
+
+- 改动范围：
+  - 后端：新增 `crates/pensoul-app/src/commands/ai_flavor.rs`（`analyze_ai_flavor` 命令 + 同步入口 `detect_ai_flavor`）：按五类模式做规则统计——AI 套话（不禁/仿佛/映入眼帘/心中暗道/嘴角微扬/勾起一抹/目光如炬/此时此刻等 25 词）、弱化副词（微微/淡淡/缓缓/轻轻/悄然/默默/隐隐等，每千字豁免 3 个）、书面连接词（与此同时/从而/诚然/由此可见/值得注意的是等）、意义膨胀（意义深远/前所未有/可谓/未来可期等）、情绪直说（他感到…/心中涌起…/一股寒意…等）；每类 4-6 分/处、各自封顶，总分 0-100，0-15 低 / 15-35 中 / >35 高，输出违例原文样例；main.rs 注册。
+  - 审查标准：`pipeline/context.rs` 的七维第⑦维改为从 10 分按标准逐条扣分（套话/弱化副词/书面连接词/意义膨胀/情绪直说/排比三连各 0.5 分/处，具体细节代替判断可加回 0-2 分），与检测器词表一致。
+  - 前端：`src/ipc.ts` / `src/types.ts`（`analyzeAiFlavor` 封装 + `AiFlavorReport` 类型）；`src/views/StyleWorkshop.tsx` 由假数据改为真实检测——取最新有正文的章节调用检测命令，AI 痕迹卡片显示真实分数/等级，「反AI检查」列出五类命中数、扣分与违例样例；`App.tsx` 传 projectData。
+  - 文档：`docs/IPC-CONTRACT.md`（2.10 增加 `analyze_ai_flavor`）。
+- 遇到的问题：原 `ai_pattern_score` 只是「反 AI 规则数/10」的占位，文风工坊「反AI检查」列表是写死的假数据——用户指出「去 AI 味没有标准」，遂把标准固化为可执行规则表并落地检测。
+- 设计思考：去 AI 味分两层——生成侧用写作铁律约束（prompt 软约束），验证侧用规则检测器给客观分数（不依赖审查模型自觉）；审查模型按同一套标准给第⑦维扣分，形成「规则检测 + LLM 审查」双通道。
+- 状态：已完成（ai_flavor 3 项单测全绿，前端 tsc + vite build 通过）。
+- 下次待办：重建客户端后请用户用真实章节验证检测分数与样例是否符合直觉，再决定是否把 ai_flavor 检测接入造化工坊每章完成后的报告。
+
+## 2026-08-02：docs 构想补齐——黄金三章硬门控 + 模板增删阶段 + 方法论卡组 + 方法论蒸馏命令
+
+- 改动范围：
+  - 黄金三章硬门控：`crates/pensoul-harness/src/gate.rs`（条件表达式支持 `&&` 多条件，如 `score >= 80 && hook >= 8 && payoff >= 8`）；`crates/pensoul-core/src/workflow.rs`（`WorkflowStageDef` 新增 `golden_gate` 字段，webnovel review 环节开启）；`pipeline/stages.rs`（`ReviewSignal` 新增 hook/payoff 子分数解析）；`pipeline/context.rs`（审查 prompt 在 golden 模式输出 hook/payoff 并注明硬门控）；`pipeline/runner.rs`（每章按章号重设审查门控表达式，前 3 章升级为多条件）；`pipeline/executor.rs`（signal 回传子分数）；前端模板编辑器在审查环节显示「黄金三章门控（前 3 章）」勾选。
+  - 模板增删阶段：`src/views/WorkflowLibraryView.tsx` 模板编辑器支持「添加章前策划」与删除章前策划（可选阶段，写作→审查→回灌为核心闭环不可删）；阶段 key 继续显示中文名。
+  - 方法论卡组：新建 `WritingCard/网文创作方法论-methodology/`（style/structure/character/tension/genre/review 六张 RIA++ 卡 + package.json + INDEX/OVERVIEW + research 存档）；`book_distill.rs` 的 `list_book_packages` 改为通用扫描（frontmatter 为准）并支持 `-methodology` 包，`delete_book_package` 同步放行；`load_writing_cards` 支持相对 WritingCard/ 的绑定路径；webnovel 内置模板 `bindings` 直接引用这套卡组。
+  - 方法论蒸馏命令：新增 `crates/pensoul-app/src/commands/methodology_distill.rs`（`distill_methodology`：方法论骨架 → 维度提取+三重验证 → RIA++ 构卡 → 落盘，事件 `methodology-distill-phase`）；`skills/pensoul-skill-Methodology/SKILL.md` 方法论文档；main.rs 注册；`src/ipc.ts` 封装；新增 `src/components/MethodologyDistillPanel.tsx` 并在工作流页「写作技能库」加「蒸馏方法论」入口。
+  - 数据：`data/workflows/templates.json`（webnovel review 加 golden_gate、bindings 绑定方法论卡组）。
+  - 文档：`docs/IPC-CONTRACT.md`（2.15 方法论蒸馏命令、4.5 事件）、`docs/WORKFLOW.md`（黄金三章硬门控、方法论蒸馏章节）、`docs/ARCHITECTURE.md`（门控多条件、方法论蒸馏模块）。
+- 遇到的问题：`list_book_packages` 原按 DIMENSIONS 固定 5 维扫描，方法论包的 review 卡会漏列，改为通用 frontmatter 扫描；`base.canonicalize().unwrap_or(base)` 移动借用编译错误，改为 `unwrap_or_else(|_| base.clone())`。
+- 设计思考：黄金三章按 docs P1 构想做成引擎硬门控而非提示词软约束——门控表达式支持 `&&` 后，前 3 章要求总分达标且钩子/爽点子分数 ≥ 8，审查模型不敢虚高子分数；方法论卡组与书籍蒸馏共用 RIA++ 六段与三重验证，产物同属 WritingCard 体系可被任意模板绑定；「蒸馏方法论」补上 docs 记录的第三类产物通道。
+- 状态：已完成（cargo test --workspace 全绿、前端 tsc + vite build 通过）。
+- 下次待办：重建客户端后实机验证：前三章门控拦截、模板增删策划阶段、方法论蒸馏入口与内置卡组绑定。
+
+## 2026-08-02：网文创作流 v2 重新设计（章前策划 + 反 AI 味 + 七维审查）+ 界面全中文
+
+- 改动范围：
+  - 调研：网文写作方法论（黄金三章、爽点前置、断章钩子、事件冷却、反向刹车）与 GitHub 写作 skill（novel-creator-skill 的五步门禁/Beat Sheet 流水线/去 AI 味七类模式、ai-fiction-writer 的十大 Skill 体系），结论是「先规划后写作 + 强审查」是质量提升的关键杠杆。
+  - 后端模板：`crates/pensoul-core/src/workflow.rs`（webnovel 模板升级 v2.0：新增 `chapter_planning` 章前策划环节，写作手册注入反 AI 味铁律，审查改为七维加权；其余内置模板手册同步去英文词「score/issues」）。
+  - 后端管线：`pipeline/stages.rs`（新增 `STAGE_PLANNING` 与 `parse_planning_output`，`pipeline_stages` 按模板声明动态编排：默认三阶段，模板有章前策划时为 策划→写作→审查→回灌）；`pipeline/context.rs`（新增 `build_planning_prompt`，写作/审查 prompt 注入节拍表、黄金三章规则与反 AI 味规则）；`pipeline/executor.rs`（策划阶段执行：生成节拍表写入滚动备忘录 `chapter_plan`，写作/审查读取注入）；`pipeline/runner.rs`（阶段实例重置与起始阶段按动态编排取第一个）；`pipeline/mod.rs`（`stage_display` 增加章前策划）。
+  - 前端：`src/views/WorkflowLibraryView.tsx`（默认新模板带策划阶段、模板编辑区阶段 key 显示中文名、绑定区保持三个可绑环节——策划守则在模板内编辑）；`src/views/HarnessConsole.tsx`（事件流增加「策划」阶段徽标）；全中文：`ConceptView`（Agent→评审员）、`ProjectDashboard`/`Sidebar`/`CreationSettings`（Agent→智能体）、`LlmSettingsView`（API Key→接口密钥）、`DiscussionPanel`（兜底名 Agent→评审员）。
+  - 数据：`data/workflows/templates.json`（webnovel 升级 2.0，四阶段）。
+  - 文档：`docs/WORKFLOW.md` / `docs/ARCHITECTURE.md` / `docs/IPC-CONTRACT.md` 同步四阶段编排与中文命名。
+- 遇到的问题：无阻塞；`context.rs` 新增参数后测试签名需同步；`types.ts` 的 `WorkflowSkillConfig` 缺 `chapter_planning` 字段导致 tsc 报错，已补。
+- 设计思考：策划阶段只在模板显式声明时启用（模板驱动），默认三阶段模板（旧内置/快速流）行为不变，自定义模板可自行选择是否带策划；节拍表经滚动备忘录传递，审查退回重写时仍携带原节拍表；审查评分参考公开方法论按七维加权，门控阈值仍由模板 `review_pass_score` 决定。
+- 状态：已完成（cargo test 52 项全绿、前端 tsc + vite build 通过，待重建客户端后实机验证输出质量）。
+- 下次待办：重建客户端（`cargo tauri build --debug --bundles app`）后请用户用网文创作流跑一章，对比 v1 输出质量；如需英文版再做翻译模块。
+
+## 2026-08-02：删除插件页面与整个插件系统（死代码清理）
+
+- 改动范围：
+  - 前端：删除 `src/views/PluginView.tsx`；`src/components/Sidebar.tsx`（移除「插件」导航与 Puzzle 图标）、`src/App.tsx`（移除 plugins 路由）、`src/types.ts`（删除 ViewType 'plugins' 与 PluginConfig/PluginStage 类型）、`src/components/StatusBar.tsx`（删除 plugins 标签）、`src/ipc.ts`（删除 listPlugins/installPlugin/removePlugin/togglePlugin 封装）、`src/store.ts`（删除无调用方的 loadPlugins/savePlugins）。
+  - 后端：删除 `crates/pensoul-app/src/commands/plugin.rs` 与 `crates/pensoul-plugin/` crate；`main.rs` 移除 4 个插件命令注册；`commands/mod.rs` 移除模块声明；`state.rs` 移除 plugin_registry 字段；根 `Cargo.toml` 与 `pensoul-app/Cargo.toml` 移除依赖。
+  - 文档：`docs/IPC-CONTRACT.md`（删除 2.17 插件命令节）、`docs/ARCHITECTURE.md`（结构树/视图列表）、`README.md`（插件系统功能与结构树）、`stages.rs` 注释（P1 改为声明式工作流模板）。
+- 遇到的问题：用户报告插件页「新建工作流」点击无反应——根因是 `handleCreateNew` 生成 JSON 文本却传给后端按 serde_json 解析，创建必失败且只 `console.error` 无 UI 提示；用户决定直接删除整个插件页面。
+- 设计思考：插件系统（pensoul-plugin + 4 个 IPC 命令 + PluginView）无任何页面外调用方，属 P1 声明式路线的遗留半成品；新版工作流模板已覆盖其意图，删除整个链路（含 Rust crate）避免双系统并存与死代码。
+- 状态：已完成（待构建验证）。
+- 下次待办：重建客户端后请用户确认侧边栏已无「插件」入口，工作流新增/删除正常。
+
+## 2026-08-02：内置工作流精简——除网文外全部删除
+
+- 改动范围：
+  - 后端：`crates/pensoul-app/src/commands/workflow_templates.rs`（`save_workflow_templates` 的内置保护从"缺失全补回"改为"仅核心内置 webnovel 补回，其余内置允许删除"）；`crates/pensoul-core/src/workflow.rs`（builtin 字段注释同步）。
+  - 前端：`src/views/WorkflowLibraryView.tsx`（`deleteOrDisableTemplate`：仅 webnovel 内置点击删除时降级为停用，其余内置与自定义模板直接删除；删除按钮 title 同步）。
+  - 数据：`data/workflows/templates.json` 删除 standard-novel / scifi / quick-novel，仅保留 webnovel（gitignore 本地数据，可经「恢复内置模板」找回）。
+  - 文档：`docs/WORKFLOW.md` / `docs/IPC-CONTRACT.md` 同步内置模板语义。
+- 遇到的问题：无。
+- 设计思考：用户希望内置工作流只留网文；但后端原有"内置缺失自动补回"会让前端删除无效，因此放开保护为"仅 webnovel 强制存在"；「恢复内置模板」仍可一键找回全部内置，删除不是永久性的。
+- 状态：已完成（待重建客户端后手动验证）。
+- 下次待办：重建客户端后请用户确认：模板列表只剩网文创作流，删除其余内置模板后不复活。
+
+## 2026-08-02：修复 Tauri 下原生对话框不可用 + 工作流删除按钮补全
+
+- 改动范围：
+  - 前端：新增 `src/dialogs.ts`（dialog 插件 confirm/message 封装，浏览器环境降级）；`src/views/WorkflowLibraryView.tsx`（4 处 confirm 改插件版；内置模板删除按钮改为停用，自定义模板直接删除）；`src/views/OutlineView.tsx`（3 处 confirm 改插件版，删除卷/章改 async）；`src/App.tsx`（保存失败 alert 改 messageDialog）；`src/views/PluginView.tsx`（导入/导出 alert 改 messageDialog）；`src/views/ConceptView.tsx`（移除 window.prompt，从专家库导入改为复用专家浏览器弹窗并回填到指定 Agent）。
+  - 文档：`docs/WORKFLOW.md` 同步内置模板删除语义（改为停用）。
+- 遇到的问题：Tauri 2 webview 不支持 `window.confirm/alert/prompt`，用户点删除/恢复/清空时底部报 `dialog.confirm not allowed. Command not found`；capabilities 已含 `dialog:allow-confirm` 但原生 `window.confirm` 仍不可用，必须显式调用 dialog 插件 API。
+- 设计思考：统一收敛到 `src/dialogs.ts`，避免各页面继续直接调原生对话框；内置模板后端会强制补回（save 时自动恢复），直接删没有意义，因此删除按钮对内置模板降级为「停用」，既满足"每个工作流都有删除按钮"的诉求又不破坏数据模型。
+- 状态：已完成（前端 tsc + vite build 通过，待重建客户端后手动验证）。
+- 下次待办：重建 `target/debug/bundle/macos/PenSoul.app` 后请用户验证：删除自定义模板、停用内置模板、恢复内置、清空项目覆盖等确认弹窗是否正常。
+
+## 2026-08-02：工作流页面搬迁到主页面（模板绑定 + 技能库合一，覆盖层退役）
+
+- 改动范围：
+  - 前端：`src/views/WorkflowLibraryView.tsx`（主页「工作流」合并模板库 + 模板级环节技能绑定 + 写作技能库，保留新建/删除模板）；`src/views/HarnessConsole.tsx`（内嵌项目模板选择器，写入 workflowRef，覆盖层写 `{}`）；删除 `src/views/WorkflowView.tsx`；`src/App.tsx` / `src/components/Sidebar.tsx` / `src/components/StatusBar.tsx` / `src/types.ts`（移除项目内「工作流」视图）；`src/views/ProjectDashboard.tsx`（移除工作流模块卡片与「配置工作流」入口）；`src/ipc.ts`（新增 `clearAllProjectOverrides` 封装）。
+  - 后端：`crates/pensoul-app/src/commands/workflow_templates.rs`（`save_workflow_templates` 增加 bindings 结构校验；新增 `clear_all_project_overrides` 命令）；`crates/pensoul-app/src/state.rs`（新增 `clear_all_project_overrides` 方法：遍历项目文件清空 overrides、保留模板引用、同步活跃项目内存、原子写盘）；`crates/pensoul-app/src/main.rs`（注册新命令）。
+  - 文档：`docs/IPC-CONTRACT.md` / `docs/WORKFLOW.md` / `docs/ARCHITECTURE.md` 同步（含时间戳）。
+- 遇到的问题：无代码级问题；前端 tsc + vite build、后端 `cargo check`、`cargo test -p pensoul-app`（49 项）全绿。
+- 设计思考：
+  - 后端解析链（显式参数 → 项目覆盖 → 模板绑定 → 自动选模型）本就支持模板绑定，因此核心搬迁无需后端新解析能力，只需让前端把绑定写到 `template.bindings`（经现有 `save_workflow_templates` 落盘）。
+  - 用户确认：项目内只保留造化工坊，模板选择入口内嵌造化工坊页；一键清空迁移覆盖层；新项目不自动默认模板。
+  - 旧项目覆盖层保留兼容（不清不丢），主页提供「清空项目覆盖」按钮做彻底统一；新 UI（造化工坊选模板）一律写空覆盖。
+- 状态：已完成（待用户手动验证客户端）。
+- 下次待办：重新构建客户端（`cargo tauri build --debug --bundles app`）后请用户验证：主页「工作流」绑定是否生效、造化工坊选模板是否正常、概览状态是否一致。
+
 ## 2026-08-02：猫神写作经验 → 网文工作流方案设计（讨论，无代码变更）
 
 - 改动范围：仅本文件；无代码/文档改动。

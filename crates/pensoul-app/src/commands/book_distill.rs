@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use tauri::Emitter;
 
 use super::book_file;
-use super::expert_distill::{extract_skill_md, normalize_frontmatter_name};
+use super::expert_distill::{DistillRunGuard, extract_skill_md, normalize_frontmatter_name};
 use super::experts::{extract_section_any, parse_skill_md};
 use super::llm_helper as lh;
 
@@ -116,6 +116,8 @@ pub async fn distill_book(
     dimensions: Option<Vec<String>>,
     model: Option<String>,
 ) -> Result<BookPackage, String> {
+    // 独占蒸馏控制面：任务全程占位，结束（成功或失败）时自动发终态事件
+    let mut guard = DistillRunGuard::begin(&app_handle, &state, "book", "book-distill-phase")?;
     let author = author.unwrap_or_default().trim().to_string();
     // 书籍来源优先级：上传文件（全书抽样）> 手动粘贴样章 > 纯知识蒸馏
     let file_path = file_path.unwrap_or_default().trim().to_string();
@@ -178,7 +180,15 @@ pub async fn distill_book(
         api_base: &api_base,
     };
     let (methodology, skill_source) = load_book_methodology(&state);
-    emit_phase(&app_handle, "加载蒸馏技能", "done", &skill_source, "").ok();
+    emit_phase(
+        &app_handle,
+        &state,
+        "加载蒸馏技能",
+        "done",
+        &skill_source,
+        "",
+    )
+    .ok();
 
     let book_ref = if author.is_empty() {
         format!("《{title}》")
@@ -205,6 +215,7 @@ pub async fn distill_book(
     // ── 阶段 0：整书理解 ──
     emit_phase(
         &app_handle,
+        &state,
         "整书理解",
         "running",
         &format!("正在以「{sample_mode}」模式理解{book_ref}的写作方法..."),
@@ -230,11 +241,20 @@ pub async fn distill_book(
         Some(idx) => overview[idx..].to_string(),
         None => overview,
     };
-    emit_phase(&app_handle, "整书理解", "done", "整书理解完成", &overview).ok();
+    emit_phase(
+        &app_handle,
+        &state,
+        "整书理解",
+        "done",
+        "整书理解完成",
+        &overview,
+    )
+    .ok();
 
     // ── 阶段 1：维度提取 + 三重验证 ──
     emit_phase(
         &app_handle,
+        &state,
         "技法提取与验证",
         "running",
         &format!("正在从{}个维度提取候选技法并做三重验证...", dims.len()),
@@ -267,6 +287,7 @@ pub async fn distill_book(
     };
     emit_phase(
         &app_handle,
+        &state,
         "技法提取与验证",
         "done",
         "技法提取与验证完成",
@@ -291,6 +312,7 @@ pub async fn distill_book(
         let phase_name = format!("构建{label}卡");
         emit_phase(
             &app_handle,
+            &state,
             &phase_name,
             "running",
             "正在按 RIA++ 六段构造技能卡...",
@@ -339,6 +361,7 @@ pub async fn distill_book(
         let Some(skill_raw) = extract_skill_md(&raw) else {
             emit_phase(
                 &app_handle,
+                &state,
                 &phase_name,
                 "error",
                 "LLM 输出中未找到 SKILL.md 标记，跳过本卡",
@@ -357,6 +380,7 @@ pub async fn distill_book(
         if missing.len() > 2 {
             emit_phase(
                 &app_handle,
+                &state,
                 &phase_name,
                 "error",
                 &format!("六段结构缺失过多（缺 {}），跳过本卡", missing.join("、")),
@@ -382,6 +406,7 @@ pub async fn distill_book(
         });
         emit_phase(
             &app_handle,
+            &state,
             &phase_name,
             "done",
             &format!(
@@ -463,6 +488,7 @@ pub async fn distill_book(
     };
     emit_phase(
         &app_handle,
+        &state,
         "交付",
         "done",
         &format!(
@@ -473,6 +499,7 @@ pub async fn distill_book(
         "",
     )
     .ok();
+    guard.finish(format!("蒸馏完成！已生成 {} 张技能卡", pkg.cards.len()));
     Ok(pkg)
 }
 
@@ -483,6 +510,8 @@ pub async fn distill_book(
 pub async fn list_book_packages(
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<BookPackage>, String> {
+    // 支持两类包：-book（书籍蒸馏）与 -methodology（方法论蒸馏）
+    let is_package_dir = |name: &str| name.ends_with("-book") || name.ends_with("-methodology");
     let base = writing_cards_base_dir(&state);
     let mut out = Vec::new();
     if !base.exists() {
@@ -496,7 +525,7 @@ pub async fn list_book_packages(
             continue;
         }
         let dir_name = dir.file_name().and_then(|n| n.to_str()).unwrap_or("");
-        if !dir_name.ends_with("-book") {
+        if !is_package_dir(dir_name) {
             continue;
         }
         // 包元数据：优先 package.json，缺失时从目录名推断
@@ -525,25 +554,60 @@ pub async fn list_book_packages(
                 .to_string();
         }
         let mut cards = Vec::new();
-        for (slug, label, stages, _) in DIMENSIONS.iter() {
-            let skill_file = dir.join(slug).join("SKILL.md");
-            if !skill_file.exists() {
+        // 通用扫描：包内每个 <dimension>/SKILL.md 一张卡，维度与适用环节以 frontmatter 为准
+        let mut sub_dirs: Vec<_> = std::fs::read_dir(&dir)
+            .map_err(|e| format!("读取技能包目录失败: {e}"))?
+            .flatten()
+            .filter(|e| e.path().is_dir())
+            .collect();
+        sub_dirs.sort_by_key(|e| e.file_name());
+        for sub in sub_dirs {
+            let skill_file = sub.path().join("SKILL.md");
+            if !skill_file.is_file() {
                 continue;
             }
             let Ok(content) = std::fs::read_to_string(&skill_file) else {
                 continue;
             };
             let (fm, _body) = parse_skill_md(&content);
+            let slug = fm
+                .get("dimension")
+                .cloned()
+                .unwrap_or_else(|| sub.file_name().to_str().unwrap_or("").to_string());
+            let label = DIMENSIONS
+                .iter()
+                .find(|(s, _, _, _)| *s == slug)
+                .map(|(_, l, _, _)| l.to_string())
+                .unwrap_or_else(|| slug.clone());
+            // frontmatter 里 applicable_stages 形如 ["chapter_writing", "review"]
+            let stages: Vec<String> = fm
+                .get("applicable_stages")
+                .map(|v| {
+                    v.trim_matches('[')
+                        .trim_matches(']')
+                        .split(',')
+                        .map(|s| s.trim().trim_matches('"').trim_matches('\'').to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect()
+                })
+                .filter(|v: &Vec<String>| !v.is_empty())
+                .unwrap_or_else(|| {
+                    DIMENSIONS
+                        .iter()
+                        .find(|(s, _, _, _)| *s == slug)
+                        .map(|(_, _, st, _)| st.iter().map(|s| s.to_string()).collect())
+                        .unwrap_or_default()
+                });
             cards.push(BookCardInfo {
-                dimension: slug.to_string(),
-                dimension_label: label.to_string(),
+                dimension: slug.clone(),
+                dimension_label: label,
                 name: fm
                     .get("name")
                     .cloned()
                     .unwrap_or_else(|| format!("{dir_name}-{slug}")),
                 description: fm.get("description").cloned().unwrap_or_default(),
                 skill_path: skill_file.to_string_lossy().to_string(),
-                applicable_stages: stages.iter().map(|s| s.to_string()).collect(),
+                applicable_stages: stages,
             });
         }
         out.push(BookPackage {
@@ -572,7 +636,7 @@ pub async fn delete_book_package(
         || package.contains('/')
         || package.contains('\\')
         || package.contains("..")
-        || !package.ends_with("-book")
+        || !(package.ends_with("-book") || package.ends_with("-methodology"))
     {
         return Err("非法的技能包名".to_string());
     }
@@ -605,10 +669,16 @@ pub(crate) fn load_writing_cards(state: &AppState, paths: &[String]) -> String {
         return String::new();
     }
     let base = writing_cards_base_dir(state);
-    let base_canonical = base.canonicalize().unwrap_or(base);
+    let base_canonical = base.canonicalize().unwrap_or_else(|_| base.clone());
     let mut out = String::new();
     for p in paths.iter().take(5) {
+        // 兼容两种写法：绝对路径（蒸馏产物自带）与相对 WritingCard/ 的路径（内置模板绑定）
         let path = std::path::Path::new(p);
+        let path = if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            base.join(path)
+        };
         if path.file_name().and_then(|n| n.to_str()) != Some("SKILL.md") {
             continue;
         }
@@ -668,7 +738,7 @@ pub(crate) fn writing_cards_base_dir(state: &AppState) -> std::path::PathBuf {
 
 /// 解析蒸馏模型与供应商：指定模型优先，否则取第一个「供应商有 Key」的可用模型。
 /// 返回 (model_id, provider_id, api_key, api_base)，由调用方组装 ProviderAuth。
-fn resolve_model_and_auth(
+pub(crate) fn resolve_model_and_auth(
     state: &AppState,
     model: Option<String>,
 ) -> Result<(String, String, String, String), String> {
@@ -733,6 +803,7 @@ fn load_book_methodology(state: &AppState) -> (String, String) {
 /// 向 Tauri 前端发射蒸馏阶段事件（事件名独立于专家蒸馏，互不干扰）
 fn emit_phase(
     app_handle: &tauri::AppHandle,
+    state: &AppState,
     phase: &str,
     status: &str,
     message: &str,
@@ -744,6 +815,7 @@ fn emit_phase(
         message: message.to_string(),
         detail: detail.to_string(),
     };
+    state.distills.record(&event);
     let _ = app_handle.emit("book-distill-phase", event);
     Ok(())
 }
