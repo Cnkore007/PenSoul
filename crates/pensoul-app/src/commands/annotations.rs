@@ -457,3 +457,82 @@ pub async fn annotations_export(
     }
     Ok(lines.join("\n"))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pensoul_core::{Chapter, ChapterStatus, NovelOntology, ProjectId, VolumeId};
+
+    fn empty_ontology() -> NovelOntology {
+        NovelOntology::new(ProjectId::new("p-test"), "测试项目".to_string())
+    }
+
+    fn make_chapter(id: &str, title: &str) -> Chapter {
+        Chapter {
+            chapter_id: ChapterId::new(id),
+            chapter_no: 1,
+            volume_id: VolumeId::new("v1"),
+            title: title.to_string(),
+            summary: "本章梗概".to_string(),
+            content: "本章正文".to_string(),
+            word_count: 4,
+            version: 1,
+            status: ChapterStatus::Draft,
+            consistency_score: 0.0,
+            created_at: String::new(),
+            updated_at: String::new(),
+            annotations: Vec::new(),
+            revisions: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn test_parse_target_formats() {
+        let t = parse_target("chapter:ch-1:summary").unwrap();
+        assert_eq!(t.kind, "chapter");
+        assert_eq!(t.id, "ch-1");
+        assert_eq!(t.field.as_deref(), Some("summary"));
+
+        let t = parse_target("character:char-1").unwrap();
+        assert_eq!(t.kind, "character");
+        assert!(t.field.is_none());
+
+        assert!(parse_target("").is_err());
+        assert!(parse_target("chapter:").is_err());
+    }
+
+    #[test]
+    fn test_locate_ref_unknown_entity_errors() {
+        let onto = empty_ontology();
+        let t = parse_target("location:loc-x").unwrap();
+        assert!(locate_ref(&onto, &t).is_err());
+    }
+
+    #[test]
+    fn test_locate_ref_finds_chapter_annotations() {
+        let mut onto = empty_ontology();
+        onto.chapters.push(make_chapter("ch-1", "第一章"));
+        let t = parse_target("chapter:ch-1:body").unwrap();
+        let annos = locate_ref(&onto, &t).unwrap();
+        assert!(annos.is_empty());
+
+        // 可变路径：添加批注
+        let (annos_mut, snapshot) = locate_mut(&mut onto, &t).unwrap();
+        assert_eq!(snapshot.as_deref(), Some("本章正文"));
+        annos_mut.push(ChapterAnnotation {
+            annotation_id: "anno-1".to_string(),
+            kind: "issue".to_string(),
+            anchor: None,
+            content: "节奏偏慢".to_string(),
+            status: "open".to_string(),
+            created_at: String::new(),
+            processed_in_version: 0,
+            target: Some(format!("{}:{}", t.kind, t.id)),
+            resolved_by: None,
+            anchor_snapshot: None,
+            resolved_at: None,
+        });
+        assert_eq!(locate_ref(&onto, &t).unwrap().len(), 1);
+    }
+
+}
