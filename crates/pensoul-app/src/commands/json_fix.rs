@@ -136,6 +136,13 @@ fn line_col_to_offset(text: &str, line: usize, col: usize) -> usize {
 fn apply_fix(text: &mut String, offset: usize, msg: &str) -> bool {
     let offset = offset.min(text.len());
 
+    if (msg.contains("expected `,` or `}`") || msg.contains("expected `,` or `]`"))
+        && escape_premature_quote(text, offset)
+    {
+        // 字符串提前闭合（如 summary 里混入英文引号），先转义多余引号，
+        // 避免误补逗号把结构修得更乱
+        return true;
+    }
     if msg.contains("expected `,` or `}`") || msg.contains("expected `,` or `]`") {
         // 值之间漏了逗号：在报错 token 前补一个逗号
         text.insert(offset, ',');
@@ -159,7 +166,61 @@ fn apply_fix(text: &mut String, offset: usize, msg: &str) -> bool {
         text.truncate(offset);
         return true;
     }
+    if msg.contains("key must be a string") {
+        // 对象键没加引号（如 `{第1章: "..."}`）：把裸键用引号包起来
+        return quote_bare_key(text, offset);
+    }
     false
+}
+
+/// 修复裸键：把报错位置起的键名（到下一个冒号为止）用引号包起来
+fn quote_bare_key(text: &mut String, offset: usize) -> bool {
+    let rest = &text[offset..];
+    let Some(colon_rel) = rest.find(':') else {
+        return false;
+    };
+    let colon = offset + colon_rel;
+    let key = text[offset..colon].trim();
+    if key.is_empty() || key.contains(['\n', '\r']) {
+        return false;
+    }
+    let escaped = key.replace('\\', "\\\\").replace('"', "\\\"");
+    text.replace_range(offset..colon, &format!("\"{escaped}\""));
+    true
+}
+
+/// 检测并修复「字符串提前闭合」：报错 token 前紧邻一个多余的字符串结束引号。
+///
+/// 典型场景：模型在 summary 里写了对话「他说 "快跑" 然后离开」，字符串在
+/// `他说 ` 后就闭合了，解析器在 `快` 处报错。这里把多余引号转义为 `\"`，
+/// 让字符串延续到真正的结束引号；若一轮没修完（多个引号），迭代会继续修。
+fn escape_premature_quote(text: &mut String, offset: usize) -> bool {
+    // 报错位置必须是词字符（中文/字母/数字）：若 offset 处是引号，
+    // 属于漏逗号/新键（如 `"a" "b"`），交给补逗号处理；是分隔符则正常。
+    let Some(at) = text[offset..].chars().next() else {
+        return false;
+    };
+    if at.is_whitespace() || matches!(at, '"' | ',' | '}' | ']' | ':' | '{' | '[') {
+        return false;
+    }
+    // 向前（跳过空白）找最近的多余引号
+    let before = &text[..offset];
+    let Some((quote_pos, _)) = before.char_indices().rev().find(|(_, c)| *c == '"') else {
+        return false;
+    };
+    // 引号前的非空白字符若是键/值边界，说明这是正常的字符串结束引号，不能转义
+    match before[..quote_pos]
+        .char_indices()
+        .rev()
+        .find(|(_, c)| !c.is_whitespace())
+        .map(|(_, c)| c)
+    {
+        Some(c) if matches!(c, '{' | '[' | ',' | ':' | '"') => return false,
+        None => return false,
+        _ => {}
+    }
+    text.insert(quote_pos, '\\');
+    true
 }
 
 /// 扫描括号栈（忽略字符串），补全截断的 JSON：
@@ -269,4 +330,35 @@ mod tests {
     fn test_unrepairable_returns_error() {
         assert!(repair_to_value("这不是 JSON").is_err());
     }
+
+    #[test]
+    fn test_bare_key_quoted() {
+        // 模型输出裸键：`第1章: "..."` 未加引号（线上细纲展开 80 章时的报错形态）
+        let raw = "[{\"title\": \"a\", \"summary\": \"b\"}, {\"title\": \"c\", 第1章: \"d\"}]";
+        let v = repair_to_value(raw).expect("应能修复裸键");
+        assert_eq!(v[1]["第1章"], "d");
+    }
+
+    #[test]
+    fn test_bare_key_with_spaces_and_digits() {
+        let raw = "{\"a\": 1, 第 2 幕: \"x\"}";
+        let v = repair_to_value(raw).expect("应能修复含空格与数字的裸键");
+        assert_eq!(v["第 2 幕"], "x");
+    }
+
+    #[test]
+    fn test_premature_quote_in_string() {
+        // summary 内混入英文引号导致字符串提前闭合
+        let raw = "[{\"title\": \"a\", \"summary\": \"他说 \"快跑\" 然后离开\"}]";
+        let v = repair_to_value(raw).expect("应能转义多余的字符串引号");
+        assert_eq!(v[0]["summary"], "他说 \"快跑\" 然后离开");
+    }
+
+    #[test]
+    fn test_premature_quote_multiple() {
+        let raw = "[{\"summary\": \"他对 \"A\" 说 \"B\" 然后走了\"}]";
+        let v = repair_to_value(raw).expect("应能逐轮修复多个多余引号");
+        assert_eq!(v[0]["summary"], "他对 \"A\" 说 \"B\" 然后走了");
+    }
+
 }
