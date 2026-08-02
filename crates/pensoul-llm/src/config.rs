@@ -80,7 +80,7 @@ pub trait LlmProvider: Send + Sync {
     fn call(&self, model: &ModelConfig, prompt: &str) -> Result<String>;
 }
 
-/// OpenAI 兼容提供商（支持 OpenAI、DeepSeek、Moonshot、TokenHub 等）
+/// OpenAI 兼容提供商（支持 OpenAI、DeepSeek、Moonshot 等）
 pub struct OpenAiProvider {
     pub api_key: String,
 }

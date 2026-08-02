@@ -4,6 +4,12 @@ target/
 # 开发数据目录
 data/
 
+# 设计文档（本地开发用，不推送到 GitHub）
+docs/
+
+# 作者专家蒸馏素材（含作者名/书名等版权信息，不推送到 GitHub）
+Experts/
+
 # Node.js
 node_modules/
 

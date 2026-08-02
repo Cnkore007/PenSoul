@@ -362,7 +362,7 @@ async fn call_llm_once(
     }
 
     // OpenAI 兼容格式：SSE 流式接收，长生成期间持续有字节流动，
-    // 避免 tokenhub 等代理在缓冲完整响应时网关超时（504）。
+    // 避免部分聚合代理在缓冲完整响应时网关超时（504）。
     // 请求体由模型档案规划（预算字段名 / 输出上限 / 固定采样参数 / 推理控制）
     let url = format!("{}/chat/completions", api_base.trim_end_matches('/'));
     let body = crate::llm_profile::plan_request(
