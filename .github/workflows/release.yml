@@ -125,10 +125,12 @@ jobs:
           repo = os.environ["GITHUB_REPOSITORY"]
           version = tag.lstrip("v")
           base = f"https://github.com/{repo}/releases/download/{tag}"
-          dmg = glob.glob("artifacts/pensoul-macos/*.dmg")[0]
-          exe = glob.glob("artifacts/pensoul-windows/*-setup.exe")[0]
-          dmg_sig = open("artifacts/pensoul-macos/signature.txt").read().strip()
-          exe_sig = open("artifacts/pensoul-windows/signature.txt").read().strip()
+          dmg = glob.glob("artifacts/pensoul-macos/**/*.dmg", recursive=True)[0]
+          exe = glob.glob("artifacts/pensoul-windows/**/*-setup.exe", recursive=True)[0]
+          dmg_sig = glob.glob("artifacts/pensoul-macos/**/signature.txt", recursive=True)[0]
+          exe_sig = glob.glob("artifacts/pensoul-windows/**/signature.txt", recursive=True)[0]
+          dmg_sig = open(dmg_sig).read().strip()
+          exe_sig = open(exe_sig).read().strip()
           notes = open("release-notes.md").read().strip()
           manifest = {
               "version": version,
