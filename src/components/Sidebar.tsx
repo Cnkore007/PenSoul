@@ -2,9 +2,11 @@ import React, { useState } from "react";
 import {
   PenLine, ListTree, Users, Globe, Palette, LayoutDashboard,
   FolderOpen, Settings, Workflow, Play, MessageSquareText,
-  ChevronsLeft, ChevronsRight, ArrowLeft, Lightbulb,
+  ChevronsLeft, ChevronsRight, ArrowLeft, Lightbulb, RefreshCw,
 } from "lucide-react";
 import type { ViewType, ProjectMeta } from "../types";
+import { appVersion } from "../ipc";
+import { UpdateDialog } from "./UpdateDialog";
 import logoUrl from "../assets/logo.png";
 
 interface SidebarProps {
@@ -58,6 +60,13 @@ const groupHints: Record<string, string> = {
 
 export function Sidebar({ currentView, onViewChange, currentProject, onExitProject }: SidebarProps) {
   const [expanded, setExpanded] = useState(true);
+  const [version, setVersion] = useState("");
+  const [showUpdate, setShowUpdate] = useState(false);
+
+  // 加载当前版本号（启动后静默获取，失败不影响使用）
+  React.useEffect(() => {
+    appVersion().then(setVersion).catch(() => {});
+  }, []);
 
   const items = currentProject ? projectNav : globalNav;
   const groups = [...new Set(items.map(i => i.group))];
@@ -140,7 +149,18 @@ export function Sidebar({ currentView, onViewChange, currentProject, onExitProje
           {expanded ? <ChevronsLeft size={16} /> : <ChevronsRight size={16} />}
         </button>
       </div>
+      {/* 版本与更新入口 */}
+      <button
+        className="spine-version"
+        onClick={() => setShowUpdate(true)}
+        title="版本与检查更新"
+        style={{ position: "relative", zIndex: 2 }}
+      >
+        <RefreshCw size={10} style={{ opacity: 0.7, marginRight: 5, verticalAlign: -1 }} />
+        {expanded ? `v${version || "…"}` : ""}
+      </button>
       <div className="spine-seal"><div className="seal-char">印</div></div>
+      {showUpdate && <UpdateDialog onClose={() => setShowUpdate(false)} />}
     </div>
   );
 }

@@ -23,4 +23,5 @@ pub mod optimize;
 pub mod outline;
 /// IPC 命令模块
 pub mod project;
+pub mod updates;
 pub mod workflow_templates;

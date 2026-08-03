@@ -383,6 +383,22 @@ export async function getHarnessStatus(): Promise<any> {
   return await invoke<any>("get_harness_status");
 }
 
+// ── 版本与更新 ──
+
+export async function appVersion(): Promise<string> {
+  return await invoke<string>("app_version");
+}
+
+export async function checkLatestRelease(): Promise<{
+  has_update: boolean;
+  current_version: string;
+  latest_version: string;
+  notes: string;
+  url: string;
+}> {
+  return await invoke("check_latest_release");
+}
+
 export async function startHarnessStage(): Promise<string> {
   return await invoke<string>("start_harness_stage");
 }

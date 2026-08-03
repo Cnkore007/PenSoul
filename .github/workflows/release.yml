@@ -27,10 +27,19 @@ jobs:
       - name: 构建 Tauri 应用（.app / .dmg）
         working-directory: crates/pensoul-app
         run: npx tauri build
+      - name: 签名更新包（dmg）
+        working-directory: crates/pensoul-app
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          DMG=$(ls target/release/bundle/dmg/*.dmg | head -1)
+          npx tauri signer sign -f "$DMG" > target/release/bundle/dmg/signature.txt
       - uses: actions/upload-artifact@v4
         with:
           name: pensoul-macos
-          path: target/release/bundle/dmg/**
+          path: |
+            target/release/bundle/dmg/**
 
   build-windows:
     name: 构建 Windows 版本
@@ -48,6 +57,14 @@ jobs:
       - name: 构建 Tauri 应用（.msi / .exe）
         working-directory: crates/pensoul-app
         run: npx tauri build
+      - name: 签名更新包（exe）
+        working-directory: crates/pensoul-app
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          EXE=$(ls target/release/bundle/nsis/*-setup.exe | head -1)
+          npx tauri signer sign -f "$EXE" > target/release/bundle/nsis/signature.txt
       - uses: actions/upload-artifact@v4
         with:
           name: pensoul-windows
@@ -98,6 +115,41 @@ jobs:
             exit 1
           fi
           cat release-notes.md
+      - name: 组装更新清单 latest.json
+        env:
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          python3 - <<'PY'
+          import glob, json, os, urllib.parse
+          tag = os.environ["GITHUB_REF_NAME"]
+          repo = os.environ["GITHUB_REPOSITORY"]
+          version = tag.lstrip("v")
+          base = f"https://github.com/{repo}/releases/download/{tag}"
+          dmg = glob.glob("artifacts/pensoul-macos/*.dmg")[0]
+          exe = glob.glob("artifacts/pensoul-windows/*-setup.exe")[0]
+          dmg_sig = open("artifacts/pensoul-macos/signature.txt").read().strip()
+          exe_sig = open("artifacts/pensoul-windows/signature.txt").read().strip()
+          notes = open("release-notes.md").read().strip()
+          manifest = {
+              "version": version,
+              "notes": notes,
+              "pub_date": __import__("datetime").datetime.now(__import__("datetime").timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+              "platforms": {
+                  "darwin-aarch64": {
+                      "signature": dmg_sig,
+                      "url": base + "/" + urllib.parse.quote(os.path.basename(dmg)),
+                  },
+                  "windows-x86_64": {
+                      "signature": exe_sig,
+                      "url": base + "/" + urllib.parse.quote(os.path.basename(exe)),
+                  },
+              },
+          }
+          with open("latest.json", "w", encoding="utf-8") as f:
+              json.dump(manifest, f, ensure_ascii=False, indent=2)
+          print("latest.json 已生成")
+          PY
       - uses: softprops/action-gh-release@v2
         with:
           body_path: release-notes.md
@@ -105,3 +157,4 @@ jobs:
             artifacts/pensoul-macos/**
             artifacts/pensoul-windows/**
             artifacts/pensoul-web/*
+            latest.json

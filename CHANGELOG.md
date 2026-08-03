@@ -4,6 +4,15 @@
 > 并与 [README.md](README.md) 和 GitHub Releases 正文保持同步。格式遵循
 > [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循语义化版本。
 
+## [1.0.3] - 2026-08-04
+
+### 新增
+
+- 版本显示：侧边栏底部显示当前版本号，点击打开「关于 PenSoul」弹窗
+- 检查更新：启动时或手动点击可查询 GitHub Releases 最新版本与更新日志
+- 自动更新：接入官方 updater 插件，Windows 支持下载并自动安装；macOS 未签名环境下
+  自动打开下载页引导手动安装；更新清单（latest.json）随 Release 发布并签名校验
+
 ## [1.0.2] - 2026-08-03
 
 ### 新增

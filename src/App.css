@@ -84,6 +84,23 @@ body::after {
   justify-content: center;
 }
 
+.spine-version {
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: oklch(100% 0 0 / 38%);
+  font-size: 10px;
+  letter-spacing: 0.5px;
+  padding: 6px 12px;
+  cursor: pointer;
+  text-align: left;
+  transition: color var(--dur-fast) var(--ease-out);
+  font-family: inherit;
+}
+.spine-version:hover {
+  color: oklch(100% 0 0 / 75%);
+}
+
 /* Brand */
 .spine-brand {
   padding: var(--space-lg) var(--space-md) var(--space-sm);

@@ -46,6 +46,7 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(state)
         .invoke_handler(tauri::generate_handler![
             pensoul_app::commands::annotations::annotation_add,
@@ -70,6 +71,8 @@ fn main() {
             pensoul_app::commands::project::delete_project,
             pensoul_app::commands::project::open_project,
             pensoul_app::commands::project::save_project,
+            pensoul_app::commands::updates::app_version,
+            pensoul_app::commands::updates::check_latest_release,
             pensoul_app::commands::chapter::get_chapter,
             pensoul_app::commands::chapter::save_chapter,
             pensoul_app::commands::chapter::list_chapters,
