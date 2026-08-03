@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from "react";
-import { Save, BookOpen, ChevronRight, ChevronDown, FileText, Wand2, RotateCcw, Loader2, Trash2 } from "lucide-react";
+import { Save, BookOpen, ChevronRight, ChevronDown, FileText, Wand2, RotateCcw, Loader2, Trash2, Eraser } from "lucide-react";
 import { TipTapEditor } from "../components/TipTapEditor";
 import { AnnotationPanel } from "../components/AnnotationPanel";
 import {
@@ -11,6 +11,7 @@ import {
   listChapterRevisions,
   rollbackChapter,
   deleteChapter,
+  clearChapters,
   getWritingLessons,
   saveWritingLessons,
   rewriteChapterDeai,
@@ -512,6 +513,28 @@ export function WritingView({ projectData, persistProjectData, chapterId, onWord
     deleteChapter(ch.chapter_id).catch(err => console.error("删除章节失败:", err));
   }
 
+  // 一键清空笔耕章节：删除全部章节（正文与细纲），保留卷结构
+  async function handleClearAllChapters() {
+    if (totalChapters === 0) return;
+    if (!(await confirmDialog(`一键删除全部 ${totalChapters} 个章节？\n已写入的正文与细纲将全部删除（保留卷结构），不可恢复。`))) return;
+    try {
+      await clearChapters();
+      setSelectedId(null);
+      setChapter(null);
+      setContent("");
+      setAnnotations([]);
+      setSaveMsg(`已删除全部 ${totalChapters} 个章节`);
+      setTimeout(() => setSaveMsg(null), 4000);
+      onWordCountChange(0);
+      persistProjectData(prev => ({
+        ...prev,
+        volumes: prev.volumes.map(v => ({ ...v, chapters: [], chapter_count: 0 })),
+      }));
+    } catch (e: any) {
+      await messageDialog("清空失败：\n" + (typeof e === "string" ? e : e?.message || String(e)));
+    }
+  }
+
   function toggleVolume(volId: string) {
     setExpandedVolumes(prev => ({ ...prev, [volId]: !prev[volId] }));
   }
@@ -527,6 +550,10 @@ export function WritingView({ projectData, persistProjectData, chapterId, onWord
         <div className="writing-nav">
           <div className="writing-nav-header">
             <span style={{ fontFamily: "var(--font-brush)", fontSize: "var(--text-sm)", letterSpacing: "1px" }}>章节导航</span>
+            <button className="btn btn-ghost" style={{ marginLeft: "auto", padding: "2px 6px", fontSize: "var(--text-2xs)" }}
+              onClick={handleClearAllChapters} title="一键删除全部章节（正文与细纲均删除，保留卷结构，不可恢复）">
+              <Eraser size={11} style={{ marginRight: 3, verticalAlign: -1 }} /> 全部删除
+            </button>
           </div>
           <div className="writing-nav-list">
             {writingVolumes.map(volume => (

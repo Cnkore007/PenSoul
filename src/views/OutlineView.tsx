@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
-import { ChevronRight, ChevronDown, FileText, Plus, Edit3, Trash2, Check, X, GitBranch, Wand2, Layers } from "lucide-react";
+import { ChevronRight, ChevronDown, FileText, Plus, Edit3, Trash2, Check, X, GitBranch, Wand2, Layers, Eraser } from "lucide-react";
 import type { ProjectData, VolumeWithChapters, Chapter, OutlineArc, LlmModel } from "../types";
-import { deleteChapter, deleteVolume, expandOutlineArcAll, getOutlineExpandState, cancelOutlineExpand, saveOutlineArcs, listModels, smartVolumeSplit } from "../ipc";
+import { deleteChapter, deleteVolume, expandOutlineArcAll, getOutlineExpandState, cancelOutlineExpand, saveOutlineArcs, listModels, smartVolumeSplit, clearOutline } from "../ipc";
 import { listen } from "@tauri-apps/api/event";
 import { EntityAnnotations } from "../components/EntityAnnotations";
 import { confirmDialog, messageDialog } from "../dialogs";
@@ -179,8 +179,12 @@ export function OutlineView({ projectData, persistProjectData, onRefresh }: Outl
   // 未显式建卷 → 平铺模式：章节直接列出，没有卷概念
   const flat = realVolumes.length === 0;
 
-  const totalChapters = volumes.reduce((s, v) => s + v.chapters.length, 0);
-  const totalWords = volumes.reduce((s, v) => s + v.chapters.reduce((s2, c) => s2 + c.word_count, 0), 0);
+  // 细纲不计入章节数与字数：章节数只统计已开始细写（有正文）的章节
+  const allChapters = volumes.flatMap(v => v.chapters);
+  const writtenChapters = allChapters.filter(c => (c.word_count ?? 0) > 0);
+  const totalChapters = writtenChapters.length;
+  const totalWords = writtenChapters.reduce((s, c) => s + (c.word_count ?? 0), 0);
+  const outlineCount = allChapters.length - writtenChapters.length;
 
   function toggleVolume(volId: string) {
     persistProjectData(prev => ({
@@ -245,6 +249,20 @@ export function OutlineView({ projectData, persistProjectData, onRefresh }: Outl
       const res = await smartVolumeSplit();
       await onRefresh?.();
       await messageDialog(res.message);
+    } catch (e: any) {
+      setArcError(typeof e === "string" ? e : e?.message || String(e));
+    }
+  }
+
+  // 一键清空大纲：卷/章节/脉络节点全部删除（前后端同步）
+  async function handleClearOutline() {
+    if (allChapters.length === 0 && arcs.length === 0) return;
+    const hint = `一键删除全部大纲内容？\n${allChapters.length} 个章节（含 ${outlineCount} 个细纲、${totalChapters} 个已写正文）、${realVolumes.length} 个卷、${arcs.length} 段情节脉络将全部删除，不可恢复。`;
+    if (!(await confirmDialog(hint))) return;
+    try {
+      await clearOutline();
+      await onRefresh?.();
+      await messageDialog("大纲已全部清空");
     } catch (e: any) {
       setArcError(typeof e === "string" ? e : e?.message || String(e));
     }
@@ -380,6 +398,11 @@ export function OutlineView({ projectData, persistProjectData, onRefresh }: Outl
           结构与梗概在此维护 · 正文由工作流在笔耕细写
         </span>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+          <button className="btn btn-secondary" onClick={handleClearOutline}
+            title="一键删除全部卷、章节（含细纲与正文）与情节脉络（不可恢复）"
+            disabled={allChapters.length === 0 && arcs.length === 0}>
+            <Eraser size={15} /> 全部删除
+          </button>
           <button className="btn btn-secondary" onClick={handleSmartVolumeSplit}
             title={projectData.settings.targetVolumes > 0
               ? `按基础设定卷数（${projectData.settings.targetVolumes} 卷）智能分卷：把全部章节按顺序均分到各卷`
@@ -501,7 +524,7 @@ export function OutlineView({ projectData, persistProjectData, onRefresh }: Outl
 
       {/* ── 章节细纲（可写层） ── */}
       <div className="card outline-card">
-        {totalChapters === 0 && realVolumes.length === 0 && (
+        {allChapters.length === 0 && realVolumes.length === 0 && (
           <div className="empty-state" style={{ padding: "40px 20px" }}>
             <div className="empty-state-icon">纲</div>
             <div className="empty-state-text">{arcs.length > 0 ? "还没有章节细纲" : "尚无大纲"}</div>
@@ -581,7 +604,13 @@ export function OutlineView({ projectData, persistProjectData, onRefresh }: Outl
             <span className="outline-stat-sep">·</span>
           </>
         )}
-        <span>共 {totalChapters} 章</span>
+        <span>已写 {totalChapters} 章</span>
+        {outlineCount > 0 && (
+          <>
+            <span className="outline-stat-sep">·</span>
+            <span>细纲 {outlineCount} 章</span>
+          </>
+        )}
         <span className="outline-stat-sep">·</span>
         <span>{totalWords.toLocaleString()} 字</span>
       </div>

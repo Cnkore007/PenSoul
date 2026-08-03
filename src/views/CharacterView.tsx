@@ -1,8 +1,10 @@
 import { useState, useMemo, useCallback } from "react";
-import { UserPlus, Trash2, Edit3, ChevronDown, ChevronUp, Search } from "lucide-react";
+import { UserPlus, Trash2, Edit3, ChevronDown, ChevronUp, Search, Eraser } from "lucide-react";
 import type { ProjectData, CharacterData } from "../types";
 import { SaveControls } from "../components/SaveControls";
 import { EntityAnnotations } from "../components/EntityAnnotations";
+import { clearCharacters } from "../ipc";
+import { confirmDialog, messageDialog } from "../dialogs";
 
 interface CharacterViewProps {
   projectData: ProjectData;
@@ -70,6 +72,19 @@ export function CharacterView({ projectData, persistProjectData }: CharacterView
     persistProjectData(prev => ({ ...prev, characters: prev.characters.filter(c => c.id !== id) }));
   }
 
+  // 一键清空人物志（前后端同步）
+  async function handleClearAll() {
+    if (characters.length === 0) return;
+    if (!(await confirmDialog(`一键删除全部 ${characters.length} 个角色？\n角色及其关系将全部删除，不可恢复。`))) return;
+    try {
+      await clearCharacters();
+      persistProjectData(prev => ({ ...prev, characters: [] }));
+      await messageDialog(`已删除全部 ${characters.length} 个角色`);
+    } catch (e: any) {
+      await messageDialog("清空失败：\n" + (typeof e === "string" ? e : e?.message || String(e)));
+    }
+  }
+
   function startEdit(char: CharacterData) {
     setEditingId(char.id);
     setEditName(char.name);
@@ -96,6 +111,11 @@ export function CharacterView({ projectData, persistProjectData }: CharacterView
       <div className="view-header">
         <h2>人物志</h2>
         <div style={{ display: "flex", gap: 8 }}>
+          <button className="btn btn-secondary" onClick={handleClearAll}
+            title="一键删除全部角色与人物关系（不可恢复）"
+            disabled={characters.length === 0}>
+            <Eraser size={15} /> 全部删除
+          </button>
           <SaveControls
             type="character"
             contentJson={charactersJson}

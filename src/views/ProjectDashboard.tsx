@@ -22,10 +22,11 @@ export function ProjectDashboard({ project, projectData, onNavigate }: ProjectDa
     listWorkflowTemplates().then(setTemplates).catch(() => {});
   }, []);
 
-  const totalChapters = projectData.volumes?.reduce((s, v) => s + v.chapters.length, 0) ?? 0;
-  const totalWords = projectData.volumes?.reduce(
-    (s, v) => s + v.chapters.reduce((s2, c) => s2 + c.word_count, 0), 0
-  ) ?? 0;
+  // 细纲不计入章节数与字数：只统计已开始细写（有正文）的章节
+  const writtenChapters = projectData.volumes?.flatMap(v => v.chapters).filter(c => (c.word_count ?? 0) > 0) ?? [];
+  const allChapters = projectData.volumes?.flatMap(v => v.chapters) ?? [];
+  const totalChapters = writtenChapters.length;
+  const totalWords = writtenChapters.reduce((s, c) => s + (c.word_count ?? 0), 0);
   const totalVolumes = projectData.volumes?.length ?? 0;
   const totalCharacters = projectData.characters?.length ?? 0;
   const totalLocations = projectData.world?.locations?.length ?? 0;
@@ -39,7 +40,8 @@ export function ProjectDashboard({ project, projectData, onNavigate }: ProjectDa
   const wfMeta = workflowTemplate
     ? { name: workflowTemplate.name, stageCount: workflowTemplate.stages.filter(s => s.enabled).length }
     : null;
-  const hasOutline = totalChapters > 0;
+  // 大纲存在性按全部章节（含细纲）判断，细纲也是大纲内容
+  const hasOutline = allChapters.length > 0;
   const hasWorkflow = !!workflowId;
 
   const modules: Array<{

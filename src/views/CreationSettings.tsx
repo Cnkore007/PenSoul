@@ -20,10 +20,10 @@ export function CreationSettings({ project, projectData, persistProjectData }: C
 
   // 实时统计
   const stats = useMemo(() => {
-    const totalChapters = projectData.volumes.reduce((s, v) => s + v.chapters.length, 0);
-    const totalWords = projectData.volumes.reduce(
-      (s, v) => s + v.chapters.reduce((s2, c) => s2 + c.word_count, 0), 0
-    );
+    // 细纲不计入章节数与字数：只统计已开始细写（有正文）的章节
+    const written = projectData.volumes.flatMap(v => v.chapters).filter(c => (c.word_count ?? 0) > 0);
+    const totalChapters = written.length;
+    const totalWords = written.reduce((s, c) => s + (c.word_count ?? 0), 0);
     const totalVolumes = projectData.volumes.length;
     const avgWordsPerChapter = totalChapters > 0 ? Math.round(totalWords / totalChapters) : 0;
     const polishedCount = projectData.volumes.reduce(

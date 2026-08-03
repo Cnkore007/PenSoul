@@ -60,16 +60,18 @@ pub async fn get_project(
     let ontology: NovelOntology =
         serde_json::from_str(&data).map_err(|e| format!("解析项目文件失败: {e}"))?;
 
-    let total_words: u64 = ontology
+    // 细纲不计入章节数与字数：只统计已开始细写（有正文）的章节
+    let written: Vec<_> = ontology
         .chapters
         .iter()
-        .map(|ch| ch.word_count as u64)
-        .sum();
+        .filter(|ch| ch.word_count > 0)
+        .collect();
+    let total_words: u64 = written.iter().map(|ch| ch.word_count as u64).sum();
 
     Ok(ProjectInfo {
         project_id: ontology.project_id.to_string(),
         title: ontology.title,
-        total_chapters: ontology.chapters.len(),
+        total_chapters: written.len(),
         total_words,
         volume_count: ontology.volumes.len(),
     })

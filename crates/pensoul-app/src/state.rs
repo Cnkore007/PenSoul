@@ -368,11 +368,13 @@ impl AppState {
                 Err(_) => continue,
             };
 
-            let total_words: u64 = ontology
+            // 细纲不计入章节数与字数：只统计已开始细写（有正文）的章节
+            let written: Vec<_> = ontology
                 .chapters
                 .iter()
-                .map(|ch| ch.word_count as u64)
-                .sum();
+                .filter(|ch| ch.word_count > 0)
+                .collect();
+            let total_words: u64 = written.iter().map(|ch| ch.word_count as u64).sum();
 
             metas.push(ProjectMeta {
                 project_id: ontology.project_id.to_string(),
@@ -385,7 +387,7 @@ impl AppState {
                 },
                 created_at: String::new(),
                 updated_at: String::new(),
-                total_chapters: ontology.chapters.len(),
+                total_chapters: written.len(),
                 total_words,
             });
         }

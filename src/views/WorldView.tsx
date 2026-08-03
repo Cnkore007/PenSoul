@@ -1,8 +1,10 @@
 import { useState, useMemo, useCallback } from "react";
-import { MapPin, Clock, BookOpen, Plus, Trash2, Edit3 } from "lucide-react";
+import { MapPin, Clock, BookOpen, Plus, Trash2, Edit3, Eraser } from "lucide-react";
 import type { ProjectData, WorldData } from "../types";
 import { SaveControls } from "../components/SaveControls";
 import { EntityAnnotations } from "../components/EntityAnnotations";
+import { clearWorld } from "../ipc";
+import { confirmDialog, messageDialog } from "../dialogs";
 
 type TabType = "locations" | "timeline" | "rules";
 
@@ -65,6 +67,23 @@ export function WorldView({ projectData, persistProjectData }: WorldViewProps) {
       persistProjectData(prev => ({ ...prev, world: { ...prev.world, timeline_events: prev.world.timeline_events.filter(e => e.event_id !== id) } }));
     } else {
       persistProjectData(prev => ({ ...prev, world: { ...prev.world, setting_rules: prev.world.setting_rules.filter(r => r.rule_id !== id) } }));
+    }
+  }
+
+  // 一键清空世界观（前后端同步）
+  async function handleClearAll() {
+    const count = world.locations.length + world.timeline_events.length + world.setting_rules.length;
+    if (count === 0) return;
+    if (!(await confirmDialog(`一键删除全部世界观内容（${count} 项）？\n地点、时间线与设定规则将全部删除，不可恢复。`))) return;
+    try {
+      await clearWorld();
+      persistProjectData(prev => ({
+        ...prev,
+        world: { locations: [], timeline_events: [], setting_rules: [] },
+      }));
+      await messageDialog(`已删除全部 ${count} 项世界观内容`);
+    } catch (e: any) {
+      await messageDialog("清空失败：\n" + (typeof e === "string" ? e : e?.message || String(e)));
     }
   }
 
@@ -135,6 +154,11 @@ export function WorldView({ projectData, persistProjectData }: WorldViewProps) {
       <div className="view-header">
         <h2>世界观</h2>
         <div style={{ display: "flex", gap: 8 }}>
+          <button className="btn btn-secondary" onClick={handleClearAll}
+            title="一键删除全部地点、时间线与设定规则（不可恢复）"
+            disabled={world.locations.length + world.timeline_events.length + world.setting_rules.length === 0}>
+            <Eraser size={15} /> 全部删除
+          </button>
           <SaveControls
             type="world"
             contentJson={worldJson}

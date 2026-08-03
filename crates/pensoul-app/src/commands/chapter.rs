@@ -467,3 +467,32 @@ pub async fn delete_volume(
     }
     state.save().map_err(|e| e.to_string())
 }
+
+/// 一键清空大纲：所有卷、全部章节（含细纲与正文）、情节脉络节点全部删除
+#[tauri::command]
+pub async fn clear_outline(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    {
+        let mut ontology = state.ontology.write();
+        ontology.volumes.clear();
+        ontology.chapters.clear();
+        ontology.outline_arcs.clear();
+    }
+    state.save().map_err(|e| e.to_string())?;
+    crate::integration::rebuild_derived_state(&state);
+    Ok(())
+}
+
+/// 一键清空笔耕章节：删除全部章节（含正文与细纲），保留卷结构
+#[tauri::command]
+pub async fn clear_chapters(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    {
+        let mut ontology = state.ontology.write();
+        ontology.chapters.clear();
+        for vol in ontology.volumes.iter_mut() {
+            vol.chapter_ids.clear();
+        }
+    }
+    state.save().map_err(|e| e.to_string())?;
+    crate::integration::rebuild_derived_state(&state);
+    Ok(())
+}

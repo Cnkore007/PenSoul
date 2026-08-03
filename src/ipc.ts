@@ -316,6 +316,16 @@ export async function deleteVolume(volumeId: string): Promise<void> {
   await invoke("delete_volume", { volumeId });
 }
 
+// 一键清空大纲（所有卷/章节/脉络节点）
+export async function clearOutline(): Promise<void> {
+  await invoke("clear_outline");
+}
+
+// 一键清空笔耕章节（全部章节，保留卷结构）
+export async function clearChapters(): Promise<void> {
+  await invoke("clear_chapters");
+}
+
 // ── 角色 ──
 
 export async function getCharacters(): Promise<any> {
@@ -326,6 +336,11 @@ export async function saveCharacters(characters: any): Promise<void> {
   await invoke("save_characters", { characters });
 }
 
+// 一键清空人物志（角色与关系）
+export async function clearCharacters(): Promise<void> {
+  await invoke("clear_characters");
+}
+
 // ── 世界观 ──
 
 export async function getWorld(): Promise<any> {
@@ -334,6 +349,11 @@ export async function getWorld(): Promise<any> {
 
 export async function saveWorld(world: any): Promise<void> {
   await invoke("save_world", { world });
+}
+
+// 一键清空世界观（地点/时间线/设定规则）
+export async function clearWorld(): Promise<void> {
+  await invoke("clear_world");
 }
 
 // ── 一致性 ──

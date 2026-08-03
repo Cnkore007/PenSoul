@@ -40,6 +40,18 @@ pub async fn save_world(
     state.save().map_err(|e| e.to_string())
 }
 
+/// 一键清空世界观：地点 / 时间线 / 设定规则 全部删除
+#[tauri::command]
+pub async fn clear_world(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    {
+        let mut ontology = state.ontology.write();
+        ontology.world.spatial_model.locations.clear();
+        ontology.world.timeline.events.clear();
+        ontology.world.setting_rules.clear();
+    }
+    state.save().map_err(|e| e.to_string())
+}
+
 /// 获取所有角色
 #[tauri::command]
 pub async fn get_characters(
@@ -80,6 +92,17 @@ pub async fn save_characters(
         ontology.characters = layer;
     }
     crate::edits::record_edit_samples(&state, samples);
+    state.save().map_err(|e| e.to_string())
+}
+
+/// 一键清空人物志：所有角色与人物关系全部删除
+#[tauri::command]
+pub async fn clear_characters(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    {
+        let mut ontology = state.ontology.write();
+        ontology.characters.characters.clear();
+        ontology.characters.relationships.clear();
+    }
     state.save().map_err(|e| e.to_string())
 }
 
