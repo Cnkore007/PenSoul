@@ -33,7 +33,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           DMG=$(ls target/release/bundle/dmg/*.dmg | head -1)
-          npx tauri signer sign -f "$DMG" > target/release/bundle/dmg/signature.txt
+          npx tauri signer sign "$DMG" | awk '/Public signature:/{getline; print}' > target/release/bundle/dmg/signature.txt
       - uses: actions/upload-artifact@v4
         with:
           name: pensoul-macos
@@ -62,7 +62,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           EXE=$(ls target/release/bundle/nsis/*-setup.exe | head -1)
-          npx tauri signer sign -f "$EXE" > target/release/bundle/nsis/signature.txt
+          npx tauri signer sign "$EXE" | awk '/Public signature:/{getline; print}' > target/release/bundle/nsis/signature.txt
       - uses: actions/upload-artifact@v4
         with:
           name: pensoul-windows
