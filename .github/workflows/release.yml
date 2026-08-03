@@ -28,7 +28,6 @@ jobs:
         working-directory: crates/pensoul-app
         run: npx tauri build
       - name: 签名更新包（dmg）
-        working-directory: crates/pensoul-app
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
@@ -58,7 +57,6 @@ jobs:
         working-directory: crates/pensoul-app
         run: npx tauri build
       - name: 签名更新包（exe）
-        working-directory: crates/pensoul-app
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
