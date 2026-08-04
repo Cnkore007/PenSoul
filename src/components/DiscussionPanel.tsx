@@ -17,17 +17,45 @@ interface DiscussionPanelProps {
 }
 
 export interface SelectedResults {
-  locations: Array<{ name: string; description: string }>;
-  timeline_events: Array<{ story_time: string; description: string }>;
-  setting_rules: Array<{ name: string; description: string }>;
+  locations: Array<{
+    name: string;
+    description: string;
+    level?: string;
+    region?: string;
+    faction?: string;
+    unlocked_chapter?: string;
+    sources?: string[];
+  }>;
+  timeline_events: Array<{ story_time: string; description: string; participants?: string[]; sources?: string[] }>;
+  setting_rules: Array<{ name: string; description: string; constraints?: string[]; cost?: string; loophole?: string; sources?: string[] }>;
   characters: Array<{
     name: string;
     personality_traits: Array<[string, number]>;
     current_mood?: string;
     description?: string;
     relationships?: Array<{ from: string; to: string; relation_type: string; strength: number }>;
+    wants?: string;
+    fears?: string;
+    secret?: string;
+    speech_style?: string;
+    arc?: Array<{ name: string; chapter_range?: string; trait_desc?: string; goal?: string }>;
+    knows?: string[];
+    does_not_know?: string[];
+    sources?: string[];
   }>;
-  outline_beats: Array<{ title: string; description: string; chapter_hint?: string }>;
+  outline_beats: Array<{
+    title: string;
+    description: string;
+    chapter_hint?: string;
+    volume?: string;
+    beat_type?: string;
+    hook?: string;
+    payoff?: string;
+    emotion_arc?: string;
+    line_tags?: string[];
+    foreshadowing?: Array<{ plant: string; payoff_hint?: string }>;
+    sources?: string[];
+  }>;
 }
 
 // 作者确认信息：同意标记 + 补充意见（至少其一才能生成）
@@ -95,12 +123,79 @@ export function DiscussionPanel({ agents, turns, liveEvents, synthesis, discussi
 
   const groups = useMemo(() => {
     if (!synthesis) return [];
+    // 合成一行附加信息（空段自动省略），把新增字段轻量展示出来
+    const meta = (parts: Array<string | undefined>) => parts.filter(Boolean).join(" · ");
     return [
-      { key: "locations", label: "地点", icon: <MapPin size={14} />, items: synthesis.locations.map(i => ({ title: i.name, desc: i.description })), target: "世界观" },
-      { key: "timeline_events", label: "时间线", icon: <Clock size={14} />, items: synthesis.timeline_events.map(i => ({ title: i.story_time, desc: i.description })), target: "世界观" },
-      { key: "setting_rules", label: "设定规则", icon: <BookOpen size={14} />, items: synthesis.setting_rules.map(i => ({ title: i.name, desc: i.description })), target: "世界观" },
-      { key: "characters", label: "人物", icon: <Users size={14} />, items: synthesis.characters.map(i => ({ title: i.name, desc: i.description || i.personality_traits.map(t => t[0]).join("、") })), target: "人物志" },
-      { key: "outline_beats", label: "情节脉络", icon: <ListOrdered size={14} />, items: (synthesis.outline_beats ?? []).map(i => ({ title: i.chapter_hint ? `${i.title}（${i.chapter_hint}）` : i.title, desc: i.description })), target: "大纲" },
+      {
+        key: "locations",
+        label: "地点",
+        icon: <MapPin size={14} />,
+        items: synthesis.locations.map(i => ({
+          title: i.name,
+          desc: i.description,
+          meta: meta([i.level, i.region, i.faction].concat(i.unlocked_chapter ? [`解锁：${i.unlocked_chapter}`] : [])),
+        })),
+        target: "世界观",
+      },
+      {
+        key: "timeline_events",
+        label: "时间线",
+        icon: <Clock size={14} />,
+        items: synthesis.timeline_events.map(i => ({
+          title: i.story_time,
+          desc: i.description,
+          meta: meta([i.participants?.join("、")]),
+        })),
+        target: "世界观",
+      },
+      {
+        key: "setting_rules",
+        label: "设定规则",
+        icon: <BookOpen size={14} />,
+        items: synthesis.setting_rules.map(i => ({
+          title: i.name,
+          desc: i.description,
+          meta: meta([
+            i.constraints?.length ? `约束：${i.constraints.join("；")}` : undefined,
+            i.cost ? `代价：${i.cost}` : undefined,
+            i.loophole ? `漏洞：${i.loophole}` : undefined,
+          ]),
+        })),
+        target: "世界观",
+      },
+      {
+        key: "characters",
+        label: "人物",
+        icon: <Users size={14} />,
+        items: synthesis.characters.map(i => ({
+          title: i.name,
+          desc: i.description || i.personality_traits.map(t => t[0]).join("、"),
+          meta: meta([
+            i.wants ? `欲望：${i.wants}` : undefined,
+            i.fears ? `恐惧：${i.fears}` : undefined,
+            i.speech_style ? `说话方式：${i.speech_style}` : undefined,
+            i.arc?.length ? `弧线：${i.arc.map(a => a.name).join("→")}` : undefined,
+          ]),
+        })),
+        target: "人物志",
+      },
+      {
+        key: "outline_beats",
+        label: "情节脉络",
+        icon: <ListOrdered size={14} />,
+        items: (synthesis.outline_beats ?? []).map(i => ({
+          title: i.chapter_hint ? `${i.title}（${i.chapter_hint}）` : i.title,
+          desc: i.description,
+          meta: meta([
+            i.volume ? `卷：${i.volume}` : undefined,
+            i.beat_type ? `类型：${i.beat_type}` : undefined,
+            i.hook ? `钩子：${i.hook}` : undefined,
+            i.payoff ? `爽点：${i.payoff}` : undefined,
+            i.line_tags?.length ? `线路：${i.line_tags.join("/")}` : undefined,
+          ]),
+        })),
+        target: "大纲",
+      },
     ].filter(g => g.items.length > 0);
   }, [synthesis]);
 
@@ -220,6 +315,17 @@ export function DiscussionPanel({ agents, turns, liveEvents, synthesis, discussi
             </div>
           )}
 
+          {(synthesis.quality_notes?.length ?? 0) > 0 && (
+            <div style={{ border: "1px dashed var(--color-accent)", borderRadius: "var(--radius-sm)", padding: "var(--space-sm) var(--space-md)", marginBottom: "var(--space-md)" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "var(--text-xs)", fontWeight: 600, color: "var(--color-accent)", marginBottom: 4 }}>
+                <PenLine size={13} /> 共识复核与质量提示
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: "var(--text-2xs)", color: "var(--color-ink-2)", lineHeight: 1.7 }}>
+                {(synthesis.quality_notes ?? []).map((n, i) => <div key={i}>· {n}</div>)}
+              </div>
+            </div>
+          )}
+
           {(synthesis.disagreements?.length ?? 0) > 0 && (
             <div style={{ border: "1px solid var(--color-rule-light)", borderRadius: "var(--radius-sm)", padding: "var(--space-sm) var(--space-md)", marginBottom: "var(--space-md)" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "var(--text-xs)", fontWeight: 600, color: "var(--color-ink)", marginBottom: 6 }}>
@@ -248,6 +354,11 @@ export function DiscussionPanel({ agents, turns, liveEvents, synthesis, discussi
                     {d.resolution && (
                       <div style={{ color: "var(--color-accent)", marginTop: 2 }}>
                         {d.adjudicated ? "裁决建议：" : "收敛结果："}{d.resolution}
+                      </div>
+                    )}
+                    {d.alternatives && d.alternatives.length > 0 && (
+                      <div style={{ color: "var(--color-ink-3)", marginTop: 2 }}>
+                        备选路径：{d.alternatives.join(" ｜ ")}
                       </div>
                     )}
                   </div>
@@ -280,6 +391,11 @@ export function DiscussionPanel({ agents, turns, liveEvents, synthesis, discussi
                             <div style={{ flex: 1, minWidth: 0 }}>
                               <div style={{ fontSize: "var(--text-sm)", fontWeight: 500, color: "var(--color-ink)" }}>{item.title}</div>
                               <div style={{ fontSize: "var(--text-2xs)", color: "var(--color-ink-3)", lineHeight: 1.6 }}>{item.desc}</div>
+                              {item.meta && (
+                                <div style={{ fontSize: "var(--text-2xs)", color: "var(--color-accent)", lineHeight: 1.6, marginTop: 2 }}>
+                                  {item.meta}
+                                </div>
+                              )}
                             </div>
                           </label>
                         );

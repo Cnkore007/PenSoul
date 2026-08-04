@@ -38,9 +38,24 @@ pub struct Location {
     pub name: String,
     /// 描述
     pub description: String,
+    /// 层级（如 L1 区域 / L2 城市，可空表示未分层）
+    #[serde(default)]
+    pub level: String,
+    /// 所属区域
+    #[serde(default)]
+    pub region: String,
+    /// 控制该地的势力
+    #[serde(default)]
+    pub faction: String,
+    /// 首次解锁/登场章节
+    #[serde(default)]
+    pub unlocked_chapter: String,
     /// 空间标签
     #[serde(default)]
     pub spatial_tags: Vec<String>,
+    /// 条目出处（来源评审者 + 轮次）
+    #[serde(default)]
+    pub sources: Vec<String>,
     /// 批注（实体级或字段级）
     #[serde(default)]
     pub annotations: Vec<crate::chapter::ChapterAnnotation>,
@@ -74,6 +89,9 @@ pub struct TimelineEvent {
     /// 参与者
     #[serde(default)]
     pub participants: Vec<String>,
+    /// 条目出处（来源评审者 + 轮次）
+    #[serde(default)]
+    pub sources: Vec<String>,
     /// 批注（实体级或字段级）
     #[serde(default)]
     pub annotations: Vec<crate::chapter::ChapterAnnotation>,
@@ -110,6 +128,15 @@ pub struct SettingRule {
     /// 约束条件
     #[serde(default)]
     pub constraints: Vec<String>,
+    /// 使用代价
+    #[serde(default)]
+    pub cost: String,
+    /// 可被利用的漏洞
+    #[serde(default)]
+    pub loophole: String,
+    /// 条目出处（来源评审者 + 轮次）
+    #[serde(default)]
+    pub sources: Vec<String>,
     /// 批注（实体级或字段级）
     #[serde(default)]
     pub annotations: Vec<crate::chapter::ChapterAnnotation>,
@@ -191,7 +218,12 @@ mod tests {
                     id: LocationId::new("loc-1"),
                     name: "山谷".into(),
                     description: "幽静".into(),
+                    level: String::new(),
+                    region: String::new(),
+                    faction: String::new(),
+                    unlocked_chapter: String::new(),
                     spatial_tags: vec!["山".into()],
+                    sources: vec![],
                     annotations: vec![],
                 }],
                 hierarchy: vec![],
@@ -203,6 +235,7 @@ mod tests {
                     chapter_id: ChapterId::new("2"),
                     description: "大战".into(),
                     participants: vec!["甲".into()],
+                    sources: vec![],
                     annotations: vec![],
                 }],
                 epoch_markers: vec![],

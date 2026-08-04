@@ -347,13 +347,36 @@ export function ConceptView({ projectData, persistProjectData }: ConceptViewProp
       const selectedCharNames = new Set(selected.characters.map(c => c.name));
       const newLocations = selected.locations
         .filter(l => !existingLoc.has(l.name))
-        .map((l, i) => ({ id: `loc-${now}-${i}`, name: l.name, description: l.description }));
+        .map((l, i) => ({
+          id: `loc-${now}-${i}`,
+          name: l.name,
+          description: l.description,
+          level: l.level ?? "",
+          region: l.region ?? "",
+          faction: l.faction ?? "",
+          unlocked_chapter: l.unlocked_chapter ?? "",
+          sources: l.sources ?? [],
+        }));
       const newEvents = selected.timeline_events
         .filter(e => !existingEvt.has(`${e.story_time}-${e.description}`))
-        .map((e, i) => ({ event_id: `evt-${now}-${i}`, story_time: e.story_time, description: e.description }));
+        .map((e, i) => ({
+          event_id: `evt-${now}-${i}`,
+          story_time: e.story_time,
+          description: e.description,
+          participants: e.participants ?? [],
+          sources: e.sources ?? [],
+        }));
       const newRules = selected.setting_rules
         .filter(r => !existingRule.has(r.name))
-        .map((r, i) => ({ rule_id: `rule-${now}-${i}`, title: r.name, description: r.description }));
+        .map((r, i) => ({
+          rule_id: `rule-${now}-${i}`,
+          title: r.name,
+          description: r.description,
+          constraints: r.constraints ?? [],
+          cost: r.cost ?? "",
+          loophole: r.loophole ?? "",
+          sources: r.sources ?? [],
+        }));
       const newCharacters = selected.characters
         .filter(c => !existingChar.has(c.name))
         .map((c, i) => ({
@@ -361,6 +384,20 @@ export function ConceptView({ projectData, persistProjectData }: ConceptViewProp
           name: c.name,
           personality_traits: c.personality_traits,
           current_mood: c.current_mood || "",
+          wants: c.wants ?? "",
+          fears: c.fears ?? "",
+          secret: c.secret ?? "",
+          speech_style: c.speech_style ?? "",
+          // 提炼层的 arc（CharacterArcStage）落库为人物志的 arc_stages
+          arc_stages: (c.arc ?? []).map(a => ({
+            name: a.name,
+            chapter_range: a.chapter_range ?? "",
+            trait_desc: a.trait_desc ?? "",
+            goal: a.goal ?? "",
+          })),
+          knows: c.knows ?? [],
+          does_not_know: c.does_not_know ?? [],
+          sources: c.sources ?? [],
           // 人物关系：只保留指向本次生成或已有人物的关系
           relationships: (c.relationships || [])
             .filter(r => selectedCharNames.has(r.to) || existingChar.has(r.to))
@@ -369,8 +406,32 @@ export function ConceptView({ projectData, persistProjectData }: ConceptViewProp
 
       // 情节脉络 → 大纲规划层：生成脉络节点（不是章节！）。
       // 节点带章节范围，后续在大纲页「展开细纲」才生成逐章可写章节。
+      // 若提炼结果带卷标签，则按卷分组建卷（第一卷/第二卷…），脉络节点挂到对应卷下。
       const existingArcTitles = new Set(prev.outlineArcs.map(a => a.title));
       const newBeats = (selected.outline_beats ?? []).filter(b => b.title.trim() && !existingArcTitles.has(b.title.trim()));
+      // 卷分组：按 beat.volume 标签（保持首次出现顺序；未分卷节点不建卷）
+      const volLabels: string[] = [];
+      const volLabelSet = new Set<string>();
+      for (const b of newBeats) {
+        const label = (b.volume ?? "").trim();
+        if (label && !volLabelSet.has(label)) {
+          volLabelSet.add(label);
+          volLabels.push(label);
+        }
+      }
+      const volIdByLabel = new Map<string, string>();
+      const newVolumes: Array<import("../types").VolumeWithChapters> = [];
+      volLabels.forEach((label, i) => {
+        // 与现有卷按标题去重，避免重复导入时建出同名卷
+        const match = prev.volumes.find(v => v.title.trim() === label);
+        if (match) {
+          volIdByLabel.set(label, match.volume_id);
+          return;
+        }
+        const vid = `vol-${now}-${i}`;
+        volIdByLabel.set(label, vid);
+        newVolumes.push({ volume_id: vid, title: label, chapter_count: 0, expanded: true, chapters: [] });
+      });
       let newArcs: import("../types").OutlineArc[] = [];
       if (newBeats.length > 0) {
         // 范围分配：优先解析 chapter_hint（第N-M章）；没有范围的节点把剩余章数均分
@@ -383,12 +444,14 @@ export function ConceptView({ projectData, persistProjectData }: ConceptViewProp
           const start = range?.[0] ?? cursor + 1;
           const end = range?.[1] ?? Math.max(start, cursor + evenSpan);
           cursor = Math.max(cursor, end);
+          const label = (b.volume ?? "").trim();
           return {
             arc_id: `arc-${now}-${i}`,
             title: b.title.trim(),
             description: b.description ?? "",
             chapter_start: start,
             chapter_end: end,
+            volume_id: label ? volIdByLabel.get(label) ?? "" : "",
             expanded_until: 0,
           };
         });
@@ -406,6 +469,7 @@ export function ConceptView({ projectData, persistProjectData }: ConceptViewProp
         },
         characters: [...prev.characters, ...newCharacters],
         outlineArcs: [...prev.outlineArcs, ...newArcs],
+        volumes: [...prev.volumes, ...newVolumes],
           sprout: {
             ...prev.sprout,
             lastDiscussion: {

@@ -117,6 +117,9 @@ pub struct OutlineArc {
     /// 覆盖的结束章号（含）
     #[serde(default)]
     pub chapter_end: i64,
+    /// 所属卷 ID（讨论成果按卷导入时挂载；可空表示未归卷）
+    #[serde(default)]
+    pub volume_id: String,
     /// 已展开细纲到第几章（0 表示尚未展开；>= chapter_end 表示全部展开）
     #[serde(default)]
     pub expanded_until: i64,

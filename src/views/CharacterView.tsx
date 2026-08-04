@@ -200,6 +200,25 @@ export function CharacterView({ projectData, persistProjectData }: CharacterView
                       ))}
                     </div>
                   </div>
+                  {(char.wants || char.fears || char.secret || char.speech_style ||
+                    (char.arc_stages?.length ?? 0) > 0 ||
+                    (char.knows?.length ?? 0) > 0 ||
+                    (char.does_not_know?.length ?? 0) > 0) && (
+                    <div className="char-section">
+                      <div className="char-section-label">轨迹与边界</div>
+                      <div style={{ fontSize: "var(--text-2xs)", color: "var(--color-ink-3)", lineHeight: 1.7 }}>
+                        {char.wants && <div>欲望：{char.wants}</div>}
+                        {char.fears && <div>恐惧：{char.fears}</div>}
+                        {char.secret && <div>秘密：{char.secret}</div>}
+                        {char.speech_style && <div>说话方式：{char.speech_style}</div>}
+                        {char.arc_stages && char.arc_stages.length > 0 && (
+                          <div>弧线：{char.arc_stages.map(a => a.name).join(" → ")}</div>
+                        )}
+                        {char.knows && char.knows.length > 0 && <div>知道：{char.knows.join("；")}</div>}
+                        {char.does_not_know && char.does_not_know.length > 0 && <div>不知道：{char.does_not_know.join("；")}</div>}
+                      </div>
+                    </div>
+                  )}
                   {char.relationships.length > 0 && (
                     <div className="char-section">
                       <div className="char-section-label" style={{ display: "flex", alignItems: "center", gap: 6 }}>

@@ -97,12 +97,45 @@ export interface CharacterData {
   personality_traits: Array<[string, number]>;
   current_mood?: string;
   relationships: Array<{ from: string; to: string; relation_type: string; strength: number }>;
+  wants?: string;
+  fears?: string;
+  secret?: string;
+  speech_style?: string;
+  arc_stages?: Array<{ name: string; chapter_range?: string; trait_desc?: string; goal?: string }>;
+  knows?: string[];
+  does_not_know?: string[];
+  sources?: string[];
 }
 
 export interface WorldData {
-  locations: Array<{ id: string; name: string; description: string }>;
-  timeline_events: Array<{ event_id: string; story_time: string; description: string }>;
-  setting_rules: Array<{ rule_id: string; title: string; description: string }>;
+  locations: Array<{
+    id: string;
+    name: string;
+    description: string;
+    level?: string;
+    region?: string;
+    faction?: string;
+    unlocked_chapter?: string;
+    spatial_tags?: string[];
+    sources?: string[];
+  }>;
+  timeline_events: Array<{
+    event_id: string;
+    story_time: string;
+    description: string;
+    participants?: string[];
+    sources?: string[];
+  }>;
+  setting_rules: Array<{
+    rule_id: string;
+    title: string;
+    description: string;
+    category?: string;
+    constraints?: string[];
+    cost?: string;
+    loophole?: string;
+    sources?: string[];
+  }>;
 }
 
 export interface StyleMetrics {
@@ -214,6 +247,7 @@ export interface OutlineArc {
   description: string;
   chapter_start: number; // 覆盖起始章号（含，从 1 开始）
   chapter_end: number;   // 覆盖结束章号（含）
+  volume_id?: string;    // 所属卷 ID（讨论成果按卷导入时挂载）
   expanded_until: number; // 已展开细纲到第几章（0 = 未展开）
 }
 
@@ -414,17 +448,52 @@ export interface DiscussionTurn {
 // 结构化讨论成果
 export interface DiscussionSynthesis {
   summary: string;
-  locations: Array<{ name: string; description: string }>;
-  timeline_events: Array<{ story_time: string; description: string }>;
-  setting_rules: Array<{ name: string; description: string }>;
+  locations: Array<{
+    name: string;
+    description: string;
+    level?: string;
+    region?: string;
+    faction?: string;
+    unlocked_chapter?: string;
+    sources?: string[];
+  }>;
+  timeline_events: Array<{ story_time: string; description: string; participants?: string[]; sources?: string[] }>;
+  setting_rules: Array<{
+    name: string;
+    description: string;
+    constraints?: string[];
+    cost?: string;
+    loophole?: string;
+    sources?: string[];
+  }>;
   characters: Array<{
     name: string;
     personality_traits: Array<[string, number]>;
     current_mood?: string;
     description?: string;
     relationships?: Array<{ from: string; to: string; relation_type: string; strength: number }>;
+    wants?: string;
+    fears?: string;
+    secret?: string;
+    speech_style?: string;
+    arc?: Array<{ name: string; chapter_range?: string; trait_desc?: string; goal?: string }>;
+    knows?: string[];
+    does_not_know?: string[];
+    sources?: string[];
   }>;
-  outline_beats: Array<{ title: string; description: string; chapter_hint?: string }>;
+  outline_beats: Array<{
+    title: string;
+    description: string;
+    chapter_hint?: string;
+    volume?: string;
+    beat_type?: string;
+    hook?: string;
+    payoff?: string;
+    emotion_arc?: string;
+    line_tags?: string[];
+    foreshadowing?: Array<{ plant: string; payoff_hint?: string }>;
+    sources?: string[];
+  }>;
   // 讨论中显式保留的分歧与裁决（含跨维度冲突）
   disagreements?: Array<{
     topic: string;
@@ -433,7 +502,10 @@ export interface DiscussionSynthesis {
     status?: string; // resolved=讨论内已收敛 / open=未收敛
     resolution?: string;
     adjudicated?: boolean;
+    alternatives?: string[];
   }>;
+  // 共识复核与质量提示
+  quality_notes?: string[];
 }
 
 // 讨论完整输出

@@ -188,6 +188,7 @@ impl NovelOntology {
                         description: desc,
                         chapter_start: start,
                         chapter_end: end,
+                        volume_id: String::new(),
                         expanded_until: 0,
                         annotations: Vec::new(),
                     });
@@ -275,6 +276,14 @@ mod tests {
                 catchphrases: vec![],
             },
             growth_curve: vec![],
+            wants: String::new(),
+            fears: String::new(),
+            secret: String::new(),
+            speech_style: String::new(),
+            arc_stages: vec![],
+            knows: vec![],
+            does_not_know: vec![],
+            sources: vec![],
             knowledge_base: CharacterKnowledgeBase {
                 known_facts: vec![],
                 knowledge_sources: vec![],

@@ -33,11 +33,51 @@ pub struct Character {
     pub dialogue_style: DialogueStyle,
     /// 成长曲线
     pub growth_curve: Vec<GrowthPoint>,
+    /// 核心欲望（行动目标）
+    #[serde(default)]
+    pub wants: String,
+    /// 核心恐惧
+    #[serde(default)]
+    pub fears: String,
+    /// 读者暂不知晓的秘密
+    #[serde(default)]
+    pub secret: String,
+    /// 说话方式（口癖、语气、信息量等，用于区分角色）
+    #[serde(default)]
+    pub speech_style: String,
+    /// 成长弧线阶段（快照之外的"轨道"）
+    #[serde(default)]
+    pub arc_stages: Vec<ArcStage>,
+    /// 知情边界：当前知道什么
+    #[serde(default)]
+    pub knows: Vec<String>,
+    /// 知情边界：当前不知道什么
+    #[serde(default)]
+    pub does_not_know: Vec<String>,
+    /// 条目出处（来源评审者 + 轮次）
+    #[serde(default)]
+    pub sources: Vec<String>,
     /// 知识库
     pub knowledge_base: CharacterKnowledgeBase,
     /// 批注（实体级或字段级）
     #[serde(default)]
     pub annotations: Vec<crate::chapter::ChapterAnnotation>,
+}
+
+/// 角色成长弧线阶段
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct ArcStage {
+    /// 阶段名称（如「废材期」「觉醒期」）
+    pub name: String,
+    /// 建议章节范围
+    #[serde(default)]
+    pub chapter_range: String,
+    /// 阶段特征
+    #[serde(default)]
+    pub trait_desc: String,
+    /// 阶段目标
+    #[serde(default)]
+    pub goal: String,
 }
 
 /// 性格向量

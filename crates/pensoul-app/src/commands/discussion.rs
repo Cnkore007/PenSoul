@@ -3,8 +3,8 @@
 //! 流程：
 //! - 第 1 轮「立论」：每个 Agent 基于自己的技能与评审提示词，结合构思与创作设定独立分析
 //! - 第 2 轮「交锋」：每个 Agent 完整阅读其他 Agent 的第 1 轮发言，进行回应/质疑/补强
-//! - 第 3 轮「成果」：单次综合调用，把全部讨论提炼为丰富的结构化成果
-//!   （共识总结 + 地点/时间线/设定规则/人物及人物关系），供前端确认后写入世界观与人物志
+//! - 第 3 轮「成果」：五路并行分维度提炼（短讨论单遍、长讨论分块抽取后综合定稿），
+//!   再做跨维度冲突检查与独立裁判裁决，产出结构化成果供前端确认后写入世界观/人物志/大纲
 //!
 //! 来自专家库的 Agent 会加载其 SKILL.md 技能文件作为讨论的系统提示词。
 //! 每个 Agent 的进度通过 `discussion-event` 事件实时推送给前端；
@@ -358,9 +358,37 @@ pub(crate) async fn call_with_system(
     provider_api_bases: &HashMap<String, String>,
     api_keys: &HashMap<String, String>,
 ) -> Result<String, String> {
+    call_with_system_task(
+        model,
+        system_prompt,
+        user_prompt,
+        temperature,
+        max_tokens,
+        crate::llm_profile::LlmTask::Deep,
+        model_to_provider,
+        provider_api_bases,
+        api_keys,
+    )
+    .await
+}
+
+/// 带任务语义的调用入口：结构化提炼/裁决等轻量任务用 `LlmTask::Light`，
+/// 对推理型模型关闭或降低思考，避免 thinking 烧光输出预算导致截断。
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn call_with_system_task(
+    model: &str,
+    system_prompt: &str,
+    user_prompt: &str,
+    temperature: f64,
+    max_tokens: u32,
+    task: crate::llm_profile::LlmTask,
+    model_to_provider: &HashMap<String, String>,
+    provider_api_bases: &HashMap<String, String>,
+    api_keys: &HashMap<String, String>,
+) -> Result<String, String> {
     let (provider_id, api_key, api_base) =
         lh::resolve_provider(model, model_to_provider, provider_api_bases, api_keys)?;
-    lh::call_llm(
+    lh::call_llm_task(
         &lh::ProviderAuth {
             provider_id: &provider_id,
             api_key: &api_key,
@@ -371,6 +399,7 @@ pub(crate) async fn call_with_system(
         user_prompt,
         temperature,
         max_tokens,
+        task,
     )
     .await
 }

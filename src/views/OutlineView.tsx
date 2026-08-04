@@ -179,6 +179,28 @@ export function OutlineView({ projectData, persistProjectData, onRefresh }: Outl
   // 未显式建卷 → 平铺模式：章节直接列出，没有卷概念
   const flat = realVolumes.length === 0;
 
+  // 情节脉络按卷分组展示：有卷归属的节点挂到对应卷下，未归卷的放「未分卷」
+  const volTitles = new Map(volumes.map(v => [v.volume_id, v.title]));
+  const arcGroups: Array<{ volume_id: string; title: string; arcs: OutlineArc[] }> = [];
+  const arcsByVol = new Map<string, OutlineArc[]>();
+  for (const a of arcs) {
+    const vid = a.volume_id || "";
+    if (!arcsByVol.has(vid)) arcsByVol.set(vid, []);
+    arcsByVol.get(vid)!.push(a);
+  }
+  const orderedVolIds = [...realVolumes.map(v => v.volume_id), ""];
+  for (const vid of orderedVolIds) {
+    const list = arcsByVol.get(vid);
+    if (list && list.length > 0) {
+      arcGroups.push({ volume_id: vid, title: vid ? volTitles.get(vid) || "未命名卷" : "未分卷", arcs: list });
+    }
+  }
+  for (const [vid, list] of arcsByVol) {
+    if (list.length > 0 && !arcGroups.some(g => g.volume_id === vid)) {
+      arcGroups.push({ volume_id: vid, title: vid ? volTitles.get(vid) || "已删除卷" : "未分卷", arcs: list });
+    }
+  }
+
   // 细纲不计入章节数与字数：章节数只统计已开始细写（有正文）的章节
   const allChapters = volumes.flatMap(v => v.chapters);
   const writtenChapters = allChapters.filter(c => (c.word_count ?? 0) > 0);
@@ -457,7 +479,12 @@ export function OutlineView({ projectData, persistProjectData, onRefresh }: Outl
             </div>
           )}
           <div style={{ display: "flex", flexDirection: "column", gap: 4, padding: "8px 4px" }}>
-            {arcs.map(arc => {
+            {arcGroups.map(group => (
+              <div key={group.volume_id || "__unvol"}>
+                <div style={{ fontSize: "var(--text-2xs)", fontWeight: 600, color: "var(--color-indigo)", padding: "4px 12px 2px", letterSpacing: "0.5px" }}>
+                  {group.title}
+                </div>
+                {group.arcs.map(arc => {
               const total = Math.max(0, arc.chapter_end - arc.chapter_start + 1);
               const done = arc.expanded_until >= arc.chapter_end && arc.chapter_end > 0;
               const expandedCount = arc.expanded_until > 0
@@ -517,7 +544,9 @@ export function OutlineView({ projectData, persistProjectData, onRefresh }: Outl
                   <button className="pv-icon-btn pv-icon-btn-danger" title="删除节点" onClick={() => handleDeleteArc(arc)}><Trash2 size={13} /></button>
                 </div>
               );
-            })}
+                })}
+              </div>
+            ))}
           </div>
         </div>
       )}

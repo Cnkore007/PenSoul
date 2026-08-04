@@ -270,9 +270,10 @@ pub(crate) async fn call_llm_task(
     max_tokens: u32,
     task: crate::llm_profile::LlmTask,
 ) -> Result<String, String> {
+    let initial_budget = max_tokens;
     let mut budget = max_tokens;
     let mut last_err = String::new();
-    for attempt in 1..=2 {
+    for attempt in 1..=3 {
         match call_llm_once(
             auth,
             model_id,
@@ -286,8 +287,10 @@ pub(crate) async fn call_llm_task(
         {
             CallOutcome::Ok(text) => return Ok(text),
             CallOutcome::TokenExhausted => {
+                // 失败的是当前 budget；先记录，再翻倍给下一轮
                 last_err = format!(
-                    "输出因预算不足被截断（{budget} tokens），已自动翻倍重试仍未完成，请稍后重试"
+                    "输出因预算不足被截断（原始预算 {initial_budget} tokens，翻倍至 {budget} 仍被截断）。\
+                     可能是生成量过大或模型思考占满预算，建议缩短输入或拆分任务后重试"
                 );
                 // 预算翻倍再试（封顶取模型档案硬上限与 65536 的较小者）
                 budget = budget
@@ -299,7 +302,7 @@ pub(crate) async fn call_llm_task(
             }
             CallOutcome::ClientError(_, e) | CallOutcome::Fatal(e) => return Err(e),
         }
-        if attempt < 2 {
+        if attempt < 3 {
             tokio::time::sleep(std::time::Duration::from_millis(800)).await;
         }
     }

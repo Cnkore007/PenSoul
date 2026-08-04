@@ -19,6 +19,18 @@ pub(crate) struct PageItem {
     pub(crate) content: String,
 }
 
+/// 从 JSON 对象中取字符串数组字段（缺省空数组）
+fn string_list(v: &serde_json::Value, key: &str) -> Vec<String> {
+    v.get(key)
+        .and_then(|x| x.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|x| x.as_str().map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct ReviewItem {
     #[serde(default)]
@@ -155,6 +167,43 @@ fn parse_character_layer(v: &serde_json::Value) -> Result<pensoul_core::Characte
                     catchphrases: Vec::new(),
                 },
                 growth_curve: Vec::new(),
+                wants: c
+                    .get("wants")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                fears: c
+                    .get("fears")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                secret: c
+                    .get("secret")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                speech_style: c
+                    .get("speech_style")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                arc_stages: c
+                    .get("arc_stages")
+                    .and_then(|x| x.as_array())
+                    .map(|arr| {
+                        arr.iter()
+                            .map(|a| pensoul_core::ArcStage {
+                                name: a.get("name").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+                                chapter_range: a.get("chapter_range").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+                                trait_desc: a.get("trait_desc").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+                                goal: a.get("goal").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default(),
+                knows: string_list(&c, "knows"),
+                does_not_know: string_list(&c, "does_not_know"),
+                sources: string_list(&c, "sources"),
                 knowledge_base: pensoul_core::CharacterKnowledgeBase {
                     known_facts: Vec::new(),
                     knowledge_sources: Vec::new(),
@@ -793,7 +842,12 @@ mod tests {
                     id: pensoul_core::LocationId::new("loc-1"),
                     name: "谷".to_string(),
                     description: "幽静".to_string(),
+                    level: String::new(),
+                    region: String::new(),
+                    faction: String::new(),
+                    unlocked_chapter: String::new(),
                     spatial_tags: vec![],
+                    sources: vec![],
                     annotations: vec![anno],
                 }],
                 hierarchy: vec![],

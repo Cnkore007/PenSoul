@@ -44,12 +44,40 @@ pub struct AgentTurn {
     pub content: String,
 }
 
-/// 讨论成果中的地点/设定规则条目
+/// 讨论成果中的地点/设定规则条目（两用：地点字段与规则字段并存，
+/// 不适用的一侧留空；`sources` 记录条目出处，供作者回溯讨论轨迹）
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct NamedDesc {
     pub name: String,
     #[serde(default)]
     pub description: String,
+    /// 条目类别：location=地点 / rule=设定规则（区分两用结构）
+    #[serde(default)]
+    pub kind: String,
+    /// 地点：层级（如 L1 区域 / L2 城市，可空表示未分层）
+    #[serde(default)]
+    pub level: String,
+    /// 地点：所属区域/大陆
+    #[serde(default)]
+    pub region: String,
+    /// 地点：控制该地的势力
+    #[serde(default)]
+    pub faction: String,
+    /// 地点：首次解锁/登场章节（支持"未知"）
+    #[serde(default)]
+    pub unlocked_chapter: String,
+    /// 规则：约束条件列表
+    #[serde(default)]
+    pub constraints: Vec<String>,
+    /// 规则：使用代价
+    #[serde(default)]
+    pub cost: String,
+    /// 规则：可被利用的漏洞
+    #[serde(default)]
+    pub loophole: String,
+    /// 条目出处（评审者 + 轮次，可多条）
+    #[serde(default)]
+    pub sources: Vec<String>,
 }
 
 /// 讨论成果中的时间线条目
@@ -58,6 +86,12 @@ pub struct TimelineItem {
     pub story_time: String,
     #[serde(default)]
     pub description: String,
+    /// 参与者
+    #[serde(default)]
+    pub participants: Vec<String>,
+    /// 条目出处（评审者 + 轮次）
+    #[serde(default)]
+    pub sources: Vec<String>,
 }
 
 /// 讨论成果中的人物关系
@@ -86,6 +120,46 @@ pub struct CharacterItem {
     pub description: String,
     #[serde(default)]
     pub relationships: Vec<RelationItem>,
+    /// 核心欲望（行动目标）
+    #[serde(default)]
+    pub wants: String,
+    /// 核心恐惧
+    #[serde(default)]
+    pub fears: String,
+    /// 读者暂不知晓的秘密
+    #[serde(default)]
+    pub secret: String,
+    /// 说话方式（口癖、语气、信息量等，用于区分角色）
+    #[serde(default)]
+    pub speech_style: String,
+    /// 成长弧线阶段（快照之外的"轨道"）
+    #[serde(default)]
+    pub arc: Vec<CharacterArcStage>,
+    /// 知情边界：当前知道什么
+    #[serde(default)]
+    pub knows: Vec<String>,
+    /// 知情边界：当前不知道什么
+    #[serde(default)]
+    pub does_not_know: Vec<String>,
+    /// 条目出处（评审者 + 轮次）
+    #[serde(default)]
+    pub sources: Vec<String>,
+}
+
+/// 角色弧线阶段
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct CharacterArcStage {
+    /// 阶段名称（如「废材期」「觉醒期」）
+    pub name: String,
+    /// 建议章节范围
+    #[serde(default)]
+    pub chapter_range: String,
+    /// 阶段特征
+    #[serde(default)]
+    pub trait_desc: String,
+    /// 阶段目标
+    #[serde(default)]
+    pub goal: String,
 }
 
 /// 讨论成果中的情节节点（确认后写入大纲）
@@ -96,6 +170,40 @@ pub struct OutlineBeat {
     pub description: String,
     #[serde(default)]
     pub chapter_hint: String,
+    /// 所属卷（如「第一卷·风起青云」；未分卷留空）
+    #[serde(default)]
+    pub volume: String,
+    /// 节拍类型：铺垫/转折/高潮/爽点/收束等
+    #[serde(default)]
+    pub beat_type: String,
+    /// 本章钩子（断章用，疑问/危机/转折三型）
+    #[serde(default)]
+    pub hook: String,
+    /// 爽点/情绪释放点（如无则空）
+    #[serde(default)]
+    pub payoff: String,
+    /// 情绪曲线（开头→中段→转折→结尾，紧凑文本）
+    #[serde(default)]
+    pub emotion_arc: String,
+    /// 多线标签（主线/副线/交织等）
+    #[serde(default)]
+    pub line_tags: Vec<String>,
+    /// 伏笔计划（埋设 + 预期回收）
+    #[serde(default)]
+    pub foreshadowing: Vec<ForeshadowItem>,
+    /// 条目出处（评审者 + 轮次）
+    #[serde(default)]
+    pub sources: Vec<String>,
+}
+
+/// 伏笔条目
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct ForeshadowItem {
+    /// 埋设内容
+    pub plant: String,
+    /// 预期回收章节/方式（可空）
+    #[serde(default)]
+    pub payoff_hint: String,
 }
 
 /// 讨论中某一议题的分歧项 —— 显式保留，不抹平
@@ -118,6 +226,9 @@ pub struct Disagreement {
     /// 是否已经过裁判裁决
     #[serde(default)]
     pub adjudicated: bool,
+    /// 裁判给出的备选路径（供作者拍板，2-3 条）
+    #[serde(default)]
+    pub alternatives: Vec<String>,
 }
 
 /// 分歧中的一方立场
@@ -150,6 +261,9 @@ pub struct DiscussionSynthesis {
     /// 讨论中显式保留的分歧与裁决（含跨维度冲突）
     #[serde(default)]
     pub disagreements: Vec<Disagreement>,
+    /// 共识复核与质量提示（共识过于平庸/缺代价、候选溢出等，供作者参考）
+    #[serde(default)]
+    pub quality_notes: Vec<String>,
 }
 
 /// 一次讨论的完整记录（全部发言 + 提炼成果）
@@ -355,14 +469,17 @@ mod tests {
                 locations: vec![NamedDesc {
                     name: "咸亨酒店".to_string(),
                     description: "小镇酒馆".to_string(),
+                    ..Default::default()
                 }],
                 timeline_events: vec![TimelineItem {
                     story_time: "清末".to_string(),
                     description: "故事开端".to_string(),
+                    ..Default::default()
                 }],
                 setting_rules: vec![NamedDesc {
                     name: "科举制度".to_string(),
                     description: "束缚读书人".to_string(),
+                    ..Default::default()
                 }],
                 characters: vec![CharacterItem {
                     name: "孔乙己".to_string(),
@@ -375,13 +492,16 @@ mod tests {
                         relation_type: "主顾".to_string(),
                         strength: 0.4,
                     }],
+                    ..Default::default()
                 }],
                 outline_beats: vec![OutlineBeat {
                     title: "登场".to_string(),
                     description: "引出主角".to_string(),
                     chapter_hint: "第1章".to_string(),
+                    ..Default::default()
                 }],
                 disagreements: vec![],
+                quality_notes: vec![],
             },
             author_feedback: String::new(),
         });

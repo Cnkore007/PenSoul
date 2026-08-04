@@ -155,6 +155,14 @@ function transformCharacters(raw: any) {
       personality_traits: Array.isArray(traits) ? traits : [],
       current_mood: mood,
       relationships: mine,
+      wants: ch.wants ?? '',
+      fears: ch.fears ?? '',
+      secret: ch.secret ?? '',
+      speech_style: ch.speech_style ?? '',
+      arc_stages: ch.arc_stages ?? [],
+      knows: ch.knows ?? [],
+      does_not_know: ch.does_not_know ?? [],
+      sources: ch.sources ?? [],
     };
   });
 }
@@ -173,6 +181,14 @@ function toBackendCharacters(chars: any[]) {
       transition_rules: [],
       dialogue_style: { patterns: [], vocabulary_level: 'normal', sentence_length_avg: 15.0, catchphrases: [] },
       growth_curve: [],
+      wants: ch.wants ?? '',
+      fears: ch.fears ?? '',
+      secret: ch.secret ?? '',
+      speech_style: ch.speech_style ?? '',
+      arc_stages: ch.arc_stages ?? [],
+      knows: ch.knows ?? [],
+      does_not_know: ch.does_not_know ?? [],
+      sources: ch.sources ?? [],
       knowledge_base: { known_facts: [], knowledge_sources: [], decay_model: { half_life_chapters: 10, min_reliability: 0.1 } },
     })),
     relationships: (chars ?? []).flatMap((ch: any) =>
@@ -216,7 +232,12 @@ function toBackendWorld(world: any): any {
         id: l.id,
         name: l.name ?? "",
         description: l.description ?? "",
+        level: l.level ?? "",
+        region: l.region ?? "",
+        faction: l.faction ?? "",
+        unlocked_chapter: l.unlocked_chapter ?? "",
         spatial_tags: l.spatial_tags ?? [],
+        sources: l.sources ?? [],
       })),
       hierarchy: [],
     },
@@ -227,6 +248,7 @@ function toBackendWorld(world: any): any {
         chapter_id: e.chapter_id ?? "",
         description: e.description ?? "",
         participants: e.participants ?? [],
+        sources: e.sources ?? [],
       })),
       epoch_markers: [],
     },
@@ -236,6 +258,9 @@ function toBackendWorld(world: any): any {
       title: r.title ?? "",
       description: r.description ?? "",
       constraints: r.constraints ?? [],
+      cost: r.cost ?? "",
+      loophole: r.loophole ?? "",
+      sources: r.sources ?? [],
     })),
     glossary: [],
     item_graph: [],
@@ -297,10 +322,11 @@ async function fetchProjectData(projectId: string): Promise<ProjectData> {
 
     // 卷顺序：先按后端卷列表，再补上只有章节没有元数据的卷
     const orderedVolIds = [
-      ...(volumesMeta ?? []).map((v: any) => v.volume_id as string).filter(id => volumeMap.has(id)),
+      // 保留空卷（导入的分卷大纲此时还没有章节，不能被过滤掉）
+      ...(volumesMeta ?? []).map((v: any) => v.volume_id as string),
       ...Array.from(volumeMap.keys()).filter(id => !(volumesMeta ?? []).some((v: any) => v.volume_id === id)),
     ];
-    const volumes = orderedVolIds.map(volId => toVolume(volId, volumeMap.get(volId)!));
+    const volumes = orderedVolIds.map(volId => toVolume(volId, volumeMap.get(volId) ?? []));
 
     // 项目工作流引用：旧项目可能没有 workflow_ref，只有遗留 workflow_skills，
     // 此时把遗留配置当作项目覆盖（模板未选，绑定照常生效）
