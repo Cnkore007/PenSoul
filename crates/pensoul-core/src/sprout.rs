@@ -132,6 +132,9 @@ pub struct CharacterItem {
     /// 说话方式（口癖、语气、信息量等，用于区分角色）
     #[serde(default)]
     pub speech_style: String,
+    /// 实体类别：individual=个体角色 / group=群体 / faction=派系（群像不进人物矩阵）
+    #[serde(default)]
+    pub entity_kind: String,
     /// 成长弧线阶段（快照之外的"轨道"）
     #[serde(default)]
     pub arc: Vec<CharacterArcStage>,
@@ -204,6 +207,51 @@ pub struct ForeshadowItem {
     /// 预期回收章节/方式（可空）
     #[serde(default)]
     pub payoff_hint: String,
+    /// 回收锚点类型：chapter=章级 / volume=卷级 / event=事件触发（可空）
+    #[serde(default)]
+    pub payoff_anchor_type: String,
+    /// 回收锚点文本（如「第2卷」「身份揭破时」）；比 payoff_hint 更结构化
+    #[serde(default)]
+    pub payoff_anchor: String,
+}
+
+/// 讨论成果中的副线条目（生命周期与主线关系）
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct SubplotItem {
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub mainline_relation: String,
+    /// 建议章节范围（如「第31-100章」）
+    #[serde(default)]
+    pub chapter_range: String,
+    /// 未解问题/悬念（供后续检查副线闲置）
+    #[serde(default)]
+    pub open_threads: Vec<String>,
+    /// 相关角色
+    #[serde(default)]
+    pub characters: Vec<String>,
+    #[serde(default)]
+    pub sources: Vec<String>,
+}
+
+/// 讨论成果中的承诺条目（主题承诺 / 卖点承诺 / 铁律）
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct CommitmentItem {
+    /// 一句话承诺（不超过 60 字）
+    pub statement: String,
+    /// theme=主题 / promise=卖点 / tone=基调 / rule=铁律 / no_go=禁区
+    #[serde(default)]
+    pub kind: String,
+    /// 生效范围：book / volume-N / chapter-A-B
+    #[serde(default)]
+    pub scope: String,
+    /// 持续型承诺 true；有明确兑现点 false
+    #[serde(default)]
+    pub ongoing: bool,
+    #[serde(default)]
+    pub sources: Vec<String>,
 }
 
 /// 讨论中某一议题的分歧项 —— 显式保留，不抹平
@@ -258,6 +306,12 @@ pub struct DiscussionSynthesis {
     pub characters: Vec<CharacterItem>,
     #[serde(default)]
     pub outline_beats: Vec<OutlineBeat>,
+    /// 副线条目（情节维度提炼）
+    #[serde(default)]
+    pub subplots: Vec<SubplotItem>,
+    /// 承诺与卖点条目（承诺维度提炼）
+    #[serde(default)]
+    pub commitments: Vec<CommitmentItem>,
     /// 讨论中显式保留的分歧与裁决（含跨维度冲突）
     #[serde(default)]
     pub disagreements: Vec<Disagreement>,
@@ -500,6 +554,8 @@ mod tests {
                     chapter_hint: "第1章".to_string(),
                     ..Default::default()
                 }],
+                subplots: vec![],
+                commitments: vec![],
                 disagreements: vec![],
                 quality_notes: vec![],
             },

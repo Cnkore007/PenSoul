@@ -2,10 +2,10 @@ import { useState, useEffect, useCallback } from "react";
 import {
   CheckCircle, XCircle, TestTube, Eye, EyeOff, Zap,
   Plus, Trash2, RefreshCw, Globe, Key, Loader2, Wifi, WifiOff,
-  ChevronDown, ChevronRight, Star,
+  ChevronDown, ChevronRight, Star, BookOpen, ExternalLink,
 } from "lucide-react";
 import type { LlmProvider, LlmModel } from "../types";
-import { listProviders, listModels, saveProviders, saveModels, saveApiKey, loadApiKeys, httpRequest, setDefaultModel } from "../ipc";
+import { listProviders, listModels, saveProviders, saveModels, saveApiKey, loadApiKeys, httpRequest, setDefaultModel, refreshModelCapabilities } from "../ipc";
 
 interface ProviderForm {
   provider_id: string;
@@ -30,6 +30,8 @@ export default function LlmSettingsView() {
   const [testingModel, setTestingModel] = useState<string | null>(null);
   const [testResults, setTestResults] = useState<Record<string, 'success' | 'error'>>({});
   const [loading, setLoading] = useState(true);
+  const [expandedModels, setExpandedModels] = useState<Record<string, boolean>>({});
+  const [refreshingArchive, setRefreshingArchive] = useState<string | null>(null);
 
   // 新增供应商表单
   const [showAddForm, setShowAddForm] = useState(false);
@@ -260,10 +262,29 @@ export default function LlmSettingsView() {
       const baseUrl = provider.api_base.replace(/\/+$/, "");
 
       const startTime = Date.now();
-      const resp = await httpRequest(baseUrl + "/chat/completions", "POST", headers, JSON.stringify({
+      // 按能力档案构造测试请求：预算字段、思考开关/最低档与真实调用保持一致
+      const body: Record<string, unknown> = {
         model: model.model_id,
         messages: [{ role: "user", content: "Hi" }],
-        max_tokens: 5,
+      };
+      const cap = model.capability;
+      body[cap?.budget_field ?? "max_tokens"] = 64;
+      if (cap) {
+        if (cap.thinking_mode === "always" && cap.reasoning_effort_options.length > 0) {
+          // 连通性测试用最低思考档，避免思考烧光预算
+          body.reasoning_effort = cap.reasoning_effort_options.includes("low")
+            ? "low"
+            : cap.reasoning_effort_options[0];
+        } else if (cap.thinking_mode === "toggleable") {
+          if (cap.thinking_field === "enable_thinking") {
+            body.enable_thinking = false;
+          } else {
+            body.thinking = { type: "disabled" };
+          }
+        }
+      }
+      const resp = await httpRequest(baseUrl + "/chat/completions", "POST", headers, JSON.stringify({
+        ...body,
       }));
       const latency = Date.now() - startTime;
 
@@ -311,6 +332,153 @@ export default function LlmSettingsView() {
       loadFromBackend();
     }
   };
+
+  // 一键更新模型能力档案（按官方文档库回填；保留用户思考等级/开关）
+  const handleRefreshCapability = async (modelId?: string) => {
+    const key = modelId ?? "all";
+    setRefreshingArchive(key);
+    try {
+      const updated = await refreshModelCapabilities(modelId);
+      setModels(updated);
+      flashSave(modelId ? "模型档案已按官方文档更新" : "全部模型档案已按官方文档更新");
+    } catch (e: any) {
+      flashSave(`更新失败: ${e?.message || "未收录该模型的官方档案"}`);
+    }
+    setRefreshingArchive(null);
+  };
+
+  // 用户调整深度任务默认思考等级
+  const handleChangeEffort = (modelId: string, effort: string) => {
+    setModels(prev => {
+      const next = prev.map(m => {
+        if (m.model_id !== modelId || !m.capability) return m;
+        return { ...m, capability: { ...m.capability, default_reasoning_effort: effort } };
+      });
+      saveModels(next).catch(e => console.error("保存思考等级失败:", e));
+      return next;
+    });
+    flashSave("思考等级已保存，深度任务生效");
+  };
+
+  // 用户调整深度任务默认思考开关（仅可开关模型）
+  const handleToggleThinking = (modelId: string, enabled: boolean) => {
+    setModels(prev => {
+      const next = prev.map(m => {
+        if (m.model_id !== modelId || !m.capability) return m;
+        return { ...m, capability: { ...m.capability, thinking_enabled: enabled } };
+      });
+      saveModels(next).catch(e => console.error("保存思考开关失败:", e));
+      return next;
+    });
+    flashSave(enabled ? "已开启深度任务思考" : "已关闭深度任务思考");
+  };
+
+  // 展示用格式化
+  function formatTokens(n: number): string {
+    if (n >= 1_000_000) return (n / 1_000_000).toFixed(1).replace(/\.0$/, "") + "M";
+    if (n >= 1_000) return Math.round(n / 1_000) + "K";
+    return String(n);
+  }
+
+  function thinkingModeLabel(mode?: string): string {
+    if (mode === "toggleable") return "可开关";
+    if (mode === "always") return "始终开启";
+    if (mode === "none") return "不支持";
+    return "未知";
+  }
+
+  // 能力档案卡
+  function CapabilityPanel({ model }: { model: LlmModel }) {
+    const cap = model.capability;
+    if (!cap) {
+      return (
+        <div style={{ padding: "10px 16px", background: "var(--color-paper-warm)", fontSize: "12px", color: "var(--color-ink-3)" }}>
+          暂无能力档案 — 点击「更新档案」尝试匹配官方文档；未收录时可编辑 models.json 的 capability 字段手动校准。
+        </div>
+      );
+    }
+    const effortEditable = cap.reasoning_effort_options.length > 0;
+    const thinkingEditable = cap.thinking_mode === "toggleable";
+    return (
+      <div style={{ padding: "12px 16px", background: "var(--color-paper-warm)", borderTop: "1px solid var(--color-rule-light)", fontSize: "12px" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 8, marginBottom: 10 }}>
+          <div>
+            <div style={{ color: "var(--color-ink-3)", fontSize: 10, letterSpacing: "0.5px" }}>上下文窗口</div>
+            <div style={{ fontWeight: 500 }}>{formatTokens(cap.context_window)} tokens</div>
+          </div>
+          <div>
+            <div style={{ color: "var(--color-ink-3)", fontSize: 10, letterSpacing: "0.5px" }}>单次输出上限</div>
+            <div style={{ fontWeight: 500 }}>{formatTokens(cap.max_output_tokens)} tokens</div>
+          </div>
+          <div>
+            <div style={{ color: "var(--color-ink-3)", fontSize: 10, letterSpacing: "0.5px" }}>预算字段</div>
+            <code style={{ fontSize: 11 }}>{cap.budget_field}</code>
+          </div>
+          <div>
+            <div style={{ color: "var(--color-ink-3)", fontSize: 10, letterSpacing: "0.5px" }}>思考模式</div>
+            <div style={{ fontWeight: 500 }}>{thinkingModeLabel(cap.thinking_mode)}</div>
+          </div>
+          <div>
+            <div style={{ color: "var(--color-ink-3)", fontSize: 10, letterSpacing: "0.5px" }}>采样参数</div>
+            <div style={{ fontWeight: 500 }}>{cap.fixed_sampling ? "固定（不传 temperature）" : "可调 temperature"}</div>
+          </div>
+        </div>
+
+        <div style={{ display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap", marginBottom: 10 }}>
+          {thinkingEditable && (
+            <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+              <input
+                type="checkbox"
+                checked={cap.thinking_enabled}
+                onChange={e => handleToggleThinking(model.model_id, e.target.checked)}
+              />
+              <span>深度任务开启思考</span>
+            </label>
+          )}
+          {effortEditable && (
+            <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <span style={{ color: "var(--color-ink-3)" }}>深度任务思考等级</span>
+              <select
+                value={cap.default_reasoning_effort || cap.reasoning_effort_options[0] || ""}
+                onChange={e => handleChangeEffort(model.model_id, e.target.value)}
+                style={{
+                  padding: "4px 8px", borderRadius: "var(--radius-sm)",
+                  border: "1px solid var(--color-rule)", background: "var(--color-paper)",
+                  color: "var(--color-ink)", fontSize: 12,
+                }}
+              >
+                {cap.reasoning_effort_options.map(o => (
+                  <option key={o} value={o}>{o}</option>
+                ))}
+              </select>
+              {cap.thinking_mode === "always" && (
+                <span style={{ color: "var(--color-ink-3)", fontSize: 11 }}>（始终思考，只能调档）</span>
+              )}
+            </label>
+          )}
+          {cap.docs_url && (
+            <a
+              href={cap.docs_url}
+              target="_blank"
+              rel="noreferrer"
+              style={{ display: "inline-flex", alignItems: "center", gap: 4, color: "var(--color-indigo)", fontSize: 11 }}
+            >
+              <ExternalLink size={11} /> 官方文档
+            </a>
+          )}
+          {cap.updated_at && (
+            <span style={{ color: "var(--color-ink-3)", fontSize: 11 }}>档案更新 {cap.updated_at}</span>
+          )}
+        </div>
+
+        {cap.notes && (
+          <div style={{ color: "var(--color-ink-3)", fontSize: 11, lineHeight: 1.6, maxWidth: 720 }}>
+            {cap.notes}
+          </div>
+        )}
+      </div>
+    );
+  }
 
   // 获取供应商对应的模型列表
   function getModelsForProvider(providerId: string): LlmModel[] {
@@ -589,6 +757,22 @@ export default function LlmSettingsView() {
           ============================ */}
       {activeTab === 'models' && (
         <div>
+          <div className="flex-between" style={{ marginBottom: "var(--space-md)" }}>
+            <div style={{ fontSize: "var(--text-xs)", color: "var(--color-ink-3)" }}>
+              每个模型按名称匹配官方文档档案：上下文窗口、输出上限、思考模式与思考等级均可在此查看和调整。
+            </div>
+            <button
+              className="btn btn-secondary"
+              style={{ padding: "6px 14px", fontSize: "var(--text-xs)" }}
+              onClick={() => handleRefreshCapability()}
+              disabled={refreshingArchive === "all"}
+              title="按内置官方文档库回填全部模型的档案（保留你调整过的思考等级）"
+            >
+              {refreshingArchive === "all"
+                ? <><Loader2 size={12} style={{ animation: "spin 1s linear infinite" }} /> 更新中...</>
+                : <><RefreshCw size={12} /> 一键更新模型文档</>}
+            </button>
+          </div>
           {modelGroups.map(({ provider, models: provModels }) => (
             <div key={provider.provider_id} className="card" style={{ padding: 0, marginBottom: "var(--space-md)", overflow: "hidden" }}>
               {/* 供应商分组头部 */}
@@ -626,78 +810,120 @@ export default function LlmSettingsView() {
                       暂无模型 — 点击上方「获取模型」从供应商同步
                     </div>
                   ) : (
-                    provModels.map(model => (
+                    provModels.map(model => {
+                      const expanded = expandedModels[model.model_id] !== false;
+                      return (
                       <div key={model.model_id} className="list-item" style={{
-                        padding: "14px 16px", display: "flex", alignItems: "center", gap: 12,
+                        padding: "12px 16px", display: "flex", gap: 12,
                         borderBottom: "1px solid var(--color-rule-light)",
+                        flexDirection: "column", alignItems: "stretch",
                       }}>
                         {/* 模型信息 */}
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-                            <span style={{ fontWeight: 500, fontSize: "var(--text-sm)" }}>{model.display_name}</span>
-                            {model.is_default && (
-                              <span className="tag tag-success" style={{ fontSize: "9px", display: "inline-flex", alignItems: "center", gap: 3 }}>
-                                <Star size={9} /> 默认
+                        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                              <span style={{ fontWeight: 500, fontSize: "var(--text-sm)" }}>{model.display_name}</span>
+                              {model.is_default && (
+                                <span className="tag tag-success" style={{ fontSize: "9px", display: "inline-flex", alignItems: "center", gap: 3 }}>
+                                  <Star size={9} /> 默认
+                                </span>
+                              )}
+                              <span style={{
+                                fontSize: "9px", padding: "1px 6px", borderRadius: "var(--radius-xs)",
+                                background: providerTag(provider.provider_id).bg,
+                                color: providerTag(provider.provider_id).fg,
+                                fontWeight: 500, letterSpacing: "0.3px",
+                              }}>
+                                {provider.display_name}
                               </span>
-                            )}
-                            <span style={{
-                              fontSize: "9px", padding: "1px 6px", borderRadius: "var(--radius-xs)",
-                              background: providerTag(provider.provider_id).bg,
-                              color: providerTag(provider.provider_id).fg,
-                              fontWeight: 500, letterSpacing: "0.3px",
-                            }}>
-                              {provider.display_name}
-                            </span>
-                            {!model.api_key_configured && (
-                              <span className="tag tag-warning" style={{ fontSize: "9px" }}>需配置密钥</span>
-                            )}
-                            {model.supports_tools && (
-                              <span style={{ fontSize: "9px", color: "var(--color-indigo)" }}>工具调用</span>
-                            )}
+                              {!model.api_key_configured && (
+                                <span className="tag tag-warning" style={{ fontSize: "9px" }}>需配置密钥</span>
+                              )}
+                              {model.supports_tools && (
+                                <span style={{ fontSize: "9px", color: "var(--color-indigo)" }}>工具调用</span>
+                              )}
+                              {model.capability && (
+                                <span style={{ fontSize: "9px", color: "var(--color-ink-3)" }}>
+                                  思考：{thinkingModeLabel(model.capability.thinking_mode)}
+                                  {model.capability.reasoning_effort_options.length > 0 && (
+                                    <> · {model.capability.default_reasoning_effort || "-"}</>
+                                  )}
+                                </span>
+                              )}
+                            </div>
+                            <div style={{ display: "flex", gap: 12, fontSize: "11px", color: "var(--color-ink-3)" }}>
+                              <span>质量 {(model.avg_quality_score * 100).toFixed(0)}%</span>
+                              <span>{model.avg_latency_ms > 0 ? `${model.avg_latency_ms}ms` : "-"}</span>
+                              <span>{model.max_tokens.toLocaleString()} tokens</span>
+                              {model.capability && (
+                                <>
+                                  <span>上下文 {formatTokens(model.capability.context_window)}</span>
+                                  <span>输出上限 {formatTokens(model.capability.max_output_tokens)}</span>
+                                </>
+                              )}
+                            </div>
                           </div>
-                          <div style={{ display: "flex", gap: 12, fontSize: "11px", color: "var(--color-ink-3)" }}>
-                            <span>质量 {(model.avg_quality_score * 100).toFixed(0)}%</span>
-                            <span>{model.avg_latency_ms > 0 ? `${model.avg_latency_ms}ms` : "-"}</span>
-                            <span>{model.max_tokens.toLocaleString()} tokens</span>
-                          </div>
-                        </div>
 
-                        {/* 操作 */}
-                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <button
-                            className="btn btn-secondary"
-                            style={{ padding: "3px 8px", fontSize: "10px" }}
-                            onClick={() => handleSetDefault(model.model_id)}
-                            disabled={!!model.is_default}
-                            title={model.is_default ? "当前默认模型" : "设为全局默认模型（各环节未手动选择时优先使用）"}
-                          >
-                            <Star size={10} style={{ marginRight: 3, verticalAlign: -1 }} />
-                            {model.is_default ? "默认" : "设默认"}
-                          </button>
-                          <button
-                            className="btn btn-secondary"
-                            style={{ padding: "4px 8px", fontSize: "11px" }}
-                            onClick={() => handleTestModel(model.model_id)}
-                            disabled={testingModel === model.model_id}
-                            title="向模型发送测试请求检查连通性"
-                          >
-                            {testingModel === model.model_id ? <><Loader2 size={11} style={{ animation: "spin 1s linear infinite" }} /> 测试中</> : <><TestTube size={11} /> 测试</>}
-                          </button>
-                          {testResults[model.model_id] && (
-                            testResults[model.model_id] === 'success'
-                              ? <span style={{ color: "var(--color-jade)", display: "flex", alignItems: "center", gap: 2, fontSize: "10px" }}><CheckCircle size={12} /> 正常</span>
-                              : <span style={{ color: "var(--color-error)", display: "flex", alignItems: "center", gap: 2, fontSize: "10px" }}><XCircle size={12} /> 异常</span>
-                          )}
-                          <button
-                            className={`btn ${model.is_available ? "btn-success" : "btn-secondary"}`}
-                            style={{ padding: "3px 8px", fontSize: "10px", minWidth: 38 }}
-                            onClick={() => handleToggle(model.model_id, !model.is_available)}
-                          >
-                            {model.is_available ? "ON" : "OFF"}
-                          </button>
+                          {/* 操作 */}
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                            <button
+                              className="btn btn-secondary"
+                              style={{ padding: "3px 8px", fontSize: "10px" }}
+                              onClick={() => handleSetDefault(model.model_id)}
+                              disabled={!!model.is_default}
+                              title={model.is_default ? "当前默认模型" : "设为全局默认模型（各环节未手动选择时优先使用）"}
+                            >
+                              <Star size={10} style={{ marginRight: 3, verticalAlign: -1 }} />
+                              {model.is_default ? "默认" : "设默认"}
+                            </button>
+                            <button
+                              className="btn btn-secondary"
+                              style={{ padding: "3px 8px", fontSize: "10px" }}
+                              onClick={() => handleRefreshCapability(model.model_id)}
+                              disabled={refreshingArchive === model.model_id}
+                              title="按官方文档更新此模型的能力档案（保留思考等级设置）"
+                            >
+                              {refreshingArchive === model.model_id
+                                ? <Loader2 size={10} style={{ animation: "spin 1s linear infinite" }} />
+                                : <BookOpen size={10} />}
+                              更新档案
+                            </button>
+                            <button
+                              className="btn btn-secondary"
+                              style={{ padding: "4px 8px", fontSize: "11px" }}
+                              onClick={() => handleTestModel(model.model_id)}
+                              disabled={testingModel === model.model_id}
+                              title="向模型发送测试请求检查连通性"
+                            >
+                              {testingModel === model.model_id ? <><Loader2 size={11} style={{ animation: "spin 1s linear infinite" }} /> 测试中</> : <><TestTube size={11} /> 测试</>}
+                            </button>
+                            {testResults[model.model_id] && (
+                              testResults[model.model_id] === 'success'
+                                ? <span style={{ color: "var(--color-jade)", display: "flex", alignItems: "center", gap: 2, fontSize: "10px" }}><CheckCircle size={12} /> 正常</span>
+                                : <span style={{ color: "var(--color-error)", display: "flex", alignItems: "center", gap: 2, fontSize: "10px" }}><XCircle size={12} /> 异常</span>
+                            )}
+                            <button
+                              className={`btn ${model.is_available ? "btn-success" : "btn-secondary"}`}
+                              style={{ padding: "3px 8px", fontSize: "10px", minWidth: 38 }}
+                              onClick={() => handleToggle(model.model_id, !model.is_available)}
+                            >
+                              {model.is_available ? "ON" : "OFF"}
+                            </button>
+                            <button
+                              className="btn btn-secondary"
+                              style={{ padding: "3px 6px", fontSize: "10px" }}
+                              onClick={() => setExpandedModels(prev => ({ ...prev, [model.model_id]: !expanded }))}
+                              title={expanded ? "收起能力档案" : "查看/调整能力档案"}
+                            >
+                              {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                              档案
+                            </button>
+                          </div>
                         </div>
+                        {expanded && <CapabilityPanel model={model} />}
                       </div>
-                    ))
+                      );
+                    })
                   )}
                 </div>
               )}

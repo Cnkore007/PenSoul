@@ -5,7 +5,7 @@ import {
   Lightbulb, Target, Bot, MessageSquare,
   Plus, Trash2, GripVertical, FileText,
   PenLine, Layers, BarChart3, BookOpen,
-  UserCheck,
+  UserCheck, RefreshCw,
 } from "lucide-react";
 import { listen } from "@tauri-apps/api/event";
 import { loadSprout, loadExperts, listModels, discussConcept, getDiscussionState, saveOutlineArcs, clearDiscussionResult } from "../ipc";
@@ -823,6 +823,20 @@ export function ConceptView({ projectData, persistProjectData }: ConceptViewProp
           {discussionError}
         </div>
       )}
+
+      {/* ── 系统提示（模型自动切换/不可用等） ── */}
+      {Object.values(liveEvents).filter(e => e.agent_id === "__system__").map(e => (
+        <div key={e.agent_id} style={{
+          marginBottom: "var(--space-md)", padding: "var(--space-sm) var(--space-md)",
+          background: "var(--color-ochre-wash, rgba(191,144,0,0.08))",
+          border: "1px solid var(--color-ochre)", borderRadius: "var(--radius-sm)",
+          fontSize: "var(--text-xs)", color: "var(--color-ochre)",
+          display: "flex", alignItems: "center", gap: 8,
+        }}>
+          <RefreshCw size={13} />
+          {e.content}
+        </div>
+      ))}
 
       {/* ── 讨论过程 + 讨论成果 ── */}
       {(turns.length > 0 || Object.keys(liveEvents).length > 0 || synthesis) && (

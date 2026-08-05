@@ -93,6 +93,25 @@ pub async fn list_models(
 ) -> Result<Vec<serde_json::Value>, String> {
     let api_keys = state.api_keys.read();
     let mut models = load_models_from_disk(&state);
+    // 为内置库已收录但磁盘缺档案的模型自动补齐能力档案（新增模型即插即用）
+    let mut need_save = false;
+    for model in models.iter_mut() {
+        if let Some(obj) = model.as_object_mut()
+            && let Some(model_id) = obj.get("model_id").and_then(|v| v.as_str())
+            && !obj.contains_key("capability")
+            && let Some(cap) = crate::llm_profile::builtin_capability(model_id)
+        {
+            obj.insert(
+                "capability".to_string(),
+                serde_json::to_value(cap).map_err(|e| e.to_string())?,
+            );
+            need_save = true;
+        }
+    }
+    if need_save {
+        let _ = save_models_to_disk(&state, &models);
+    }
+    crate::llm_profile::sync_capabilities(&models);
     // 根据已存储的密钥更新 api_key_configured 和 is_available
     for model in models.iter_mut() {
         if let Some(obj) = model.as_object_mut()
@@ -160,7 +179,64 @@ pub async fn save_models(
     state: tauri::State<'_, AppState>,
     models: Vec<serde_json::Value>,
 ) -> Result<(), String> {
-    save_models_to_disk(&state, &models)
+    let result = save_models_to_disk(&state, &models);
+    // 同步能力缓存，后续 LLM 调用立即可用新档案
+    crate::llm_profile::sync_capabilities(&models);
+    result
+}
+
+/// 一键更新模型能力档案（按模型名匹配内置官方文档库）
+///
+/// - `model_id` 为空时刷新全部模型；否则只刷新指定模型
+/// - 刷新会保留用户在设置页调整过的思考等级（default_reasoning_effort）与
+///   思考开关（thinking_enabled），其余字段以官方文档为准回填
+#[tauri::command]
+pub async fn refresh_model_capabilities(
+    state: tauri::State<'_, AppState>,
+    model_id: Option<String>,
+) -> Result<Vec<serde_json::Value>, String> {
+    let mut models = load_models_from_disk(&state);
+    let mut updated = 0usize;
+    for model in models.iter_mut() {
+        let Some(obj) = model.as_object_mut() else {
+            continue;
+        };
+        let Some(mid) = obj.get("model_id").and_then(|v| v.as_str()) else {
+            continue;
+        };
+        if let Some(only) = &model_id
+            && mid != only
+        {
+            continue;
+        }
+        let Some(mut cap) = crate::llm_profile::builtin_capability(mid) else {
+            continue;
+        };
+        // 保留用户已调整的思考等级与开关
+        if let Some(old) = obj.get("capability") {
+            if let Some(e) = old.get("default_reasoning_effort").and_then(|v| v.as_str()) {
+                cap.default_reasoning_effort = e.to_string();
+            }
+            if let Some(t) = old.get("thinking_enabled").and_then(|v| v.as_bool()) {
+                cap.thinking_enabled = t;
+            }
+        }
+        obj.insert(
+            "capability".to_string(),
+            serde_json::to_value(cap).map_err(|e| e.to_string())?,
+        );
+        updated += 1;
+    }
+    if updated == 0 {
+        let target = model_id.as_deref().unwrap_or("全部模型");
+        return Err(format!(
+            "内置档案库尚未收录 {target} 的官方文档，暂无可更新内容。\
+             可在 models.json 的 capability 字段手动校准，或反馈给开发者补充档案。"
+        ));
+    }
+    save_models_to_disk(&state, &models)?;
+    crate::llm_profile::sync_capabilities(&models);
+    Ok(models)
 }
 
 /// 保存 API 密钥

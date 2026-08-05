@@ -222,6 +222,31 @@ export interface LlmProvider {
   requires_api_key: boolean;
 }
 
+// 思考模式能力
+export type ThinkingMode = "none" | "always" | "toggleable";
+
+// 模型能力档案（models.json 的 capability 字段，对应官方文档参数）
+export interface ModelCapability {
+  context_window: number;
+  max_output_tokens: number;
+  budget_field: string;
+  thinking_mode: ThinkingMode;
+  reasoning_effort_options: string[];
+  // 深度任务默认思考强度（用户可调整）
+  default_reasoning_effort: string;
+  // 深度任务默认是否开启思考（仅 toggleable 生效；用户可调整）
+  thinking_enabled: boolean;
+  // 思考开关字段名：thinking（对象）或 enable_thinking（布尔）
+  thinking_field: string;
+  // 思考强度字段名：reasoning_effort（顶层）或 reasoning（嵌套对象）
+  effort_field: string;
+  // 采样参数固定（Kimi 系列显式传 temperature/top_p 会被拒绝）
+  fixed_sampling: boolean;
+  docs_url: string;
+  notes: string;
+  updated_at: string;
+}
+
 // LLM 模型配置
 export interface LlmModel {
   model_id: string;
@@ -238,6 +263,8 @@ export interface LlmModel {
   is_default?: boolean;
   // 用户是否手动开关过该模型（true 时 is_available 以磁盘为准，不被 api_key 自动点亮）
   user_managed?: boolean;
+  // 能力档案（官方文档参数；未收录时由后端自动补齐内置档案）
+  capability?: ModelCapability;
 }
 
 // 情节脉络节点 —— 大纲规划层（覆盖一个章节范围的剧情规划，展开细纲后才生成可写章节）
@@ -476,6 +503,7 @@ export interface DiscussionSynthesis {
     fears?: string;
     secret?: string;
     speech_style?: string;
+    entity_kind?: string; // individual / group / faction（群像不进人物矩阵）
     arc?: Array<{ name: string; chapter_range?: string; trait_desc?: string; goal?: string }>;
     knows?: string[];
     does_not_know?: string[];
@@ -491,7 +519,30 @@ export interface DiscussionSynthesis {
     payoff?: string;
     emotion_arc?: string;
     line_tags?: string[];
-    foreshadowing?: Array<{ plant: string; payoff_hint?: string }>;
+    foreshadowing?: Array<{
+      plant: string;
+      payoff_hint?: string;
+      payoff_anchor_type?: string; // chapter / volume / event
+      payoff_anchor?: string;
+    }>;
+    sources?: string[];
+  }>;
+  // 副线条目（情节维度提炼）
+  subplots?: Array<{
+    name: string;
+    description?: string;
+    mainline_relation?: string;
+    chapter_range?: string;
+    open_threads?: string[];
+    characters?: string[];
+    sources?: string[];
+  }>;
+  // 承诺与卖点条目（承诺维度提炼）
+  commitments?: Array<{
+    statement: string;
+    kind?: string; // theme / promise / tone / rule / no_go
+    scope?: string;
+    ongoing?: boolean;
     sources?: string[];
   }>;
   // 讨论中显式保留的分歧与裁决（含跨维度冲突）

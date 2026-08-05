@@ -8,8 +8,8 @@
 use std::collections::HashMap;
 
 use pensoul_core::{
-    AgentTurn, CharacterItem, Disagreement, DiscussionSynthesis, NamedDesc, OutlineBeat,
-    TimelineItem,
+    AgentTurn, CharacterItem, CommitmentItem, Disagreement, DiscussionSynthesis, NamedDesc,
+    OutlineBeat, SubplotItem, TimelineItem,
 };
 use serde::Deserialize;
 use tauri::AppHandle;
@@ -29,6 +29,39 @@ const CHUNK_OUTPUT_TOKENS: u32 = 4_096;
 const FINAL_OUTPUT_TOKENS: u32 = 8_192;
 /// 短讨论单遍提炼的输出预算
 const SINGLE_OUTPUT_TOKENS: u32 = 16_384;
+/// 提炼环节单次模型调用超时（秒）：防止慢供应商让整轮提炼无限等待；
+/// 超时视为失败，走既有重试/降级路径
+const DIM_CALL_TIMEOUT_SECS: u64 = 120;
+
+/// 带超时的提炼调用（LlmTask::Light）
+#[allow(clippy::too_many_arguments)]
+async fn call_dim(
+    model: &str,
+    system: &str,
+    user: &str,
+    temperature: f64,
+    max_tokens: u32,
+    model_to_provider: &HashMap<String, String>,
+    provider_api_bases: &HashMap<String, String>,
+    api_keys: &HashMap<String, String>,
+) -> Result<String, String> {
+    tokio::time::timeout(
+        std::time::Duration::from_secs(DIM_CALL_TIMEOUT_SECS),
+        call_with_system_task(
+            model,
+            system,
+            user,
+            temperature,
+            max_tokens,
+            crate::llm_profile::LlmTask::Light,
+            model_to_provider,
+            provider_api_bases,
+            api_keys,
+        ),
+    )
+    .await
+    .map_err(|_| format!("提炼调用超时（{}秒），模型响应过慢", DIM_CALL_TIMEOUT_SECS))?
+}
 
 /// 提炼所需的外部依赖与上下文
 pub struct SynthesisContext<'a> {
@@ -72,15 +105,22 @@ const DIM_RULES: DimensionDef = DimensionDef {
 const DIM_CHARACTERS: DimensionDef = DimensionDef {
     id: "characters",
     name: "人物与关系提炼",
-    focus: "人物及人物关系：主角、关键配角、重要反派的身份、欲望、恐惧、故事功能，以及人物之间的关系",
-    schema: r#"{"characters": [{"name": "人物名", "personality_traits": [["特质", 0.8]], "current_mood": "登场时的心境", "description": "100-200字：身份、欲望、恐惧、在故事中的功能", "relationships": [{"from": "人物名", "to": "人物名", "relation_type": "关系类型", "strength": 0.7}], "wants": "核心欲望", "fears": "核心恐惧", "secret": "暂不揭示的秘密（可空）", "speech_style": "说话方式（口癖/语气/信息量）", "arc": [{"name": "阶段名", "chapter_range": "章节范围", "trait_desc": "阶段特征", "goal": "阶段目标"}], "knows": ["知情边界：知道什么"], "does_not_know": ["知情边界：不知道什么"], "sources": ["来源：评审者名·第N轮"]}], "quality_notes": ["共识复核与质量提示"], "disagreements": [分歧列表]}"#,
+    focus: "人物及人物关系：主角、关键配角、重要反派的身份、欲望、恐惧、故事功能，以及人物之间的关系。必须区分「个体人物」与「群像/派系」：只把有名字的具体个体作为人物条目（entity_kind 必填=individual）；群体、势力、同盟（如「狱友同盟」「XX派」）不占人物条目，可在 description 中说明，或标 entity_kind=group/faction 仅供参考",
+    schema: r#"{"characters": [{"name": "人物名（必须是有名字的具体个体，禁止用「XX派反派」「同盟」这类群体名）", "entity_kind": "individual（个体）/ group（群体）/ faction（派系），重要人物必须 individual", "personality_traits": [["特质", 0.8]], "current_mood": "登场时的心境", "description": "100-200字：身份、欲望、恐惧、在故事中的功能", "relationships": [{"from": "人物名", "to": "人物名", "relation_type": "关系类型", "strength": 0.7}], "wants": "核心欲望", "fears": "核心恐惧", "secret": "暂不揭示的秘密（可空）", "speech_style": "说话方式（口癖/语气/信息量）", "arc": [{"name": "阶段名", "chapter_range": "章节范围", "trait_desc": "阶段特征", "goal": "阶段目标"}], "knows": ["知情边界：知道什么"], "does_not_know": ["知情边界：不知道什么"], "sources": ["来源：评审者名·第N轮"]}], "quality_notes": ["共识复核与质量提示"], "disagreements": [分歧列表]}"#,
 };
 
 const DIM_BEATS: DimensionDef = DimensionDef {
     id: "beats",
-    name: "情节脉络提炼",
-    focus: "情节脉络：开端、发展、转折、高潮、结局的关键节点，以及它们如何推进主线",
-    schema: r#"{"outline_beats": [{"title": "情节节点标题", "description": "100-200字：该节点发生什么、核心冲突是什么、如何推进主线", "chapter_hint": "建议章节范围，如 第1-3章", "volume": "所属卷（如 第一卷·风起青云；未分卷留空）", "beat_type": "节拍类型（铺垫/转折/高潮/爽点/收束）", "hook": "章尾钩子（可空）", "payoff": "爽点/情绪释放点（可空）", "emotion_arc": "情绪曲线（如：压抑→紧张→爆发→余波）", "line_tags": ["主线/副线/交织"], "foreshadowing": [{"plant": "埋设内容", "payoff_hint": "预期回收章节/方式"}], "sources": ["来源：评审者名·第N轮"]}], "quality_notes": ["共识复核与质量提示"], "disagreements": [分歧列表]}"#,
+    name: "情节脉络与副线提炼",
+    focus: "情节脉络：开端、发展、转折、高潮、结局的关键节点，以及它们如何推进主线；同时提炼贯穿多卷的副线（副线不是单节点，而是有生命周期的独立叙事线）。subplots 禁止空数组——只要讨论中出现关系线/势力线/探索线/成长线等跨节点线索，就必须归纳为副线（至少 1 条）",
+    schema: r#"{"outline_beats": [{"title": "情节节点标题", "description": "100-200字：该节点发生什么、核心冲突是什么、如何推进主线", "chapter_hint": "建议章节范围，如 第1-3章", "volume": "所属卷（只写规范卷名如 第一卷/第二卷；跨卷节点写起始卷并标注，如 第一卷末至第二卷；全卷适用写「各卷」不建卷）", "beat_type": "节拍类型（铺垫/转折/高潮/爽点/收束）", "hook": "章尾钩子（可空）", "payoff": "爽点/情绪释放点（可空）", "emotion_arc": "情绪曲线（如：压抑→紧张→爆发→余波）", "line_tags": ["主线/具体副线名（如 关系线/权力线/探索线）"], "foreshadowing": [{"plant": "埋设内容", "payoff_anchor_type": "chapter（章级）/ volume（卷级）/ event（事件触发）", "payoff_anchor": "回收锚点，如 第2卷 / 身份揭破时 / 第45章；无锚点留空", "payoff_hint": "回收方式描述（可空）"}], "sources": ["来源：评审者名·第N轮"]}], "subplots": [{"name": "副线名", "description": "80-150字：这条线是什么、推进什么", "mainline_relation": "与主线的关系（如 推动主线第3阶段 / 独立探索线）", "chapter_range": "建议范围，如 第31-300章", "open_threads": ["未解问题/悬念"], "characters": ["相关人物"], "sources": ["来源"]}], "quality_notes": ["共识复核与质量提示"], "disagreements": [分歧列表]}"#,
+};
+
+const DIM_COMMITMENTS: DimensionDef = DimensionDef {
+    id: "commitments",
+    name: "承诺与卖点提炼",
+    focus: "这本书对读者的承诺：主题承诺（这本书最终要证明什么）、卖点承诺（读者读它得到什么体验/爽点）、基调（文风与情绪约定）、铁律（世界/叙事不可违背的规则）、禁区（no-go：绝不出现的内容）。每条必须是一句话（不超过60字），重复主题合并为一条。commitments 禁止空数组：从讨论的共识、铁律、规则、作者主张中提炼，至少 3 条",
+    schema: r#"{"commitments": [{"statement": "一句话承诺（≤60字，可执行、可检查，禁止长段落与裁决复读）", "kind": "theme（主题）/ promise（卖点）/ tone（基调）/ rule（铁律）/ no_go（禁区）", "scope": "book（全书）/ volume-N / chapter-A-B", "ongoing": true, "sources": ["来源：评审者名·第N轮"]}], "quality_notes": ["共识复核与质量提示"], "disagreements": [分歧列表]}"#,
 };
 
 const DIM_SUMMARY: DimensionDef = DimensionDef {
@@ -105,6 +145,10 @@ struct DimensionResult {
     characters: Vec<CharacterItem>,
     #[serde(default)]
     outline_beats: Vec<OutlineBeat>,
+    #[serde(default)]
+    subplots: Vec<SubplotItem>,
+    #[serde(default)]
+    commitments: Vec<CommitmentItem>,
     #[serde(default)]
     disagreements: Vec<Disagreement>,
     /// 块级摘要（仅分块抽取阶段使用；单遍/定稿阶段可为空）
@@ -168,13 +212,14 @@ pub async fn synthesize(ctx: &SynthesisContext<'_>) -> DiscussionSynthesis {
         vec![all_turns.clone()]
     };
 
-    // ── 1. 五路并行分维度提炼（内部再按块抽取/综合）──
-    let (world, rules, chars, beats, summary) = tokio::join!(
+    // ── 1. 六路并行分维度提炼（内部再按块抽取/综合）──
+    let (world, rules, chars, beats, summary, commitments) = tokio::join!(
         extract_dimension(ctx, &chunks, caller, &DIM_WORLD),
         extract_dimension(ctx, &chunks, caller, &DIM_RULES),
         extract_dimension(ctx, &chunks, caller, &DIM_CHARACTERS),
         extract_dimension(ctx, &chunks, caller, &DIM_BEATS),
         extract_dimension(ctx, &chunks, caller, &DIM_SUMMARY),
+        extract_dimension(ctx, &chunks, caller, &DIM_COMMITMENTS),
     );
 
     let dims = [
@@ -183,11 +228,12 @@ pub async fn synthesize(ctx: &SynthesisContext<'_>) -> DiscussionSynthesis {
         &chars.result,
         &beats.result,
         &summary.result,
+        &commitments.result,
     ];
 
     // 证据：短讨论用完整轨迹；长讨论用各维度分块摘要，控制冲突检查/裁判的输入规模
     let evidence = if long {
-        [&world, &rules, &chars, &beats, &summary]
+        [&world, &rules, &chars, &beats, &summary, &commitments]
             .iter()
             .map(|d| d.digest.clone())
             .filter(|d| !d.trim().is_empty())
@@ -369,7 +415,7 @@ async fn extract_once(
             dim.name,
             3,
             "running",
-            "",
+            "正在调用模型提炼…",
         );
     }
     let system = "你是创作讨论的分维度提炼者。你的任务是从多位评审者的讨论中，\
@@ -432,13 +478,12 @@ async fn extract_once(
         SINGLE_OUTPUT_TOKENS
     };
     for attempt in 1..=2u8 {
-        let text = match call_with_system_task(
+        let text = match call_dim(
             &caller.model,
             system,
             &next_prompt,
             0.3,
             max_tokens,
-            crate::llm_profile::LlmTask::Light,
             ctx.model_to_provider,
             ctx.provider_api_bases,
             ctx.api_keys,
@@ -555,13 +600,12 @@ async fn integrate_chunks(
     let mut next_prompt = user_prompt.clone();
     let mut last_err = String::new();
     for attempt in 1..=2u8 {
-        let text = match call_with_system_task(
+        let text = match call_dim(
             &caller.model,
             system,
             &next_prompt,
             0.3,
             FINAL_OUTPUT_TOKENS,
-            crate::llm_profile::LlmTask::Light,
             ctx.model_to_provider,
             ctx.provider_api_bases,
             ctx.api_keys,
@@ -617,7 +661,7 @@ fn head_chars(s: &str, n: usize) -> String {
 async fn check_conflicts(
     ctx: &SynthesisContext<'_>,
     evidence: &str,
-    dims: &[&DimensionResult; 5],
+    dims: &[&DimensionResult; 6],
     caller: &AgentConfig,
 ) -> Vec<Disagreement> {
     emit_discussion(
@@ -681,13 +725,12 @@ async fn check_conflicts(
     let mut next_prompt = user_prompt.clone();
     let mut last_err = String::new();
     for attempt in 1..=2u8 {
-        let text = match call_with_system_task(
+        let text = match call_dim(
             &caller.model,
             system,
             &next_prompt,
             0.2,
             4096,
-            crate::llm_profile::LlmTask::Light,
             ctx.model_to_provider,
             ctx.provider_api_bases,
             ctx.api_keys,
@@ -812,13 +855,12 @@ async fn adjudicate(
         let mut next_prompt = user_prompt.clone();
         let mut last_err = String::new();
         for attempt in 1..=2u8 {
-            let text = match call_with_system_task(
+            let text = match call_dim(
                 &adjudicator.model,
                 system,
                 &next_prompt,
                 0.2,
                 8192,
-                crate::llm_profile::LlmTask::Light,
                 ctx.model_to_provider,
                 ctx.provider_api_bases,
                 ctx.api_keys,
@@ -885,12 +927,13 @@ async fn adjudicate(
 }
 
 /// 合并各维度结果与分歧，组装最终成果
-fn merge(dims: [&DimensionResult; 5], disagreements: Vec<Disagreement>) -> DiscussionSynthesis {
+fn merge(dims: [&DimensionResult; 6], disagreements: Vec<Disagreement>) -> DiscussionSynthesis {
     let world = dims[0];
     let rules = dims[1];
     let chars = dims[2];
     let beats = dims[3];
     let summary = dims[4];
+    let commitments = dims[5];
 
     let mut out = DiscussionSynthesis {
         summary: summary.summary.clone(),
@@ -899,6 +942,8 @@ fn merge(dims: [&DimensionResult; 5], disagreements: Vec<Disagreement>) -> Discu
         setting_rules: rules.setting_rules.clone(),
         characters: chars.characters.clone(),
         outline_beats: beats.outline_beats.clone(),
+        subplots: beats.subplots.clone(),
+        commitments: commitments.commitments.clone(),
         disagreements,
         quality_notes: Vec::new(),
     };
@@ -1018,6 +1063,7 @@ mod tests {
                 &DimensionResult::default(),
                 &DimensionResult::default(),
                 &summary,
+                &DimensionResult::default(),
             ],
             vec![],
         );
@@ -1070,6 +1116,7 @@ mod tests {
                 &DimensionResult::default(),
                 &DimensionResult::default(),
                 &summary,
+                &DimensionResult::default(),
             ],
             vec![],
         );

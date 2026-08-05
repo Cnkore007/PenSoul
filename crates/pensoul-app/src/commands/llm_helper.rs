@@ -31,6 +31,8 @@ pub(crate) fn load_models(state: &AppState) -> Vec<serde_json::Value> {
         && let Ok(data) = std::fs::read_to_string(&file)
         && let Ok(list) = serde_json::from_str::<Vec<serde_json::Value>>(&data)
     {
+        // 同步能力档案到内存缓存，LLM 调用按磁盘用户配置（思考等级/开关）执行
+        crate::llm_profile::sync_capabilities(&list);
         return list;
     }
     Vec::new()
@@ -220,6 +222,9 @@ enum CallOutcome {
     /// 输出预算耗尽：推理型模型在 reasoning 阶段用完 max_tokens，
     /// 正文为空（finish_reason=length）。需要加大预算重试
     TokenExhausted,
+    /// 服务端挂起：连接后长时间收不到任何数据（中转通道无响应）。
+    /// 不重试，直接失败并提示切换模型
+    Stalled(String),
     /// 不可重试：非空响应体格式错误、超时
     Fatal(String),
 }
@@ -300,6 +305,7 @@ pub(crate) async fn call_llm_task(
             CallOutcome::Retryable(e) => {
                 last_err = format!("{e}（第 {attempt} 次尝试）");
             }
+            CallOutcome::Stalled(e) => return Err(e),
             CallOutcome::ClientError(_, e) | CallOutcome::Fatal(e) => return Err(e),
         }
         if attempt < 3 {
@@ -343,7 +349,9 @@ async fn call_llm_once(
     } = *auth;
     let client = match reqwest::Client::builder()
         // 推理型模型 + 大输出预算（16384 tokens）生成可能需要数分钟，
-        // 超时给足 10 分钟，避免长生成被客户端掐断
+        // 总超时给足 10 分钟，避免长生成被客户端掐断；
+        // 连接超时 30 秒，流式首字节 60 秒无数据按挂起快速失败（见 call_openai_stream）
+        .connect_timeout(std::time::Duration::from_secs(30))
         .timeout(std::time::Duration::from_secs(600))
         .build()
     {
@@ -482,11 +490,33 @@ async fn call_openai_stream(
     let mut buf: Vec<u8> = Vec::new();
     let mut content = String::new();
     let mut finish_reason = String::new();
-    while let Some(chunk) = stream.next().await {
-        let bytes = match chunk {
-            Ok(b) => b,
-            Err(e) => return CallOutcome::Retryable(format!("LLM 流式响应中断: {e}")),
+    let mut has_reasoning = false;
+    let mut first_chunk = true;
+    loop {
+        // 首字节 60 秒无数据判定服务端挂起；之后每个数据块 120 秒超时，防流中段卡死
+        let deadline = if first_chunk {
+            std::time::Duration::from_secs(60)
+        } else {
+            std::time::Duration::from_secs(120)
         };
+        let next_chunk = tokio::time::timeout(deadline, stream.next()).await;
+        let Some(bytes) = (match next_chunk {
+            Ok(Some(Ok(b))) => Some(b),
+            Ok(Some(Err(e))) => return CallOutcome::Retryable(format!("LLM 流式响应中断: {e}")),
+            Ok(None) => None,
+            Err(_) => {
+                let hint = if first_chunk {
+                    "服务端 60 秒未返回任何数据——模型或中转通道可能挂起/不可用，\
+                     建议在「模型设置」中切换其他模型后重试"
+                } else {
+                    "流式响应 120 秒无数据，连接可能被服务端挂起，建议重试"
+                };
+                return CallOutcome::Stalled(hint.to_string());
+            }
+        }) else {
+            break;
+        };
+        first_chunk = false;
         buf.extend_from_slice(&bytes);
         while let Some(pos) = buf.iter().position(|b| *b == b'\n') {
             let line: Vec<u8> = buf.drain(..=pos).collect();
@@ -501,8 +531,19 @@ async fn call_openai_stream(
             let Ok(j) = serde_json::from_str::<serde_json::Value>(data) else {
                 continue;
             };
-            if let Some(c) = j["choices"][0]["delta"]["content"].as_str() {
-                content.push_str(c);
+            let delta = &j["choices"][0]["delta"];
+            append_delta_content(&mut content, delta);
+            // 推理型模型可能只输出 reasoning_content（thinking），
+            // 追踪它以便给出更准确的空正文错误
+            if let Some(r) = delta["reasoning_content"].as_str()
+                && !r.is_empty()
+            {
+                has_reasoning = true;
+            }
+            if let Some(arr) = delta["reasoning_content"].as_array()
+                && !arr.is_empty()
+            {
+                has_reasoning = true;
             }
             if let Some(f) = j["choices"][0]["finish_reason"].as_str() {
                 finish_reason = f.to_string();
@@ -517,9 +558,61 @@ async fn call_openai_stream(
         return CallOutcome::TokenExhausted;
     }
     if content.trim().is_empty() {
+        if has_reasoning {
+            return CallOutcome::Retryable(
+                "模型仅返回思考内容（reasoning）未输出正文——推理未按任务配置关闭，\
+                 请检查该模型是否支持关闭思考，或更换非推理型模型"
+                    .to_string(),
+            );
+        }
         return CallOutcome::Retryable(
             "LLM 流式响应中没有文本内容（可能被安全策略拦截或模型拒答）".to_string(),
         );
     }
     CallOutcome::Ok(content)
+}
+
+/// 累加 delta.content：兼容字符串（OpenAI 经典格式）与数组
+/// （`[{"type":"text","text":"..."}]`，新版兼容格式）两种形态
+fn append_delta_content(content: &mut String, delta: &serde_json::Value) {
+    if let Some(s) = delta["content"].as_str() {
+        content.push_str(s);
+        return;
+    }
+    if let Some(arr) = delta["content"].as_array() {
+        for item in arr {
+            if let Some(t) = item["text"].as_str() {
+                content.push_str(t);
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_append_delta_content_string_and_array() {
+        // 经典字符串格式
+        let mut c = String::new();
+        append_delta_content(
+            &mut c,
+            &serde_json::json!({"content": "你好"}),
+        );
+        assert_eq!(c, "你好");
+
+        // 新版数组格式（中转/兼容模型常见）
+        let mut c2 = String::new();
+        append_delta_content(
+            &mut c2,
+            &serde_json::json!({
+                "content": [
+                    {"type": "text", "text": "第一段"},
+                    {"type": "text", "text": "第二段"}
+                ]
+            }),
+        );
+        assert_eq!(c2, "第一段第二段");
+    }
 }

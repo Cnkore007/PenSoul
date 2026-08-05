@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Bot, CheckCircle2, Loader2, XCircle, MapPin, Clock, BookOpen, Users, Sparkles, ListOrdered, Scale, PenLine, RotateCcw, Send } from "lucide-react";
+import { Bot, CheckCircle2, Loader2, XCircle, MapPin, Clock, BookOpen, Users, Sparkles, ListOrdered, Scale, PenLine, RotateCcw, Send, Target, GitBranch } from "lucide-react";
 import type { DiscussionTurn, DiscussionSynthesis, DiscussionEvent, AgentDiscussionConfig } from "../types";
 
 interface DiscussionPanelProps {
@@ -315,6 +315,19 @@ export function DiscussionPanel({ agents, turns, liveEvents, synthesis, discussi
             </div>
           )}
 
+          {(synthesis.commitments?.length ?? 0) > 0 && (
+            <div style={{ border: "1px solid var(--color-rule-light)", borderRadius: "var(--radius-sm)", padding: "var(--space-sm) var(--space-md)", marginBottom: "var(--space-md)" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "var(--text-xs)", fontWeight: 600, color: "var(--color-ink)", marginBottom: 6 }}>
+                <Target size={13} style={{ color: "var(--color-jade)" }} /> 承诺与卖点
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: "var(--text-2xs)", color: "var(--color-ink-2)", lineHeight: 1.7 }}>
+                {(synthesis.commitments ?? []).map((c, i) => (
+                  <div key={i}>· <b>{c.statement}</b> <span style={{ color: "var(--color-ink-3)" }}>（{c.kind ?? "rule"} · {c.scope ?? "book"}）</span></div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {(synthesis.quality_notes?.length ?? 0) > 0 && (
             <div style={{ border: "1px dashed var(--color-accent)", borderRadius: "var(--radius-sm)", padding: "var(--space-sm) var(--space-md)", marginBottom: "var(--space-md)" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "var(--text-xs)", fontWeight: 600, color: "var(--color-accent)", marginBottom: 4 }}>
@@ -360,6 +373,29 @@ export function DiscussionPanel({ agents, turns, liveEvents, synthesis, discussi
                       <div style={{ color: "var(--color-ink-3)", marginTop: 2 }}>
                         备选路径：{d.alternatives.join(" ｜ ")}
                       </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {(synthesis.subplots?.length ?? 0) > 0 && (
+            <div style={{ border: "1px solid var(--color-rule-light)", borderRadius: "var(--radius-sm)", padding: "var(--space-sm) var(--space-md)", marginBottom: "var(--space-md)" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "var(--text-xs)", fontWeight: 600, color: "var(--color-ink)", marginBottom: 6 }}>
+                <GitBranch size={13} style={{ color: "var(--color-accent)" }} /> 副线
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {(synthesis.subplots ?? []).map((s, i) => (
+                  <div key={i} style={{ fontSize: "var(--text-2xs)", color: "var(--color-ink-2)", lineHeight: 1.7, padding: "var(--space-xs) var(--space-sm)", background: "var(--color-paper-warm)", borderRadius: "var(--radius-sm)" }}>
+                    <div style={{ fontWeight: 600, color: "var(--color-ink)" }}>
+                      {s.name}
+                      {s.chapter_range && <span style={{ fontWeight: 400, color: "var(--color-ink-3)" }}> · {s.chapter_range}</span>}
+                    </div>
+                    {s.description && <div>{s.description}</div>}
+                    {s.mainline_relation && <div style={{ color: "var(--color-accent)" }}>与主线：{s.mainline_relation}</div>}
+                    {(s.open_threads?.length ?? 0) > 0 && (
+                      <div style={{ color: "var(--color-ink-3)" }}>未解问题：{s.open_threads!.join(" ｜ ")}</div>
                     )}
                   </div>
                 ))}

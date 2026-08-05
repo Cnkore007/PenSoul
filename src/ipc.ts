@@ -457,6 +457,13 @@ export async function setDefaultModel(modelId: string): Promise<void> {
   await invoke("set_default_model", { modelId });
 }
 
+// 一键更新模型能力档案（modelId 为空时刷新全部；按官方文档库回填，保留用户思考等级）
+export async function refreshModelCapabilities(modelId?: string): Promise<any[]> {
+  return await invoke<any[]>("refresh_model_capabilities", {
+    modelId: modelId ?? null,
+  });
+}
+
 export async function saveApiKey(providerId: string, apiKey: string): Promise<void> {
   await invoke("save_api_key", { providerId, apiKey });
 }

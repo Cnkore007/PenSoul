@@ -11,16 +11,19 @@
 //! 事件同时写入控制面缓冲、结果持久化到 `sprout.last_discussion`，
 //! 前端切换页面后可通过 `get_discussion_state` 重连恢复。
 use crate::state::AppState;
+use futures_util::future::join_all;
+use futures_util::StreamExt;
 use pensoul_core::{AgentTurn, DiscussionRecord, DiscussionSynthesis};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::Emitter;
 
 use super::discussion_synthesis;
 use super::llm_helper as lh;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct AgentConfig {
     pub id: String,
     pub name: String,
@@ -184,10 +187,26 @@ async fn discuss_inner(
         return Err("没有启用的 Agent".to_string());
     }
 
+    // ── 模型健康探测与自动降级 ──
+    // 对配置的模型并行探测（流式首字节 12 秒），不可用的自动替换为可用模型，
+    // 避免单个挂死模型（如中转通道无响应）拖住整场讨论；
+    // 替换结果通过 __system__ 事件推送给前端展示
+    let ready_agents = patch_agent_models(
+        app_handle,
+        state,
+        &enabled,
+        &saved_models,
+        &model_to_provider,
+        &provider_api_bases,
+        &api_keys,
+    )
+    .await;
+    let enabled_refs: Vec<&AgentConfig> = ready_agents.iter().collect();
+
     let mut turns: Vec<AgentTurn> = Vec::new();
 
     // ── 第 1 轮：立论（构思 + 创作设定 + 各自的技能）──
-    for agent in &enabled {
+    for agent in &enabled_refs {
         emit_discussion(app_handle, state, &agent.id, &agent.name, 1, "running", "");
         let user_prompt = format!(
             "【故事构思】\n{idea_description}\n\n\
@@ -230,7 +249,7 @@ async fn discuss_inner(
     // ── 第 2 轮：交锋（完整阅读彼此发言后互相回应，不截断）──
     let round1: Vec<AgentTurn> = turns.iter().filter(|t| t.round == 1).cloned().collect();
     if round1.len() >= 2 {
-        for agent in &enabled {
+        for agent in &enabled_refs {
             // 跳过第 1 轮失败的 Agent
             let Some(own) = round1.iter().find(|t| t.agent_id == agent.id) else {
                 continue;
@@ -292,7 +311,7 @@ async fn discuss_inner(
     let synthesis = synthesize(
         app_handle,
         state,
-        &enabled,
+        &enabled_refs,
         &idea_description,
         &settings_context,
         &turns,
@@ -370,6 +389,143 @@ pub(crate) async fn call_with_system(
         api_keys,
     )
     .await
+}
+
+/// 模型健康探测：流式小请求，首字节 12 秒内到达即视为可用。
+/// 与真实调用同构（走 llm_profile::plan_request 的 Light 档），
+/// 只是输出预算极小、超时更短，不参与任何重试。
+async fn probe_model(
+    model: &str,
+    model_to_provider: &HashMap<String, String>,
+    provider_api_bases: &HashMap<String, String>,
+    api_keys: &HashMap<String, String>,
+) -> bool {
+    let Ok((provider_id, api_key, api_base)) =
+        lh::resolve_provider(model, model_to_provider, provider_api_bases, api_keys)
+    else {
+        return false;
+    };
+    // Anthropic 走独立 Messages API，探测格式不同，默认视为可用（不阻塞讨论）
+    if provider_id == "anthropic" {
+        return true;
+    }
+    let Ok(client) = reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(5))
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+    else {
+        return false;
+    };
+    let url = format!("{}/chat/completions", api_base.trim_end_matches('/'));
+    let body = crate::llm_profile::plan_request(
+        model,
+        "",
+        "回复：ping",
+        0.0,
+        8,
+        crate::llm_profile::LlmTask::Light,
+    );
+    let Ok(resp) = client
+        .post(&url)
+        .header("Authorization", format!("Bearer {api_key}"))
+        .header("Content-Type", "application/json")
+        .json(&body)
+        .send()
+        .await
+    else {
+        return false;
+    };
+    if !resp.status().is_success() {
+        return false;
+    }
+    let mut stream = resp.bytes_stream();
+    matches!(
+        tokio::time::timeout(
+            std::time::Duration::from_secs(12),
+            stream.next(),
+        )
+        .await,
+        Ok(Some(Ok(_)))
+    )
+}
+
+/// 并行探测所有评审员配置的模型，把探测失败的模型自动替换为可用模型，
+/// 返回模型已就绪的 Agent 列表（克隆原配置，仅替换 model 字段）。
+/// 替换/缺失情况通过 `__system__` 事件推送给前端。
+#[allow(clippy::too_many_arguments)]
+async fn patch_agent_models(
+    app_handle: &tauri::AppHandle,
+    state: &AppState,
+    enabled: &[&AgentConfig],
+    saved_models: &[serde_json::Value],
+    model_to_provider: &HashMap<String, String>,
+    provider_api_bases: &HashMap<String, String>,
+    api_keys: &HashMap<String, String>,
+) -> Vec<AgentConfig> {
+    // 去重后并行探测（同一模型只测一次）
+    let mut unique: Vec<&str> = enabled.iter().map(|a| a.model.as_str()).collect();
+    unique.sort_unstable();
+    unique.dedup();
+    let probes: Vec<(&str, bool)> = join_all(unique.iter().map(|m| async move {
+        let ok = probe_model(m, model_to_provider, provider_api_bases, api_keys).await;
+        (*m, ok)
+    }))
+    .await;
+    let healthy: HashSet<&str> = probes
+        .iter()
+        .filter(|(_, ok)| *ok)
+        .map(|(m, _)| *m)
+        .collect();
+
+    // 备用模型：默认可用且健康优先，其次任意可用且健康
+    let fallback = lh::pick_default_model(saved_models, api_keys)
+        .filter(|m| healthy.contains(m.as_str()))
+        .or_else(|| {
+            saved_models.iter().find_map(|m| {
+                let mid = m.get("model_id")?.as_str()?;
+                let pid = m.get("provider_id")?.as_str()?;
+                (lh::model_available(m, pid, api_keys) && healthy.contains(mid))
+                    .then(|| mid.to_string())
+            })
+        });
+
+    let mut ready = Vec::with_capacity(enabled.len());
+    for agent in enabled {
+        let mut a = (**agent).clone();
+        if !healthy.contains(a.model.as_str()) {
+            if let Some(fb) = &fallback {
+                let old = a.model.clone();
+                a.model = fb.clone();
+                emit_discussion(
+                    app_handle,
+                    state,
+                    "__system__",
+                    "系统",
+                    0,
+                    "info",
+                    &format!(
+                        "「{}」的模型 {} 探测不可用，已自动切换为 {}",
+                        agent.name, old, fb
+                    ),
+                );
+            } else {
+                emit_discussion(
+                    app_handle,
+                    state,
+                    "__system__",
+                    "系统",
+                    0,
+                    "warn",
+                    &format!(
+                        "「{}」的模型 {} 探测不可用，且当前没有可用的备用模型",
+                        agent.name, a.model
+                    ),
+                );
+            }
+        }
+        ready.push(a);
+    }
+    ready
 }
 
 /// 带任务语义的调用入口：结构化提炼/裁决等轻量任务用 `LlmTask::Light`，
