@@ -62,6 +62,9 @@ package-lock.json
 
 # Agent 配置（不上传）
 AGENTS.md
+CLAUDE.md
+.cairn/
+cairn/
 *.bak
 
 # 运行时配置目录（含 API 密钥）
