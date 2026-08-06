@@ -188,8 +188,8 @@ pub async fn save_models(
 /// 一键更新模型能力档案（按模型名匹配内置官方文档库）
 ///
 /// - `model_id` 为空时刷新全部模型；否则只刷新指定模型
-/// - 刷新会保留用户在设置页调整过的思考等级（default_reasoning_effort）与
-///   思考开关（thinking_enabled），其余字段以官方文档为准回填
+/// - 刷新会保留用户在设置页手动编辑过的字段（上下文窗口 / 单次输出上限 /
+///   预算字段 / 思考等级 / 思考开关），其余字段以官方文档为准回填
 #[tauri::command]
 pub async fn refresh_model_capabilities(
     state: tauri::State<'_, AppState>,
@@ -209,21 +209,16 @@ pub async fn refresh_model_capabilities(
         {
             continue;
         }
-        let Some(mut cap) = crate::llm_profile::builtin_capability(mid) else {
+        let Some(cap) = crate::llm_profile::builtin_capability(mid) else {
             continue;
         };
-        // 保留用户已调整的思考等级与开关
-        if let Some(old) = obj.get("capability") {
-            if let Some(e) = old.get("default_reasoning_effort").and_then(|v| v.as_str()) {
-                cap.default_reasoning_effort = e.to_string();
-            }
-            if let Some(t) = old.get("thinking_enabled").and_then(|v| v.as_bool()) {
-                cap.thinking_enabled = t;
-            }
-        }
+        let mut new_cap =
+            serde_json::to_value(cap).map_err(|e| format!("序列化能力档案失败: {e}"))?;
+        // 保留用户手动编辑/调整过的字段（供应商差异参数与思考偏好）
+        preserve_user_capability_edits(obj.get("capability"), &mut new_cap);
         obj.insert(
             "capability".to_string(),
-            serde_json::to_value(cap).map_err(|e| e.to_string())?,
+            new_cap,
         );
         updated += 1;
     }
@@ -237,6 +232,74 @@ pub async fn refresh_model_capabilities(
     save_models_to_disk(&state, &models)?;
     crate::llm_profile::sync_capabilities(&models);
     Ok(models)
+}
+
+/// 刷新档案时保留用户手动编辑过的字段：
+/// - context_window / max_output_tokens / budget_field：供应商实际限制（如官方 1M、
+///   中转只给 200K），用户手动校准后不应被官方文档覆盖；
+/// - default_reasoning_effort / thinking_enabled：用户在设置页调整的思考偏好。
+///   其余字段（思考模式、档位列表、文档链接等）以官方内置库为准回填。
+fn preserve_user_capability_edits(
+    old: Option<&serde_json::Value>,
+    new_cap: &mut serde_json::Value,
+) {
+    let Some(old) = old.filter(|v| v.is_object()) else {
+        return;
+    };
+    for field in [
+        "context_window",
+        "max_output_tokens",
+        "budget_field",
+        "default_reasoning_effort",
+        "thinking_enabled",
+    ] {
+        if let Some(v) = old.get(field) {
+            new_cap[field] = v.clone();
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn test_preserve_user_capability_edits() {
+        let old = json!({
+            "context_window": 204_800,
+            "max_output_tokens": 65_536,
+            "budget_field": "max_completion_tokens",
+            "default_reasoning_effort": "low",
+            "thinking_enabled": false,
+            "notes": "用户备注不应保留（以官方为准）",
+        });
+        let mut new_cap = json!({
+            "context_window": 1_048_576,
+            "max_output_tokens": 131_072,
+            "budget_field": "max_tokens",
+            "default_reasoning_effort": "max",
+            "thinking_enabled": true,
+            "thinking_mode": "always",
+            "notes": "官方备注",
+        });
+        preserve_user_capability_edits(Some(&old), &mut new_cap);
+        assert_eq!(new_cap["context_window"], json!(204_800));
+        assert_eq!(new_cap["max_output_tokens"], json!(65_536));
+        assert_eq!(new_cap["budget_field"], json!("max_completion_tokens"));
+        assert_eq!(new_cap["default_reasoning_effort"], json!("low"));
+        assert_eq!(new_cap["thinking_enabled"], json!(false));
+        // 其余字段仍以官方为准
+        assert_eq!(new_cap["thinking_mode"], json!("always"));
+        assert_eq!(new_cap["notes"], json!("官方备注"));
+    }
+
+    #[test]
+    fn test_preserve_user_capability_edits_no_old() {
+        let mut new_cap = json!({"context_window": 1_048_576});
+        preserve_user_capability_edits(None, &mut new_cap);
+        assert_eq!(new_cap["context_window"], json!(1_048_576));
+    }
 }
 
 /// 保存 API 密钥

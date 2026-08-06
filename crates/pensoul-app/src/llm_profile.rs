@@ -470,6 +470,18 @@ pub fn doubled_budget_cap(model_id: &str) -> u32 {
     capability_for(model_id).max_output_tokens.min(65_536)
 }
 
+/// 输入侧 token 预算：上下文窗口扣除单次输出上限后，取 90% 安全余量。
+/// 供应商可能限制实际上下文（如官方 1M、中转只给 200K），用户在模型设置中
+/// 把 context_window 改为供应商实际值后，此处返回的值随之生效，
+/// LLM 调用前按它校验输入估算，避免请求直接打到供应商超限错误。
+pub fn context_input_budget(model_id: &str) -> u32 {
+    let cap = capability_for(model_id);
+    cap.context_window
+        .saturating_sub(cap.max_output_tokens)
+        .saturating_mul(9)
+        / 10
+}
+
 // ── 请求体构建 ──
 
 /// 思考强度档位权重（越低越省思考），用于 Always 模型 Light 任务选最低档
@@ -656,6 +668,59 @@ mod tests {
         assert_eq!(c.max_output_tokens, 131_072);
         assert_eq!(c.context_window, 1_048_576);
         assert_eq!(c.default_reasoning_effort, "max");
+    }
+
+    #[test]
+    fn test_context_input_budget_uses_user_configured_window() {
+        with_clean_cache(|| {
+            // 内置档案：Kimi K3 官方 1M 上下文 → 输入预算 ≈ 82.5 万
+            let builtin = context_input_budget("kimi-k3");
+            assert_eq!(builtin, (1_048_576 - 131_072) * 9 / 10);
+
+            // 用户按供应商实际限制改成 200K（如中转只给 200K 上下文）→ 预算随之收缩
+            let models: Vec<serde_json::Value> = serde_json::from_value(serde_json::json!([{
+                "model_id": "kimi-k3",
+                "capability": {
+                    "context_window": 204_800,
+                    "max_output_tokens": 131_072,
+                    "budget_field": "max_tokens",
+                    "thinking_mode": "always",
+                    "reasoning_effort_options": ["low", "high", "max"],
+                    "default_reasoning_effort": "max",
+                    "thinking_enabled": true,
+                    "thinking_field": "thinking",
+                    "effort_field": "reasoning_effort",
+                    "fixed_sampling": true,
+                    "docs_url": "",
+                    "notes": "中转限制 200K",
+                    "updated_at": "2026-08-05",
+                }
+            }])).unwrap();
+            sync_capabilities(&models);
+            assert_eq!(context_input_budget("kimi-k3"), (204_800 - 131_072) * 9 / 10);
+
+            // 窗口比输出上限还小时预算为 0，超限校验会直接拦截
+            let models: Vec<serde_json::Value> = serde_json::from_value(serde_json::json!([{
+                "model_id": "tiny",
+                "capability": {
+                    "context_window": 1_000,
+                    "max_output_tokens": 2_000,
+                    "budget_field": "max_tokens",
+                    "thinking_mode": "none",
+                    "reasoning_effort_options": [],
+                    "default_reasoning_effort": "",
+                    "thinking_enabled": true,
+                    "thinking_field": "thinking",
+                    "effort_field": "reasoning_effort",
+                    "fixed_sampling": false,
+                    "docs_url": "",
+                    "notes": "",
+                    "updated_at": "",
+                }
+            }])).unwrap();
+            sync_capabilities(&models);
+            assert_eq!(context_input_budget("tiny"), 0);
+        });
     }
 
     #[test]

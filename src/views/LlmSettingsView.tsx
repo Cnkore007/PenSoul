@@ -4,7 +4,7 @@ import {
   Plus, Trash2, RefreshCw, Globe, Key, Loader2, Wifi, WifiOff,
   ChevronDown, ChevronRight, Star, BookOpen, ExternalLink,
 } from "lucide-react";
-import type { LlmProvider, LlmModel } from "../types";
+import type { LlmProvider, LlmModel, ModelCapability } from "../types";
 import { listProviders, listModels, saveProviders, saveModels, saveApiKey, loadApiKeys, httpRequest, setDefaultModel, refreshModelCapabilities } from "../ipc";
 
 interface ProviderForm {
@@ -14,6 +14,23 @@ interface ProviderForm {
   api_base: string;
   requires_api_key: boolean;
 }
+
+// 未收录官方档案的模型，手动「编辑参数」时用此保守默认值起步
+const DEFAULT_CAPABILITY: ModelCapability = {
+  context_window: 128_000,
+  max_output_tokens: 16_384,
+  budget_field: "max_tokens",
+  thinking_mode: "none",
+  reasoning_effort_options: [],
+  default_reasoning_effort: "",
+  thinking_enabled: true,
+  thinking_field: "thinking",
+  effort_field: "reasoning_effort",
+  fixed_sampling: false,
+  docs_url: "",
+  notes: "手动校准的档案（未收录官方文档）",
+  updated_at: new Date().toISOString().slice(0, 10),
+};
 
 export default function LlmSettingsView() {
   const [providers, setProviders] = useState<LlmProvider[]>([]);
@@ -373,6 +390,16 @@ export default function LlmSettingsView() {
     flashSave(enabled ? "已开启深度任务思考" : "已关闭深度任务思考");
   };
 
+  // 保存用户手动编辑的能力参数（上下文窗口/输出上限/预算字段，供应商差异参数）
+  const handleSaveCapability = (modelId: string, cap: ModelCapability) => {
+    setModels(prev => {
+      const next = prev.map(m => (m.model_id === modelId ? { ...m, capability: cap } : m));
+      saveModels(next).catch(e => console.error("保存模型参数失败:", e));
+      return next;
+    });
+    flashSave("模型参数已保存，后续调用立即生效");
+  };
+
   // 展示用格式化
   function formatTokens(n: number): string {
     if (n >= 1_000_000) return (n / 1_000_000).toFixed(1).replace(/\.0$/, "") + "M";
@@ -387,40 +414,112 @@ export default function LlmSettingsView() {
     return "未知";
   }
 
-  // 能力档案卡
-  function CapabilityPanel({ model }: { model: LlmModel }) {
+  // 能力档案卡（支持手动编辑供应商差异参数）
+  function CapabilityPanel({ model, onSaveCapability }: {
+    model: LlmModel;
+    onSaveCapability: (modelId: string, cap: ModelCapability) => void;
+  }) {
     const cap = model.capability;
+    const [editing, setEditing] = useState(false);
+    const [draft, setDraft] = useState<ModelCapability | null>(null);
+
+    const startEdit = () => {
+      setDraft(cap ?? DEFAULT_CAPABILITY);
+      setEditing(true);
+    };
+
+    // 编辑态：三个供应商差异参数行内表单
+    if (editing && draft) {
+      const invalid = draft.context_window <= 0 || draft.max_output_tokens <= 0 || !draft.budget_field.trim();
+      return (
+        <div className="panel-warm">
+          <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 10, alignItems: "flex-end" }}>
+            <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              <span className="cap-field-label">上下文窗口（token）</span>
+              <input
+                type="number" min={1} className="mini-input"
+                value={draft.context_window || ""}
+                placeholder="如 204800"
+                onChange={e => setDraft({ ...draft, context_window: Number(e.target.value) || 0 })}
+              />
+            </label>
+            <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              <span className="cap-field-label">单次输出上限（token）</span>
+              <input
+                type="number" min={1} className="mini-input"
+                value={draft.max_output_tokens || ""}
+                placeholder="如 65536"
+                onChange={e => setDraft({ ...draft, max_output_tokens: Number(e.target.value) || 0 })}
+              />
+            </label>
+            <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              <span className="cap-field-label">预算字段</span>
+              <input
+                className="mini-input"
+                value={draft.budget_field}
+                placeholder="max_tokens"
+                onChange={e => setDraft({ ...draft, budget_field: e.target.value })}
+              />
+            </label>
+          </div>
+          <div style={{ color: "var(--color-ink-3)", fontSize: 11, marginBottom: 10 }}>
+            输入侧预算 ≈ {formatTokens(Math.max(0, draft.context_window - draft.max_output_tokens))} tokens
+            （上下文窗口 − 输出上限），每次调用前按 90% 校验输入估算，超限会直接提示而不是等供应商报错。
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button
+              className="btn btn-primary btn-sm"
+              disabled={invalid}
+              onClick={() => {
+                if (invalid) return;
+                onSaveCapability(model.model_id, { ...draft, budget_field: draft.budget_field.trim() });
+                setEditing(false);
+              }}
+            >
+              保存参数
+            </button>
+            <button className="btn btn-secondary btn-sm" onClick={() => setEditing(false)}>
+              取消
+            </button>
+          </div>
+        </div>
+      );
+    }
+
     if (!cap) {
       return (
-        <div style={{ padding: "10px 16px", background: "var(--color-paper-warm)", fontSize: "12px", color: "var(--color-ink-3)" }}>
-          暂无能力档案 — 点击「更新档案」尝试匹配官方文档；未收录时可编辑 models.json 的 capability 字段手动校准。
+        <div className="panel-warm" style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", color: "var(--color-ink-3)" }}>
+          <span>暂无能力档案 — 可点击「更新档案」匹配官方文档，或直接「编辑参数」手动校准供应商限制。</span>
+          <button className="btn btn-secondary btn-sm" onClick={startEdit}>
+            编辑参数
+          </button>
         </div>
       );
     }
     const effortEditable = cap.reasoning_effort_options.length > 0;
     const thinkingEditable = cap.thinking_mode === "toggleable";
     return (
-      <div style={{ padding: "12px 16px", background: "var(--color-paper-warm)", borderTop: "1px solid var(--color-rule-light)", fontSize: "12px" }}>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 8, marginBottom: 10 }}>
+      <div className="panel-warm">
+        <div className="cap-grid">
           <div>
-            <div style={{ color: "var(--color-ink-3)", fontSize: 10, letterSpacing: "0.5px" }}>上下文窗口</div>
-            <div style={{ fontWeight: 500 }}>{formatTokens(cap.context_window)} tokens</div>
+            <div className="cap-field-label">上下文窗口</div>
+            <div className="cap-field-value">{formatTokens(cap.context_window)} tokens</div>
           </div>
           <div>
-            <div style={{ color: "var(--color-ink-3)", fontSize: 10, letterSpacing: "0.5px" }}>单次输出上限</div>
-            <div style={{ fontWeight: 500 }}>{formatTokens(cap.max_output_tokens)} tokens</div>
+            <div className="cap-field-label">单次输出上限</div>
+            <div className="cap-field-value">{formatTokens(cap.max_output_tokens)} tokens</div>
           </div>
           <div>
-            <div style={{ color: "var(--color-ink-3)", fontSize: 10, letterSpacing: "0.5px" }}>预算字段</div>
+            <div className="cap-field-label">预算字段</div>
             <code style={{ fontSize: 11 }}>{cap.budget_field}</code>
           </div>
           <div>
-            <div style={{ color: "var(--color-ink-3)", fontSize: 10, letterSpacing: "0.5px" }}>思考模式</div>
-            <div style={{ fontWeight: 500 }}>{thinkingModeLabel(cap.thinking_mode)}</div>
+            <div className="cap-field-label">思考模式</div>
+            <div className="cap-field-value">{thinkingModeLabel(cap.thinking_mode)}</div>
           </div>
           <div>
-            <div style={{ color: "var(--color-ink-3)", fontSize: 10, letterSpacing: "0.5px" }}>采样参数</div>
-            <div style={{ fontWeight: 500 }}>{cap.fixed_sampling ? "固定（不传 temperature）" : "可调 temperature"}</div>
+            <div className="cap-field-label">采样参数</div>
+            <div className="cap-field-value">{cap.fixed_sampling ? "固定（不传 temperature）" : "可调 temperature"}</div>
           </div>
         </div>
 
@@ -441,11 +540,8 @@ export default function LlmSettingsView() {
               <select
                 value={cap.default_reasoning_effort || cap.reasoning_effort_options[0] || ""}
                 onChange={e => handleChangeEffort(model.model_id, e.target.value)}
-                style={{
-                  padding: "4px 8px", borderRadius: "var(--radius-sm)",
-                  border: "1px solid var(--color-rule)", background: "var(--color-paper)",
-                  color: "var(--color-ink)", fontSize: 12,
-                }}
+                className="mini-input"
+                style={{ width: "auto" }}
               >
                 {cap.reasoning_effort_options.map(o => (
                   <option key={o} value={o}>{o}</option>
@@ -469,6 +565,14 @@ export default function LlmSettingsView() {
           {cap.updated_at && (
             <span style={{ color: "var(--color-ink-3)", fontSize: 11 }}>档案更新 {cap.updated_at}</span>
           )}
+          <button
+            className="btn btn-secondary btn-sm"
+            style={{ marginLeft: "auto" }}
+            onClick={startEdit}
+            title="手动校准上下文窗口/输出上限/预算字段（供应商实际限制与官方文档不一致时使用）"
+          >
+            编辑参数
+          </button>
         </div>
 
         {cap.notes && (
@@ -562,8 +666,8 @@ export default function LlmSettingsView() {
                       {connStatus === 'success' && <span style={{ color: "var(--color-jade)", fontSize: "var(--text-xs)" }}><Wifi size={14} /> 连通</span>}
                       {connStatus === 'error' && <span style={{ color: "var(--color-error)", fontSize: "var(--text-xs)" }}><WifiOff size={14} /> 失败</span>}
                       <button
-                        className="btn btn-secondary"
-                        style={{ padding: "4px 8px", fontSize: "11px", color: "var(--color-error)" }}
+                        className="btn btn-secondary btn-sm"
+                        style={{ color: "var(--color-error)" }}
                         onClick={() => handleDeleteProvider(provider.provider_id)}
                         title="删除供应商"
                       >
@@ -574,21 +678,19 @@ export default function LlmSettingsView() {
 
                   {/* API 地址 */}
                   <div style={{ marginBottom: "var(--space-sm)" }}>
-                    <div style={{ fontSize: "var(--text-2xs)", color: "var(--color-ink-3)", marginBottom: 2, letterSpacing: "0.5px" }}>
+                    <div className="field-label">
                       <Globe size={11} style={{ verticalAlign: "middle", marginRight: 3 }} />
                       API 地址
                     </div>
                     <div style={{ display: "flex", gap: 4 }}>
                       <input
+                        className="mini-input"
                         value={editingBase[provider.provider_id] || provider.api_base}
                         onChange={e => setEditingBase(prev => ({ ...prev, [provider.provider_id]: e.target.value }))}
                         onBlur={() => saveApiBase(provider.provider_id)}
                         onKeyDown={e => e.key === 'Enter' && saveApiBase(provider.provider_id)}
                         style={{
-                          flex: 1, padding: "6px 10px",
-                          border: "1px solid var(--color-rule)", borderRadius: "var(--radius-sm)",
-                          fontSize: "var(--text-xs)", fontFamily: "var(--font-mono)",
-                          background: "var(--color-paper)", color: "var(--color-ink)",
+                          flex: 1, fontFamily: "var(--font-mono)",
                         }}
                         placeholder="https://api.example.com/v1"
                       />
@@ -598,13 +700,14 @@ export default function LlmSettingsView() {
                   {/* API Key */}
                   {provider.requires_api_key && (
                     <div style={{ marginBottom: "var(--space-sm)" }}>
-                      <div style={{ fontSize: "var(--text-2xs)", color: "var(--color-ink-3)", marginBottom: 2, letterSpacing: "0.5px" }}>
+                      <div className="field-label">
                         <Key size={11} style={{ verticalAlign: "middle", marginRight: 3 }} />
                         接口密钥
                       </div>
                       <div style={{ display: "flex", gap: 4 }}>
                         <div style={{ flex: 1, display: "flex", gap: 4 }}>
                           <input
+                            className="mini-input"
                             type={showApiKey[provider.provider_id] ? "text" : "password"}
                             value={apiKeys[provider.provider_id] || ""}
                             onChange={e => {
@@ -623,15 +726,11 @@ export default function LlmSettingsView() {
                             }}
                             placeholder="sk-..."
                             style={{
-                              flex: 1, padding: "6px 10px",
-                              border: "1px solid var(--color-rule)", borderRadius: "var(--radius-sm)",
-                              fontSize: "var(--text-xs)", fontFamily: "var(--font-mono)",
-                              background: "var(--color-paper)", color: "var(--color-ink)",
+                              flex: 1, fontFamily: "var(--font-mono)",
                             }}
                           />
                           <button
-                            className="btn btn-secondary"
-                            style={{ padding: "6px" }}
+                            className="btn btn-secondary btn-sm"
                             onClick={() => setShowApiKey(prev => ({ ...prev, [provider.provider_id]: !prev[provider.provider_id] }))}
                           >
                             {showApiKey[provider.provider_id] ? <EyeOff size={14} /> : <Eye size={14} />}
@@ -650,8 +749,7 @@ export default function LlmSettingsView() {
                   {/* 操作按钮组 */}
                   <div style={{ display: "flex", gap: 6, marginTop: "var(--space-sm)", flexWrap: "wrap" }}>
                     <button
-                      className="btn btn-secondary"
-                      style={{ padding: "5px 12px", fontSize: "var(--text-xs)" }}
+                      className="btn btn-secondary btn-sm"
                       onClick={() => handleTestConnection(provider.provider_id)}
                       disabled={testingConn[provider.provider_id] === 'testing'}
                     >
@@ -662,8 +760,7 @@ export default function LlmSettingsView() {
                       )}
                     </button>
                     <button
-                      className="btn btn-secondary"
-                      style={{ padding: "5px 12px", fontSize: "var(--text-xs)" }}
+                      className="btn btn-secondary btn-sm"
                       onClick={() => handleFetchModels(provider.provider_id)}
                       disabled={!!fetchingModels[provider.provider_id]}
                     >
@@ -760,13 +857,13 @@ export default function LlmSettingsView() {
           <div className="flex-between" style={{ marginBottom: "var(--space-md)" }}>
             <div style={{ fontSize: "var(--text-xs)", color: "var(--color-ink-3)" }}>
               每个模型按名称匹配官方文档档案：上下文窗口、输出上限、思考模式与思考等级均可在此查看和调整。
+              若供应商实际限制与官方不一致（如官方 1M、中转只给 200K），点模型行的「编辑参数」手动校准。
             </div>
             <button
-              className="btn btn-secondary"
-              style={{ padding: "6px 14px", fontSize: "var(--text-xs)" }}
+              className="btn btn-secondary btn-sm"
               onClick={() => handleRefreshCapability()}
               disabled={refreshingArchive === "all"}
-              title="按内置官方文档库回填全部模型的档案（保留你调整过的思考等级）"
+              title="按内置官方文档库回填全部模型的档案（保留你手动编辑的上下文/输出上限/预算字段与思考设置）"
             >
               {refreshingArchive === "all"
                 ? <><Loader2 size={12} style={{ animation: "spin 1s linear infinite" }} /> 更新中...</>
@@ -851,8 +948,7 @@ export default function LlmSettingsView() {
                                 </span>
                               )}
                             </div>
-                            <div style={{ display: "flex", gap: 12, fontSize: "11px", color: "var(--color-ink-3)" }}>
-                              <span>质量 {(model.avg_quality_score * 100).toFixed(0)}%</span>
+                            <div className="meta-chips">
                               <span>{model.avg_latency_ms > 0 ? `${model.avg_latency_ms}ms` : "-"}</span>
                               <span>{model.max_tokens.toLocaleString()} tokens</span>
                               {model.capability && (
@@ -867,8 +963,7 @@ export default function LlmSettingsView() {
                           {/* 操作 */}
                           <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
                             <button
-                              className="btn btn-secondary"
-                              style={{ padding: "3px 8px", fontSize: "10px" }}
+                              className="btn btn-secondary btn-sm"
                               onClick={() => handleSetDefault(model.model_id)}
                               disabled={!!model.is_default}
                               title={model.is_default ? "当前默认模型" : "设为全局默认模型（各环节未手动选择时优先使用）"}
@@ -877,11 +972,10 @@ export default function LlmSettingsView() {
                               {model.is_default ? "默认" : "设默认"}
                             </button>
                             <button
-                              className="btn btn-secondary"
-                              style={{ padding: "3px 8px", fontSize: "10px" }}
+                              className="btn btn-secondary btn-sm"
                               onClick={() => handleRefreshCapability(model.model_id)}
                               disabled={refreshingArchive === model.model_id}
-                              title="按官方文档更新此模型的能力档案（保留思考等级设置）"
+                              title="按官方文档更新此模型的能力档案（保留你手动编辑的上下文/输出上限/预算字段与思考设置）"
                             >
                               {refreshingArchive === model.model_id
                                 ? <Loader2 size={10} style={{ animation: "spin 1s linear infinite" }} />
@@ -889,8 +983,7 @@ export default function LlmSettingsView() {
                               更新档案
                             </button>
                             <button
-                              className="btn btn-secondary"
-                              style={{ padding: "4px 8px", fontSize: "11px" }}
+                              className="btn btn-secondary btn-sm"
                               onClick={() => handleTestModel(model.model_id)}
                               disabled={testingModel === model.model_id}
                               title="向模型发送测试请求检查连通性"
@@ -903,15 +996,14 @@ export default function LlmSettingsView() {
                                 : <span style={{ color: "var(--color-error)", display: "flex", alignItems: "center", gap: 2, fontSize: "10px" }}><XCircle size={12} /> 异常</span>
                             )}
                             <button
-                              className={`btn ${model.is_available ? "btn-success" : "btn-secondary"}`}
-                              style={{ padding: "3px 8px", fontSize: "10px", minWidth: 38 }}
+                              className={`btn btn-sm ${model.is_available ? "btn-success" : "btn-secondary"}`}
+                              style={{ minWidth: 38 }}
                               onClick={() => handleToggle(model.model_id, !model.is_available)}
                             >
                               {model.is_available ? "ON" : "OFF"}
                             </button>
                             <button
-                              className="btn btn-secondary"
-                              style={{ padding: "3px 6px", fontSize: "10px" }}
+                              className="btn btn-secondary btn-sm"
                               onClick={() => setExpandedModels(prev => ({ ...prev, [model.model_id]: !expanded }))}
                               title={expanded ? "收起能力档案" : "查看/调整能力档案"}
                             >
@@ -920,7 +1012,7 @@ export default function LlmSettingsView() {
                             </button>
                           </div>
                         </div>
-                        {expanded && <CapabilityPanel model={model} />}
+                        {expanded && <CapabilityPanel model={model} onSaveCapability={handleSaveCapability} />}
                       </div>
                       );
                     })

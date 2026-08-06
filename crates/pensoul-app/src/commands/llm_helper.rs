@@ -342,6 +342,11 @@ async fn call_llm_once(
     max_tokens: u32,
     task: crate::llm_profile::LlmTask,
 ) -> CallOutcome {
+    // 发送前校验输入估算：模型上下文窗口以用户配置为准（供应商可能限制实际上下文，
+    // 如官方 1M、中转只给 200K），超限直接失败并提示，不等到供应商返回超限错误
+    if let Err(e) = check_input_within_budget(model_id, system_prompt, user_prompt) {
+        return CallOutcome::Fatal(e);
+    }
     let ProviderAuth {
         provider_id,
         api_key,
@@ -572,6 +577,47 @@ async fn call_openai_stream(
     CallOutcome::Ok(content)
 }
 
+/// 粗略估算输入 token：中文 1 字约 1-2 token，按 1.5 保守折算；
+/// 再加 messages 结构与系统提示的开销（约 128 token）
+fn estimate_input_tokens(system_prompt: &str, user_prompt: &str) -> u32 {
+    let chars = system_prompt.chars().count() + user_prompt.chars().count();
+    (chars as u64 * 3 / 2 + 128) as u32
+}
+
+/// 检查输入估算是否超过模型配置的上下文输入预算（见 llm_profile::context_input_budget）
+fn check_input_within_budget(
+    model_id: &str,
+    system_prompt: &str,
+    user_prompt: &str,
+) -> Result<(), String> {
+    let cap = crate::llm_profile::capability_for(model_id);
+    check_input_within_budget_for(&cap, system_prompt, user_prompt)
+}
+
+/// 按给定能力档案校验输入估算（纯函数，便于测试；生产路径经 capability_for 取档案）
+fn check_input_within_budget_for(
+    cap: &crate::llm_profile::ModelCapability,
+    system_prompt: &str,
+    user_prompt: &str,
+) -> Result<(), String> {
+    let budget = cap
+        .context_window
+        .saturating_sub(cap.max_output_tokens)
+        .saturating_mul(9)
+        / 10;
+    let estimated = estimate_input_tokens(system_prompt, user_prompt);
+    if estimated > budget {
+        return Err(format!(
+            "输入超出模型配置的上下文限制：估算约 {estimated} tokens（上下文窗口 {context}，\
+             扣除输出上限后输入预算 {budget}）。\
+             该模型官方支持更大窗口，但供应商/中转可能限制了实际上下文——\
+             可在「模型设置」中把上下文窗口改为供应商实际值，或缩减输入内容后重试。",
+            context = cap.context_window,
+        ));
+    }
+    Ok(())
+}
+
 /// 累加 delta.content：兼容字符串（OpenAI 经典格式）与数组
 /// （`[{"type":"text","text":"..."}]`，新版兼容格式）两种形态
 fn append_delta_content(content: &mut String, delta: &serde_json::Value) {
@@ -591,6 +637,42 @@ fn append_delta_content(content: &mut String, delta: &serde_json::Value) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_estimate_input_tokens() {
+        // 中文 1 字 ≈ 1.5 token + 128 开销
+        assert_eq!(estimate_input_tokens("你好", "世界"), (4 * 3 / 2 + 128));
+        assert_eq!(estimate_input_tokens("", ""), 128);
+    }
+
+    #[test]
+    fn test_check_input_within_budget() {
+        // 模拟供应商限制：官方 1M 的模型经中转只给 4K 上下文、1K 输出
+        let cap = crate::llm_profile::ModelCapability {
+            context_window: 4_096,
+            max_output_tokens: 1_024,
+            budget_field: "max_tokens".to_string(),
+            thinking_mode: crate::llm_profile::ThinkingMode::Always,
+            reasoning_effort_options: vec!["low".to_string(), "high".to_string(), "max".to_string()],
+            default_reasoning_effort: "max".to_string(),
+            thinking_enabled: true,
+            thinking_field: "thinking".to_string(),
+            effort_field: "reasoning_effort".to_string(),
+            fixed_sampling: true,
+            docs_url: String::new(),
+            notes: "测试：中转限制 4K".to_string(),
+            updated_at: "2026-08-05".to_string(),
+        };
+
+        // 短输入通过
+        assert!(check_input_within_budget_for(&cap, "简短系统提示", "简短用户内容").is_ok());
+
+        // 长输入超限（估算 ≈ (12000*2 + 60) * 1.5 + 128 ≈ 36000+ tokens > 2764）
+        let long_user = "字".repeat(12_000);
+        let err = check_input_within_budget_for(&cap, "系统", &long_user).unwrap_err();
+        assert!(err.contains("超出模型配置的上下文限制"), "{err}");
+        assert!(err.contains("上下文窗口"), "{err}");
+    }
 
     #[test]
     fn test_append_delta_content_string_and_array() {
