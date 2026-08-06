@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import {
   PenLine, ListTree, Users, Globe, Palette, LayoutDashboard,
   FolderOpen, Settings, Workflow, Play, MessageSquareText,
-  ChevronsLeft, ChevronsRight, ArrowLeft, Lightbulb, RefreshCw,
+  ChevronsLeft, ChevronsRight, ArrowLeft, Lightbulb, RefreshCw, BookOpen,
 } from "lucide-react";
 import type { ViewType, ProjectMeta } from "../types";
 import { appVersion } from "../ipc";
@@ -32,7 +32,8 @@ const projectNav = [
   // 阶段二：世界观 + 人物同步铺开
   { id: "world" as ViewType, label: "世界观", icon: <Globe size={18} />, group: "创作" as const },
   { id: "character" as ViewType, label: "人物志", icon: <Users size={18} />, group: "创作" as const },
-  // 阶段三：骨架大纲 + 正文
+  // 阶段三：开书定盘 + 骨架大纲 + 正文
+  { id: "blueprint" as ViewType, label: "蓝图", icon: <BookOpen size={18} />, group: "创作" as const },
   { id: "outline" as ViewType, label: "大纲", icon: <ListTree size={18} />, group: "创作" as const },
   { id: "writing" as ViewType, label: "笔耕", icon: <PenLine size={18} />, group: "创作" as const },
   { id: "annotations" as ViewType, label: "批注", icon: <MessageSquareText size={18} />, group: "创作" as const },

@@ -212,6 +212,7 @@ mod tests {
             pending_edit_samples: Vec::new(),
             page_snapshots: Vec::new(),
             page_edit_before: std::collections::HashMap::new(),
+            blueprint: pensoul_core::BookBlueprint::default(),
         }
     }
 

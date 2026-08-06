@@ -9,6 +9,7 @@ interface StatusBarProps {
 const viewLabels: Record<ViewType, string> = {
   dashboard: "概览",
   concept: "灵魂萌芽",
+  blueprint: "蓝图",
   writing: "笔耕",
   outline: "大纲",
   character: "人物志",

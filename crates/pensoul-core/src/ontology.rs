@@ -60,6 +60,10 @@ pub struct NovelOntology {
     /// 受控保存确认时作为 before 入快照栈——否则撤回会回到修改后的值（即时保存已落库）
     #[serde(default)]
     pub page_edit_before: std::collections::HashMap<String, serde_json::Value>,
+    /// 开书定盘蓝图：六张账本 + 实体动态档案 + 状态快照（讨论收敛后的正典）。
+    /// 旧项目 JSON 无此字段，默认为空（未定盘）
+    #[serde(default)]
+    pub blueprint: crate::blueprint::BookBlueprint,
 }
 
 impl NovelOntology {
@@ -122,6 +126,7 @@ impl NovelOntology {
             pending_edit_samples: Vec::new(),
             page_snapshots: Vec::new(),
             page_edit_before: std::collections::HashMap::new(),
+            blueprint: crate::blueprint::BookBlueprint::default(),
         }
     }
 

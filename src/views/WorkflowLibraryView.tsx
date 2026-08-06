@@ -16,6 +16,8 @@ import {
   Sparkles,
   Layers,
   Eraser,
+  Star,
+  Loader2,
 } from "lucide-react";
 import type {
   WorkflowTemplate,
@@ -24,6 +26,7 @@ import type {
   BookCardInfo,
   LlmModel,
   StageSkillConfig,
+  StoryModule,
 } from "../types";
 import {
   listWorkflowTemplates,
@@ -34,6 +37,8 @@ import {
   listModels,
   clearAllProjectOverrides,
   getDistillState,
+  listModules,
+  saveModuleFavorite,
 } from "../ipc";
 import { EXEC_STAGES, emptyStageConfig } from "../workflow";
 import { BookDistillPanel } from "../components/BookDistillPanel";
@@ -155,6 +160,9 @@ export function WorkflowLibraryView() {
   const [packages, setPackages] = useState<BookPackage[]>([]);
   const [models, setModels] = useState<LlmModel[]>([]);
   const [showDistill, setShowDistill] = useState(false);
+  const [showModules, setShowModules] = useState(false);
+  const [modules, setModules] = useState<StoryModule[]>([]);
+  const [modulesLoading, setModulesLoading] = useState(false);
   const [showMethodologyDistill, setShowMethodologyDistill] = useState(false);
 
   const load = useCallback(async () => {
@@ -365,6 +373,36 @@ export function WorkflowLibraryView() {
   }
 
   // ── 技能包管理 ──
+
+  // 加载模块库（收藏/取消后刷新）
+  const refreshModules = useCallback(async () => {
+    setModulesLoading(true);
+    try {
+      setModules(await listModules().catch(() => []));
+    } finally {
+      setModulesLoading(false);
+    }
+  }, []);
+
+  function toggleModules() {
+    setShowModules(s => !s);
+    if (!showModules && modules.length === 0) refreshModules();
+  }
+
+  async function handleToggleModuleFavorite(m: StoryModule) {
+    const fav = !m.favorite;
+    setModules(prev => prev.map(x => x.module_id === m.module_id ? { ...x, favorite: fav } : x));
+    try {
+      await saveModuleFavorite(m.module_id, fav);
+    } catch {
+      refreshModules();
+    }
+  }
+
+  const moduleTypeLabels: Record<string, string> = {
+    hook: "钩子", opening: "开场", transition: "转场", ending: "结尾",
+    payoff: "爽点", pacing: "节奏", structure: "结构",
+  };
 
   function handleDistilled(pkg: BookPackage | null) {
     if (pkg) {
@@ -634,6 +672,9 @@ export function WorkflowLibraryView() {
             <h3>写作技能库（{packages.length} 个技能包 · 已绑定 {boundCount} 张卡）</h3>
           </div>
           <div style={{ display: "flex", gap: 8 }}>
+            <button className="btn btn-secondary" style={{ padding: "4px 12px", fontSize: "var(--text-xs)" }} onClick={toggleModules}>
+              <Layers size={13} /> {showModules ? "技能包" : "模块库"}
+            </button>
             <button className="btn btn-secondary" style={{ padding: "4px 12px", fontSize: "var(--text-xs)" }} onClick={() => setShowMethodologyDistill(s => !s)}>
               <Sparkles size={13} /> 蒸馏方法论
             </button>
@@ -650,7 +691,56 @@ export function WorkflowLibraryView() {
           <MethodologyDistillPanel models={models} onDistilled={handleDistilled} onClose={() => setShowMethodologyDistill(false)} />
         )}
 
-        {packages.length === 0 && !showDistill && !showMethodologyDistill ? (
+        {showModules ? (
+          modulesLoading ? (
+            <div style={{ padding: "16px", textAlign: "center", color: "var(--color-ink-3)", fontSize: "var(--text-xs)" }}>
+              <Loader2 size={14} className="spinning" style={{ verticalAlign: -2, marginRight: 6 }} /> 正在扫描蒸馏卡...
+            </div>
+          ) : modules.length === 0 ? (
+            <div className="empty-state" style={{ padding: "24px" }}>
+              <div className="empty-state-text">模块库为空</div>
+              <div className="empty-state-sub">
+                先蒸馏一本书（结构/张力卡），模块库会自动从卡中投影出可复用的钩子、开场、爽点、节奏等模块
+              </div>
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-sm)" }}>
+              {modules.map(m => (
+                <div key={m.module_id} style={{ display: "flex", alignItems: "flex-start", gap: "var(--space-md)", padding: "var(--space-sm) var(--space-md)", background: "var(--color-paper-warm)", borderRadius: "var(--radius-sm)" }}>
+                  <Layers size={15} style={{ color: "var(--color-accent)", flexShrink: 0, marginTop: 2 }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                      <span style={{ fontWeight: 600, fontSize: "var(--text-sm)" }}>{m.name}</span>
+                      <span style={{ fontSize: "var(--text-2xs)", padding: "1px 8px", borderRadius: 10, background: "var(--color-indigo-wash)", color: "var(--color-indigo)" }}>
+                        {moduleTypeLabels[m.module_type] ?? m.module_type}
+                      </span>
+                      <span style={{ fontSize: "var(--text-2xs)", color: "var(--color-ink-3)" }}>《{m.source_book}》</span>
+                      <span style={{ fontSize: "var(--text-2xs)", color: "var(--color-ink-3)" }}>
+                        {m.bound_stage.map(s => STAGE_LABELS[s] ?? s).join(" / ")}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: "var(--text-xs)", color: "var(--color-ink-2)", marginTop: 3 }}>{m.example}</div>
+                    <details style={{ fontSize: "var(--text-2xs)", color: "var(--color-ink-3)", marginTop: 4 }}>
+                      <summary style={{ cursor: "pointer" }}>手法与边界</summary>
+                      <div style={{ whiteSpace: "pre-wrap", marginTop: 4, lineHeight: 1.7 }}>
+                        {m.technique}
+                        {m.boundary ? `\n边界：${m.boundary}` : ""}
+                      </div>
+                    </details>
+                  </div>
+                  <button
+                    className="pv-icon-btn"
+                    title={m.favorite ? "取消收藏" : "收藏（开书定盘时优先展示）"}
+                    onClick={() => handleToggleModuleFavorite(m)}
+                    style={{ color: m.favorite ? "var(--color-ochre)" : "var(--color-ink-3)" }}
+                  >
+                    {m.favorite ? <Star size={14} /> : <Star size={14} style={{ opacity: 0.4 }} />}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )
+        ) : packages.length === 0 && !showDistill && !showMethodologyDistill ? (
           <div className="empty-state" style={{ padding: "24px" }}>
             <div className="empty-state-text">技能库为空</div>
             <div className="empty-state-sub">

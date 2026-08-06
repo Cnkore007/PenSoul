@@ -1,4 +1,5 @@
 pub mod aesthetic;
+pub mod blueprint;
 pub mod chapter;
 pub mod character;
 pub mod concept;
@@ -12,6 +13,7 @@ pub mod workflow;
 pub mod world;
 
 pub use crate::aesthetic::*;
+pub use crate::blueprint::*;
 pub use crate::chapter::*;
 pub use crate::character::*;
 pub use crate::concept::CoreConcept;

@@ -14,6 +14,7 @@ import { ConceptView } from "./views/ConceptView";
 import { ExpertLibraryView } from "./views/ExpertLibraryView";
 import { ProjectDashboard } from "./views/ProjectDashboard";
 import { AnnotationInbox } from "./views/AnnotationInbox";
+import { BlueprintView } from "./views/BlueprintView";
 import type { ViewType, ProjectMeta, ProjectData } from "./types";
 import { loadProjectData, refreshProjectData, saveProjectData } from "./store";
 import { getHarnessStatus } from "./ipc";
@@ -225,6 +226,8 @@ function App() {
         return <ProjectDashboard project={currentProject} projectData={projectData} onNavigate={setCurrentView} persistProjectData={persistProjectData} />;
       case "outline":
         return <OutlineView projectData={projectData} persistProjectData={persistProjectData} onRefresh={refreshNow} />;
+      case "blueprint":
+        return <BlueprintView projectData={projectData} onRefresh={refreshNow} />;
       case "writing":
         return <WritingView projectData={projectData} persistProjectData={persistProjectData} chapterId={currentChapterId} onWordCountChange={handleWordCountChange} />;
       case "character":

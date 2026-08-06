@@ -278,6 +278,210 @@ export interface OutlineArc {
   expanded_until: number; // 已展开细纲到第几章（0 = 未展开）
 }
 
+// ── 开书定盘 · 真相账本体系 ──
+
+// 承诺账本条目
+export interface Commitment {
+  commitment_id: string;
+  statement: string;
+  kind: string; // theme / promise / tone / rule / no_go
+  priority: number;
+  scope: string;
+  resolution_chapter?: number | null;
+  ongoing: boolean;
+  status: string; // active / fulfilled / waived / broken
+  sources: string[];
+}
+
+// 结构骨架：卷蓝图
+export interface VolumeBeat {
+  beat_id: string;
+  // hook / buildup / payoff / fall / climax / hook_end
+  beat_type: string;
+  chapter: number;
+  note: string;
+  links: string[];
+}
+
+export interface VolumeBlueprint {
+  volume_no: number;
+  title: string;
+  one_line: string;
+  function: string; // setup / escalation / climax / resolution
+  reader_promise: string;
+  chapter_start: number;
+  chapter_end: number;
+  central_conflict: string;
+  climax_scene: string;
+  climax_chapter?: number | null;
+  volume_hook: string;
+  pacing: string;
+  beats?: VolumeBeat[];
+  arcs_pushed: string[];
+  subplots_started: string[];
+  subplots_resolved: string[];
+  foreshadows_planted: string[];
+  foreshadows_paid_off: string[];
+  status: string; // planned / outlined / drafting / closed
+}
+
+// 人物矩阵：弧光阶段
+export interface MatrixArcStage {
+  name: string;
+  chapter_range: string;
+  goal: string;
+  turning_point: string;
+}
+
+export interface CharacterMatrixEntry {
+  character_name: string;
+  role: string;
+  core_values: string[];
+  taboo: string[];
+  speech_style: string;
+  wants: string;
+  fears: string;
+  secret: string;
+  arc: MatrixArcStage[];
+  knows: string[];
+  does_not_know: string[];
+  max_absent_chapters: number;
+  last_appeared: number;
+  sources: string[];
+}
+
+export interface BlueprintForeshadow {
+  foreshadow_id: string;
+  name: string;
+  description: string;
+  kind: string;
+  planted_chapter: number;
+  expected_payoff_chapter: number;
+  actual_payoff_chapter: number;
+  status: string;
+  related_characters: string[];
+  related_items: string[];
+  sources: string[];
+}
+
+export interface Subplot {
+  subplot_id: string;
+  name: string;
+  line_tags: string[];
+  mainline_relation: string;
+  status: string;
+  start_chapter: number;
+  end_chapter?: number | null;
+  characters: string[];
+  last_touched_chapter: number;
+  touch_interval_limit: number;
+  open_threads: string[];
+  sources: string[];
+}
+
+export interface ResourceEntry {
+  resource_id: string;
+  name: string;
+  rtype: string;
+  owner: string;
+  status: string;
+  acquired_chapter: number;
+  consumed_chapter: number;
+  constraints: string[];
+  note: string;
+  sources: string[];
+}
+
+export interface DossierChange {
+  chapter: number;
+  field: string;
+  action: string; // add / remove / update / promote / drop / resolve
+  value?: unknown;
+  before?: unknown;
+  reason: string;
+  source: string;
+}
+
+export interface DossierAppearance {
+  chapter: number;
+  visual: string;
+  state_summary: string;
+}
+
+export interface PendingChange {
+  pending_id: string;
+  field: string;
+  value?: unknown;
+  chapter: number;
+  status: string;
+  evidence: string;
+}
+
+export interface DossierConflict {
+  conflict_id: string;
+  field: string;
+  chapter_a: number;
+  chapter_b: number;
+  note: string;
+  status: string;
+}
+
+export interface EntityDossier {
+  entity_type: string; // character / location / faction
+  entity_id: string;
+  name: string;
+  static_ref: string;
+  current?: unknown;
+  change_log: DossierChange[];
+  appearances: DossierAppearance[];
+  pending: PendingChange[];
+  conflicts: DossierConflict[];
+  sources: string[];
+}
+
+export interface CurrentState {
+  as_of_chapter: number;
+  characters: unknown[];
+  world_state: unknown[];
+  active_plots: string[];
+  relationships: unknown[];
+  loose_ends: string[];
+  last_events: string[];
+}
+
+export interface BookBlueprint {
+  settled: boolean;
+  settled_at: string;
+  settled_from: string;
+  // 来源指纹：讨论成果摘要，前端据此提示「讨论成果已更新」
+  source_stamp?: string;
+  commitments: Commitment[];
+  volumes: VolumeBlueprint[];
+  character_matrix: CharacterMatrixEntry[];
+  foreshadows: BlueprintForeshadow[];
+  subplots: Subplot[];
+  resources: ResourceEntry[];
+  dossiers: EntityDossier[];
+  current_state: CurrentState;
+}
+
+export interface CheckIssue {
+  severity: string; // H / S
+  ledger: string;
+  rule_id: string;
+  target_id: string;
+  message: string;
+  evidence: string[];
+}
+
+export interface BlueprintReport {
+  checked_at: string;
+  written_chapters: number;
+  issues: CheckIssue[];
+  hard_count: number;
+  soft_count: number;
+}
+
 // ── 书籍蒸馏 · 写作技能卡 ──
 
 // 单张技能卡（WritingCard/<书名>-book/<维度>/SKILL.md）
@@ -297,6 +501,20 @@ export interface BookPackage {
   author: string;
   created_at: string;
   cards: BookCardInfo[];
+}
+
+// 爆款拆解模块库条目（从蒸馏卡投影，灵感库不是正典）
+export interface StoryModule {
+  module_id: string;
+  source_book: string;
+  module_type: string; // hook / opening / transition / ending / payoff / pacing / structure
+  name: string;
+  technique: string;
+  example: string;
+  when_to_use: string;
+  boundary: string;
+  bound_stage: string[];
+  favorite: boolean;
 }
 
 // 工作流单个环节的技能绑定：模型 + 技法卡路径列表（每维度最多一张，前端约束）
@@ -367,6 +585,8 @@ export interface ProjectData {
   settings: ProjectSettings;
   // 情节脉络（大纲规划层）；只读视图，增删改走专用 IPC，不随 saveProjectData 全量保存
   outlineArcs: OutlineArc[];
+  // 开书定盘蓝图（讨论收敛后的正典）；只读展示，定盘/检查走专用 IPC
+  blueprint: BookBlueprint;
 }
 
 export interface VolumeWithChapters extends Volume {
@@ -632,6 +852,7 @@ export function createDefaultConcept(): CoreConceptData {
 export type ViewType =
   | 'experts'
   | 'concept'
+  | 'blueprint'
   | 'writing'
   | 'outline'
   | 'character'

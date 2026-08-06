@@ -560,6 +560,74 @@ body::after {
   cursor: not-allowed !important;
   pointer-events: none;
 }
+.btn-sm {
+  padding: 4px 10px;
+  font-size: 11px;
+  gap: 4px;
+  border-radius: var(--radius-sm);
+}
+.btn-sm .lucide {
+  width: 12px;
+  height: 12px;
+}
+
+/* ── 通用小组件（列表元信息 / 紧凑表单 / 浅色面板） ── */
+.meta-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  color: var(--color-ink-3);
+}
+.meta-chips {
+  display: flex;
+  gap: 12px;
+  font-size: 11px;
+  color: var(--color-ink-3);
+  flex-wrap: wrap;
+}
+.field-label {
+  font-size: var(--text-2xs);
+  color: var(--color-ink-3);
+  letter-spacing: 0.5px;
+  margin-bottom: 2px;
+}
+.mini-input {
+  width: 100%;
+  padding: 5px 9px;
+  border: 1px solid var(--color-rule);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  color: var(--color-ink);
+  background: var(--color-paper);
+  transition: border-color var(--dur-fast) var(--ease-out);
+}
+.mini-input:focus {
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 2px var(--color-accent-wash);
+}
+.panel-warm {
+  padding: 12px 16px;
+  background: var(--color-paper-warm);
+  border-top: 1px solid var(--color-rule-light);
+  font-size: 12px;
+}
+.cap-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.cap-field-label {
+  font-size: 10px;
+  color: var(--color-ink-3);
+  letter-spacing: 0.5px;
+}
+.cap-field-value {
+  font-weight: 500;
+}
 
 /* =========================================
    Cards — "信笺" Style
@@ -2359,4 +2427,31 @@ input, textarea, select { caret-color: var(--color-accent); }
   background: var(--color-dark-mid);
   transform: translateY(-1px);
   box-shadow: var(--shadow-sm);
+}
+
+/* ── 开书定盘 · 蓝图页 ── */
+.bp-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--color-paper-warm);
+  flex-wrap: wrap;
+}
+.bp-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: var(--radius-xs);
+  background: var(--color-accent-wash);
+  color: var(--color-ink-3);
+  font-size: 12px;
+  white-space: nowrap;
+}
+@keyframes bp-spin {
+  to { transform: rotate(360deg); }
+}
+.spin {
+  animation: bp-spin 0.8s linear infinite;
 }

@@ -326,6 +326,52 @@ export async function clearChapters(): Promise<void> {
   await invoke("clear_chapters");
 }
 
+// ── 开书定盘（真相账本体系） ──
+
+export async function settleBlueprint(): Promise<import("./types").BookBlueprint> {
+  return await invoke<import("./types").BookBlueprint>("settle_blueprint", {
+    referenceModules: null,
+  });
+}
+
+export async function settleBlueprintWithModules(
+  modules: import("./types").StoryModule[],
+): Promise<import("./types").BookBlueprint> {
+  return await invoke<import("./types").BookBlueprint>("settle_blueprint", {
+    referenceModules: modules,
+  });
+}
+
+export async function getBlueprint(): Promise<import("./types").BookBlueprint> {
+  return await invoke<import("./types").BookBlueprint>("get_blueprint");
+}
+
+export async function saveBlueprint(blueprint: import("./types").BookBlueprint): Promise<void> {
+  await invoke("save_blueprint", { blueprint });
+}
+
+export async function checkBlueprint(): Promise<import("./types").BlueprintReport> {
+  return await invoke<import("./types").BlueprintReport>("check_blueprint");
+}
+
+export async function importBookForContinuation(
+  filePath: string,
+  model?: string | null,
+): Promise<import("./types").BookBlueprint> {
+  return await invoke<import("./types").BookBlueprint>("import_book_for_continuation", {
+    filePath,
+    model: model ?? null,
+  });
+}
+
+export async function listModules(): Promise<import("./types").StoryModule[]> {
+  return await invoke<import("./types").StoryModule[]>("list_modules");
+}
+
+export async function saveModuleFavorite(moduleId: string, favorite: boolean): Promise<void> {
+  await invoke("save_module_favorite", { moduleId, favorite });
+}
+
 // ── 角色 ──
 
 export async function getCharacters(): Promise<any> {

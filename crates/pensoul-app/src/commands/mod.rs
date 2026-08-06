@@ -1,11 +1,14 @@
 pub mod ai_flavor;
 pub mod annotations;
+pub mod blueprint;
+pub mod blueprint_llm;
 pub mod book_distill;
 /// 书籍文件解析（txt/md/epub/pdf → 纯文本抽样，书籍蒸馏的全文输入）
 pub(crate) mod book_file;
 pub mod cda;
 pub mod chapter;
 pub mod chapter_rewrite;
+pub mod continuation;
 pub mod data;
 pub mod deai_rewrite;
 pub mod discussion;
@@ -23,5 +26,6 @@ pub mod optimize;
 pub mod outline;
 /// IPC 命令模块
 pub mod project;
+pub mod story_modules;
 pub mod updates;
 pub mod workflow_templates;

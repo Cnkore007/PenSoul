@@ -270,7 +270,7 @@ function toBackendWorld(world: any): any {
 // 从后端拉取项目全量数据并组装成前端 ProjectData（不含 open_project 切换）
 async function fetchProjectData(projectId: string): Promise<ProjectData> {
   try {
-    const [chapters, characters, world, settings, concept, sprout, volumesMeta, outlineArcs, workflowRef, workflowTemplates] = await Promise.all([
+    const [chapters, characters, world, settings, concept, sprout, volumesMeta, outlineArcs, workflowRef, workflowTemplates, blueprint] = await Promise.all([
       ipc.listChapters(),
       ipc.getCharacters(),
       ipc.getWorld(),
@@ -281,6 +281,7 @@ async function fetchProjectData(projectId: string): Promise<ProjectData> {
       ipc.listOutlineArcs().catch(() => []), // 老版本后端无此命令时降级为空
       ipc.loadWorkflowRef().catch(() => null), // 未配置过/老版本后端时为 null
       ipc.listWorkflowTemplates().catch(() => []), // 全局模板（用于合并项目有效配置）
+      ipc.getBlueprint().catch(() => null), // 老版本后端无此命令时降级为空
     ]);
 
     // 卷元数据（标题以持久化的卷列表为准）
@@ -351,6 +352,7 @@ async function fetchProjectData(projectId: string): Promise<ProjectData> {
       sprout: transformSprout(sprout),
       settings: transformSettings(settings),
       outlineArcs: outlineArcs ?? [],
+      blueprint: blueprint ?? emptyBlueprint(),
     };
   } catch (e) {
     console.error("加载项目数据失败:", e);
@@ -381,8 +383,34 @@ async function fetchProjectData(projectId: string): Promise<ProjectData> {
         targetVolumes: 0,
       },
       outlineArcs: [],
+      blueprint: emptyBlueprint(),
     };
   }
+}
+
+// 空蓝图（未定盘）
+function emptyBlueprint() {
+  return {
+    settled: false,
+    settled_at: "",
+    settled_from: "",
+    commitments: [],
+    volumes: [],
+    character_matrix: [],
+    foreshadows: [],
+    subplots: [],
+    resources: [],
+    dossiers: [],
+    current_state: {
+      as_of_chapter: 0,
+      characters: [],
+      world_state: [],
+      active_plots: [],
+      relationships: [],
+      loose_ends: [],
+      last_events: [],
+    },
+  };
 }
 
 // 首次打开项目：先切换后端活跃项目（重建引擎），再拉取全量数据
