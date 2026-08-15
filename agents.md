@@ -44,14 +44,14 @@
 | 前沿技术调研（Agent 写小说） | `docs/research/2026-08-12-agent写小说前沿技术调研与融入建议.md` |
 | 会话工作日志（按时间戳归档） | `docs/session-logs/INDEX.md` |
 
-## 提交与推送（自动，强制）
+## 提交与推送（用户通知制，强制）
 
-- 任何代码/文档变更完成后，除用户明确要求不推送外，**必须**依次执行：
-  1. `git add -A`（先 `git status` 确认无敏感文件进入暂存——`data/`、`node_modules/` 等已被 .gitignore 排除，若有异常必须先处理）
-  2. `git commit -m "<类型>: <中文描述>"`（中文提交信息）
-  3. `git push origin main`——推送凭据由 gh CLI 自动提供（keyring OAuth，见下），**无需交互**；push 失败（网络/认证）必须显式报告，禁止静默跳过
+- **提交**：任何代码/文档变更完成后**必须**提交：`git status`（确认无敏感文件进暂存——`data/`、`node_modules/`、`docs/` 已被 .gitignore 排除）→ `git add -A` → `git commit -m "<类型>: <中文描述>"`
+- **推送**：**只有用户明确通知才执行 `git push origin main`**，不得主动推送；用户说"推送/上传/发到 GitHub"等即通知
+- 推送凭据由 gh CLI 自动提供（keyring OAuth），无需交互；push 失败（网络/认证）必须显式报告，禁止静默跳过
 - 环境事实：gh CLI 位于 `/opt/homebrew/bin/gh`（非交互 shell 的 PATH 不含 Homebrew 目录，需要时 `export PATH=/opt/homebrew/bin:$PATH`；git 的 credential helper 已由 gh 配置好，push 自动生效）
 - 远程仓库：`origin = https://github.com/Cnkore007/PenSoul`（main 分支）
+- **`docs/` 不入库**（.gitignore 排除）：设计文档、会话日志等仅存本地，作为跨会话进度的唯一事实来源；远程 GitHub 不承载任何 docs 内容
 
 ## 会话日志规范（强制）
 
