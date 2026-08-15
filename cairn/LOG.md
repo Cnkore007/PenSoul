@@ -21,3 +21,12 @@
 - 删除内置模型档案（models.rs），建档继承来源配置；界面文案中文化（labels.ts）。
 - 遗留：旧后端二进制需重启；旧 api-keys.json 停用需重录；JS 渲染文档深度解析待做。
 - 指针：agents.md、docs/session-logs/INDEX.md、data/_config/llm-config.json。
+
+## 2026-08-15 · 本地问题修复与迁移 GitHub
+
+- 设计文档重建：docs/design/2026-08-13-知识库化重构设计.md 原稿丢失，依据会话日志 0110/0155/2216 与代码事实重建（P0b-P6 冻结稿）。
+- 修复编译失败：crates/pensoul-app 的 Tauri 模板残留（build.rs 引用 tauri_build 但无依赖声明）→ 删除 build.rs/gen/icons/tauri.conf.json，后端构建通过（7.39s），冒烟测试 /api/projects 返回真实数据。
+- git 仓库重建：git init -b main，首次提交 62cbf41（152 文件）；.gitignore 排除 data/*（含 LLM 密钥）、node_modules、dist、target、has_style；data/README.md 占位说明。
+- 项目改名：package.json name pensoul-2.0 → pensoul（版本保持 0.1.0，用户确认）。
+- 远程迁移：删除 github.com/Cnkore007/PenSoul 全部旧 tags（v1.0.0-v1.0.3）+ force push main（9f0c64e→62cbf41）；origin 已配置；PAT 用完即删未落盘。
+- 指针：docs/session-logs/2026-08-15-1320-本地问题修复与仓库迁移准备.md。
