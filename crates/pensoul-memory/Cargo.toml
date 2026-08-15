@@ -1,0 +1,11 @@
+[package]
+name = "pensoul-memory"
+version = "0.1.0"
+edition = "2021"
+description = "PenSoul 动态记忆检索：意图识别、相关性评分、预算分配"
+
+[dependencies]
+pensoul-domain = { path = "../pensoul-domain" }
+pensoul-graph = { path = "../pensoul-graph" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

@@ -1,0 +1,10 @@
+[workspace]
+members = [
+    "crates/pensoul-domain",
+    "crates/pensoul-graph",
+    "crates/pensoul-constraints",
+    "crates/pensoul-memory",
+    "crates/pensoul-infra",
+    "crates/pensoul-app",
+]
+resolver = "2"

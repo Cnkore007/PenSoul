@@ -1,0 +1,32 @@
+[package]
+name = "pensoul-app"
+version = "0.1.0"
+edition = "2021"
+description = "PenSoul Web 应用层：HTTP API、状态管理"
+
+[[bin]]
+name = "pensoul-server"
+path = "src/main.rs"
+
+[dependencies]
+pensoul-domain = { path = "../pensoul-domain" }
+pensoul-graph = { path = "../pensoul-graph" }
+pensoul-constraints = { path = "../pensoul-constraints" }
+pensoul-memory = { path = "../pensoul-memory" }
+pensoul-infra = { path = "../pensoul-infra" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+axum = "0.7"
+tower-http = { version = "0.5", features = ["cors", "catch-panic"] }
+thiserror = "2"
+uuid = { version = "1", features = ["v4"] }
+chrono = { version = "0.4", features = ["serde"] }
+zip = "2"
+lopdf = "0.34"
+base64 = "0.22"
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"
+tempfile = "3"

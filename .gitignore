@@ -1,0 +1,15 @@
+# 依赖与构建产物
+node_modules/
+dist/
+target/
+
+# 运行时数据（含 LLM API 密钥与用户创作数据，绝不入库）
+data/*
+!data/README.md
+
+# 系统与临时文件
+.DS_Store
+*.log
+
+# 未知用途的遗留标记（无代码引用，见 App.css 注释）
+has_style

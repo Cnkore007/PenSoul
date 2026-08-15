@@ -1,0 +1,12 @@
+[package]
+name = "pensoul-constraints"
+version = "0.1.0"
+edition = "2021"
+description = "PenSoul 约束边界引擎：硬/软约束、弹性区域、检查"
+
+[dependencies]
+pensoul-domain = { path = "../pensoul-domain" }
+pensoul-graph = { path = "../pensoul-graph" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", features = ["serde"] }

@@ -1,0 +1,10 @@
+[package]
+name = "pensoul-graph"
+version = "0.1.0"
+edition = "2021"
+description = "PenSoul 实体图谱引擎：双向索引、影响预测、BFS传播"
+
+[dependencies]
+pensoul-domain = { path = "../pensoul-domain" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
