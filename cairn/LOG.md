@@ -30,3 +30,10 @@
 - 项目改名：package.json name pensoul-2.0 → pensoul（版本保持 0.1.0，用户确认）。
 - 远程迁移：删除 github.com/Cnkore007/PenSoul 全部旧 tags（v1.0.0-v1.0.3）+ force push main（9f0c64e→62cbf41）；origin 已配置；PAT 用完即删未落盘。
 - 指针：docs/session-logs/2026-08-15-1320-本地问题修复与仓库迁移准备.md。
+
+## 2026-08-15 · 自动推送机制
+
+- 发现本机 gh CLI（/opt/homebrew/bin/gh）已登录 Cnkore007（keyring OAuth，repo 权限），git push 凭据由 gh 自动提供，免交互。
+- agents.md 新增「提交与推送（自动，强制）」：变更后 git status 敏感检查 → add → commit（中文）→ push origin main；记录 gh PATH 事实。
+- 用户此前给的 PAT 与推送无关，可吊销。
+- 指针：docs/session-logs/2026-08-15-1330-自动推送机制与AGENTS规范.md。
